@@ -20,27 +20,42 @@
  *  $Id$
  */
 
-/* external defines: (for unix platfoms: FORKED is highly recommended!)
+/* external defines:
 
-   THREADED   - results in threaded version of this server, i.e. each
-                new connection is run is a separate thread. Beware:
-		this approach is not recommended since R does not support
-		real multithreading yet
-   FORKED     - each connection is forked to a new process. This is the
-                recommended way to use this server. The advantage is (beside
-		the fact that this works ;)) that each client has a separate
-		namespace since the processes are independent
-   - if none of the above is specified then cooperative serving is used
-     (which is currently the only way available in Windows - if embedding R
-     worked in that setup)
+   COOPERATIVE - forces cooperative version of Rserv on unix platforms
+                 (default for non-unix platforms)
 
-   SWAPEND  - define if the platform has byte order inverse to Intel (like PPC)
+   THREADED    - results in threaded version of this server, i.e. each
+                 new connection is run is a separate thread. Beware:
+		 this approach is not recommended since R does not support
+		 real multithreading yet
+
+   FORKED      - each connection is forked to a new process. This is the
+                 recommended way to use this server. The advantage is (beside
+		 the fact that this works ;)) that each client has a separate
+		 namespace since the processes are independent
+		 (default for unix platforms)
+
+   SWAPEND     - define if the platform has byte order inverse to Intel (like PPC)
+
+   RSERV_DEBUG - if defined various verbose output is produced
+
+   DAEMON      - if defined the server daemonizes (unix only)
 */
 
 #define USE_RINTERNALS
 #define SOCK_ERRORS
 #define USE_SNPRINTF
 #define LISTENQ 16
+
+#if defined __GNUC__ && !defined unix /* MacOS X hack. gcc on any platform is treated as unix */
+#define unix
+#endif
+
+/* FORKED is default for unix platforms */
+#if defined unix && !defined THREADED && !defined COOPERATIVE && !defined FORKED
+#define FORKED
+#endif
 
 #include <stdio.h>
 #include <sisocks.h>
@@ -83,7 +98,7 @@ int localUCIX;
 #define localUCIX UCIX
 #endif
 
-#ifdef DEBUG
+#ifdef RSERV_DEBUG
 void printDump(void *b, int len) {
   int i=0;
   if (len<1) { printf("DUMP FAILED (len=%d)\n",len); };
@@ -102,7 +117,7 @@ void sendResp(int s, int rsp) {
   struct phdr ph;
   memset(&ph,0,sizeof(ph));
   ph.cmd=itop(rsp|CMD_RESP);
-#ifdef DEBUG
+#ifdef RSERV_DEBUG
   printf("OUT.sendResp(void data)\n");
   printDump(&ph,sizeof(ph));
 #endif
@@ -368,7 +383,7 @@ void sendRespData(int s, int rsp, int len, void *buf) {
   memset(&ph,0,sizeof(ph));
   ph.cmd=itop(rsp|CMD_RESP);
   ph.len=itop(len);
-#ifdef DEBUG
+#ifdef RSERV_DEBUG
   printf("OUT.sendRespData\nHEAD ");
   printDump(&ph,sizeof(ph));
   printf("BODY ");
@@ -433,7 +448,7 @@ decl_sbthread newConn(void *thp) {
 
   iob=(IoBuffer*)malloc(sizeof(*iob));
   sendbuf=(char*)malloc(sndBS);
-#ifdef DEBUG
+#ifdef RSERV_DEBUG
   printf("connection accepted.\n");
 #endif
   s=a->s;
@@ -446,7 +461,7 @@ decl_sbthread newConn(void *thp) {
 
   send(s,IDstring,32,0);
   while((n=recv(s,&ph,sizeof(ph),0))==sizeof(ph)) {
-#ifdef DEBUG
+#ifdef RSERV_DEBUG
     printf("header read result: %d\n",n);
     if (n>0) printDump(&ph,n);
 #endif
@@ -457,7 +472,7 @@ decl_sbthread newConn(void *thp) {
     pars=0;
     if (ph.len>0) {
       if (ph.len<inBuf) {
-#ifdef DEBUG
+#ifdef RSERV_DEBUG
 	printf("loading buffer (awaiting %d bytes)\n",ph.len);
 #endif
 	i=0;
@@ -468,12 +483,12 @@ decl_sbthread newConn(void *thp) {
 	if (i<ph.len) break;
 	memset(buf+ph.len,0,8);
 	
-#ifdef DEBUG
+#ifdef RSERV_DEBUG
 	printf("parsing parameters\n");
 #endif
 	c=buf+ph.dof;
 	while((c<buf+ph.dof+ph.len) && (i=ptoi(*((int*)c)))) {
-#ifdef DEBUG
+#ifdef RSERV_DEBUG
 	  printf("PAR[%d]: %08x (PAR_LEN=%d, PAR_TYPE=%d)\n",pars,i,PAR_LEN(i),PAR_TYPE(i));
 #endif
 	  par[pars]=(int*)c;
@@ -481,7 +496,7 @@ decl_sbthread newConn(void *thp) {
 	  c+=PAR_LEN(i)+4; /* par length plut par head (4 bytes) */
 	  if (pars>15) break;
 	}; /* we don't parse more than 16 parameters */
-#ifdef DEBUG
+#ifdef RSERV_DEBUG
 	i=0;
 	while(i<ph.len) printf("%02x ",buf[i++]);
 	puts("");
@@ -503,13 +518,15 @@ decl_sbthread newConn(void *thp) {
     /** IMPORTANT! The pointers in par[..] point to RAW data, i.e. you have
         to use ptoi(..) in order to get the real integer value. */
 
-#ifdef DEBUG
+#ifdef RSERV_DEBUG
     printf("CMD=%08x, pars=%d\n",ph.cmd,pars);
 #endif
 
     if (ph.cmd==CMD_shutdown) {
       sendResp(s,RESP_OK);
+#ifdef RSERV_DEBUG
       printf("initiating clean shutdown.\n");
+#endif
       active=0;
       closesocket(s);
       free(sendbuf); free(iob);
@@ -596,30 +613,42 @@ decl_sbthread newConn(void *thp) {
 	i=j=0; /* count the lines to pass the right parameter to parse
 		  the string should contain a trainig \n !! */
 	while(c[i]) if(c[i++]=='\n') j++;
+#ifdef RSERV_DEBUG
 	printf("R_IoBufferPuts(\"%s\",iob)\n",c);
+#endif
 	/* R_IoBufferWriteReset(iob);
 	   R_IoBufferReadReset(iob); */
 	R_IoBufferInit(iob);
 	R_IoBufferPuts(c,iob);
+#ifdef RSERV_DEBUG
 	printf("R_Parse1Buffer(iob,%d,&stat)\n",j);
+#endif
 	xp=R_Parse1Buffer(iob,j,&stat);
+#ifdef RSERV_DEBUG
 	printf("buffer parsed, stat=%d\n",stat);
+#endif
 	if (stat!=1)
 	  sendResp(s,SET_STAT(RESP_ERR,stat));
         else {	 
+#ifdef RSERV_DEBUG
           printf("Rf_eval(xp,R_GlobalEnv);\n");
+#endif
 	  exp=Rf_eval(xp,R_GlobalEnv);
+#ifdef RSERV_DEBUG
 	  printf("buffer evaluated.\n");
 	  printSEXP(exp);
+#endif
 	  if (ph.cmd==CMD_voidEval)
 	    sendResp(s,RESP_OK);
 	  else {
 	    tail=(char*)storeSEXP((int*)sendbuf,exp);
+#ifdef RSERV_DEBUG
 	    printf("stored SEXP; length=%d\n",tail-sendbuf);
+#endif
 	    sendRespData(s,RESP_OK,tail-sendbuf,sendbuf);
 	  };
 	};
-#ifdef DEBUG
+#ifdef RSERV_DEBUG
         printf("reply sent.\n");
 #endif
       };
@@ -734,11 +763,24 @@ int main(int argc, char **argv)
   r=R_Parse1Buffer(&b,1,&stat);r=Rf_eval(r,R_GlobalEnv);
   R_IoBufferPuts("\"Rserv: INVALID INPUT\"\n",&b);
   r=R_Parse1Buffer(&b,1,&stat);r=Rf_eval(r,R_GlobalEnv);
-#ifdef DEBUG
+#ifdef RSERV_DEBUG
   printf("Ok, ready to answer queries.\n");
 #endif      
+
+#if defined DAEMON && defined unix
+  /* ok, we're in unix, so let's daemonize properly */
+  if (fork()!=0) {
+    puts("Rserv started in daemon mode.");
+    exit(0);
+  };
+  
+  setsid();
+  chdir("/");
+  umask(0);
+#endif
+
   serverLoop();
-#ifdef DEBUG
+#ifdef RSERV_DEBUG
   printf("Server treminated normally.\n");
 #endif
 };
