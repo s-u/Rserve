@@ -143,10 +143,6 @@
 #define AF_LOCAL AF_UNIX
 #endif
 
-#ifndef socklen_t
-typedef unsigned int socklen_t;
-#endif
-
 #ifdef sun /* we need to be more careful on Sun when handling doubles, since we're i.g.
 	      aligned on 4 bytes, but Sun requires alibnment on 8 for doubles.
 	      Therefore we copy rather than use direct assignment. */
