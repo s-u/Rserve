@@ -104,6 +104,8 @@
 #include <string.h>
 #ifdef unix
 #include <sys/time.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 #include <unistd.h>
 #include <sys/un.h> /* needed for unix sockets */
 #endif
@@ -200,7 +202,6 @@ char *getParseName(int n) {
 int* storeSEXP(int* buf, SEXP x) {
   int t=TYPEOF(x);
   int i;
-  char c;
   int hasAttr=0;
   int *preBuf=buf;
 
@@ -348,7 +349,6 @@ void printSEXP(SEXP e) /* merely for debugging purposes
 {
   int t=TYPEOF(e);
   int i;
-  char c;
 
   if (t==NILSXP) {
     printf("NULL value\n");
@@ -410,7 +410,7 @@ void printSEXP(SEXP e) /* merely for debugging purposes
     return;
   };
   if (t==CHARSXP) {
-    printf("scalar string: \"%s\"\n",STRING_PTR(e));
+    printf("scalar string: \"%s\"\n",(char*) STRING_PTR(e));
     return;
   };
   if (t==SYMSXP) {
@@ -437,7 +437,7 @@ SEXP decode_to_SEXP(int **buf, int *UPC)
   SEXP val=0;
   int ty=PAR_TYPE(ptoi(*b));
   int ln=PAR_LEN(ptoi(*b));
-  int i,j,k,l;
+  int i,j,l;
   
 #ifdef RSERV_DEBUG
   printf("decode: type=%x, len=%d\n",ty,ln);
@@ -606,6 +606,7 @@ int loadConfig(char *fn)
     usePlain=1;
   }
 #endif
+  return 0;
 }
 
 /* size of the input buffer (default 512kB)
@@ -647,7 +648,7 @@ decl_sbthread newConn(void *thp) {
   char *buf, *c,*cc,*c1,*c2;
   int *par[16];
   int pars;
-  int i,j,k,n;
+  int i,j,n;
   int process;
   int stat;
   char *sendbuf;
@@ -1159,7 +1160,7 @@ decl_sbthread newConn(void *thp) {
 
 void serverLoop() {
   SAIN ssa;
-  unsigned long al;
+  socklen_t al;
   int reuse;
   int selRet=0;
   struct args *sa;
@@ -1254,12 +1255,10 @@ int main(int argc, char **argv)
 {
   IoBuffer b;
   int stat,i;
-  SEXP r,s;
-  SEXP env;
-  char c;
+  SEXP r;
 
 #ifdef RSERV_DEBUG
-  printf("Rserve (C)Copyright 2002,3 Simon Urbanek\n\n");
+  printf("Rserve %d.%d-%d (C)Copyright 2002,3 Simon Urbanek\n\n",RSRV_VER>>16,(RSRV_VER>>8)&255,RSRV_VER&255);
 #endif
   if (!isByteSexOk()) {
     printf("FATAL ERROR: This program was not correctly compiled - the endianess is wrong!\nUse -DSWAPEND when compiling on PPC or similar platforms.\n");
@@ -1371,4 +1370,5 @@ int main(int argc, char **argv)
 #ifdef RSERV_DEBUG
   printf("Server treminated normally.\n");
 #endif
+  return 0;
 };
