@@ -44,6 +44,23 @@
    DAEMON      - if defined the server daemonizes (unix only)
 
    CONFIG_FILE - location of the config file (default /etc/Rserv.conf)
+
+   FORCE_V0100 - if this macro is defined then Rserve reports version 0100 and
+                 CMD_eval doesn't send data type header (DT_SEXP+length). This
+		 was a buggy behavior in versions up to 0.1-9. This feature is
+		 provided only for compatibility with old clients and should be
+		 avoided. Update the clients instead, if possible.
+
+   reported versions:
+  --------------------
+   0100 - Rserve 0.1-1 .. 0.1-9
+          CMD_eval sends SEXP directly without the data type header. This is in
+	  fact an inconsistency and was fixed in 0101. New clients should be aware
+	  of this and support this behavior or reject 0100 connections.
+
+   0101 - Rserve 0.1-10
+          current version
+
 */
 
 /* config file entries: [default]
@@ -531,7 +548,11 @@ void sendRespData(int s, int rsp, int len, void *buf) {
 };
 
 /* initial ID string */
+#ifdef FORCE_V0100
 char *IDstring="Rsrv0100QAP1\r\n\r\n--------------\r\n";
+#else
+char *IDstring="Rsrv0101QAP1\r\n\r\n--------------\r\n";
+#endif
 
 /* require authentication flag (default: no) */
 int authReq=0;
@@ -1118,9 +1139,18 @@ decl_sbthread newConn(void *thp) {
 	    if (ph.cmd==CMD_voidEval)
 	      sendResp(s,RESP_OK);
 	    else {
+/* if this is defined then the old (<=0.1-9) "broken" behavior is requested where no data type header is sent */
+#ifdef FORCE_V0100 
 	      tail=(char*)storeSEXP((int*)sendbuf,exp);
+#else
+	      /* first we have 4 bytes of a header saying this is an encoded SEXP, then comes the SEXP */
+	      char *sxh=sendbuf+4;
+	      tail=(char*)storeSEXP((int*)sxh,exp);
+	      /* set type to DT_SEXP and correct length */
+	      ((int*)sendbuf)[0]=itop(SET_PAR(DT_SEXP,tail-sxh));
+#endif
 #ifdef RSERV_DEBUG
-	      printf("stored SEXP; length=%d\n",tail-sendbuf);
+	      printf("stored SEXP; length=%d (incl. 4 bytes of header)\n",tail-sendbuf);
 #endif
 	      sendRespData(s,RESP_OK,tail-sendbuf,sendbuf);
 	    };
@@ -1140,8 +1170,10 @@ decl_sbthread newConn(void *thp) {
 #ifdef RSERV_DEBUG
   if (n==0)
     printf("Connection closed by peer.\n");
-  else
-    printf("malformed packet. closing socket to prevent garbage.\n",n);
+  else {
+    printf("malformed packet (n=%d). closing socket to prevent garbage.\n",n);
+    if (n>0) printDump(&ph,n);
+  };    
 #endif
   if (n>0)
     sendResp(s,SET_STAT(RESP_ERR,ERR_conn_broken));
