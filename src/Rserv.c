@@ -100,6 +100,7 @@
 #ifdef unix
 #include <sys/time.h>
 #include <unistd.h>
+#include <sys/un.h> /* needed for unix sockets */
 #endif
 #ifdef THREADED
 #include <sbthread.h>
@@ -128,10 +129,12 @@
 #endif
 
 int port = default_Rsrv_port;
-int active = 1;
+int active = 1; /* 1=server loop is active, 0=shutdown */
 int UCIX   = 1; /* unique connection index */
 
-int allowIO=1;
+char *localSocketName = 0; /* if set listen on this local (unix) socket instead of TCP/IP */
+
+int allowIO=1;  /* 1=allow I/O commands, 0=don't */
 
 char **top_argv;
 int top_argc;
@@ -496,6 +499,9 @@ struct args {
   int ss;
   SAIN sa;
   int ucix;
+#ifdef unix
+  struct sockaddr_un su;
+#endif
 };
 
 /* send a response including the data part */
@@ -1079,6 +1085,7 @@ void serverLoop() {
   struct sockaddr_in lsa;
 
 #ifdef unix
+  struct sockaddr_un lusa;
   struct timeval timv;
   fd_set readfds;
 #endif
@@ -1091,10 +1098,32 @@ void serverLoop() {
 #endif
 
   initsocks();
-  ss=FCF("open socket",socket(AF_INET,SOCK_STREAM,0));
+  if (localSocketName) {
+#ifndef unix
+    fprintf(stderr,"Local sockets are not supported on non-unix systems.\n");
+    return;
+#else
+    ss=FCF("open socket",socket(AF_LOCAL,SOCK_STREAM,0));
+    memset(&lusa,0,sizeof(lusa));
+    lusa.sun_family=AF_LOCAL;
+    if (strlen(localSocketName)>sizeof(lusa.sun_path)-2) {
+      fprintf(stderr,"Local socket name is too long for this system.\n");
+      return;
+    }
+    strcpy(lusa.sun_path,localSocketName);
+    remove(localSocketName); /* remove existing if possible */
+#endif
+  } else
+    ss=FCF("open socket",socket(AF_INET,SOCK_STREAM,0));
   reuse=1; /* enable socket address reusage */
   setsockopt(ss,SOL_SOCKET,SO_REUSEADDR,&reuse,sizeof(reuse));
-  FCF("bind",bind(ss,build_sin(&ssa,0,port),sizeof(ssa)));
+#ifdef unix
+  if (localSocketName)
+    FCF("bind",bind(ss,(SA*) &lusa, sizeof(lusa)));    
+  else
+#endif
+    FCF("bind",bind(ss,build_sin(&ssa,0,port),sizeof(ssa)));
+
   FCF("listen",listen(ss,LISTENQ));
   while(active) { /* main serving loop */
 #ifdef FORKED
@@ -1109,10 +1138,16 @@ void serverLoop() {
       sa=(struct args*)malloc(sizeof(struct args));
       memset(sa,0,sizeof(struct args));
       al=sizeof(sa->sa);
-      sa->s=CF("accept",accept(ss,(SA*)&(sa->sa),&al));
+#ifdef unix
+      if (localSocketName) {
+	al=sizeof(sa->su);
+	sa->s=CF("accept",accept(ss,(SA*)&(sa->su),&al));
+      } else
+#endif
+	sa->s=CF("accept",accept(ss,(SA*)&(sa->sa),&al));
       sa->ucix=UCIX++;
       sa->ss=ss;
-      if (localonly) {
+      if (localonly && !localSocketName) {
 	if (sa->sa.sin_addr.s_addr==lsa.sin_addr.s_addr)
 #ifdef THREADED
 	  sbthread_create(newConn,sa);
@@ -1137,7 +1172,7 @@ void serverLoop() {
 int main(int argc, char **argv)
 {
   IoBuffer b;
-  int stat;
+  int stat,i;
   SEXP r,s;
   SEXP env;
   char c;
@@ -1155,7 +1190,66 @@ int main(int argc, char **argv)
   printf("Loaded config file %s\n",CONFIG_FILE);
 #endif
 
-  top_argc=argc; top_argv=argv;
+  /** copy argv while removing Rserve specific parameters */
+  top_argc=1;
+  top_argv=(char**) malloc(sizeof(char*)*(argc+1));
+  top_argv[0]=argv[0];
+  i=1;
+  while (i<argc) {
+    int isRSP=0;
+    if (argv[i] && *argv[i]=='-' && argv[i][1]=='-') {
+      if (!strcmp(argv[i]+2,"RS-port")) {
+	isRSP=1;
+	if (i+1==argc)
+	  fprintf(stderr,"Missing port specification for --RS-port.\n");
+	else {
+	  port=atoi(argv[++i]);
+	  if (port<1) {
+	    fprintf(stderr,"Invalid port number in --RS-port, using default port.\n");
+	    port=default_Rsrv_port;
+	  }
+	}
+      }
+      if (!strcmp(argv[i]+2,"RS-socket")) {
+	isRSP=1;
+	if (i+1==argc)
+	  fprintf(stderr,"Missing socket specification for --RS-socket.\n");
+	else
+	  localSocketName=argv[++i];
+      }
+      if (!strcmp(argv[i]+2,"RS-workdir")) {
+	isRSP=1;
+	if (i+1==argc)
+	  fprintf(stderr,"Missing directory specification for --RS-workdir.\n");
+	else
+	  workdir=argv[++i];
+      }
+      if (!strcmp(argv[i]+2,"RS-conf")) {
+	isRSP=1;
+	if (i+1==argc)
+	  fprintf(stderr,"Missing config file specification for --RS-conf.\n");
+	else
+	  loadConfig(argv[++i]);
+      }
+      if (!strcmp(argv[i]+2,"RS-settings")) {
+	printf("Rserve v%d.%d-%d\n\nconfig file: %s\nworking root: %s\nport: %d\nlocal socket: %s\nauthorization required: %s\nplain text password: %s\npasswords file: %s\nallow I/O: %s\n\n",
+	       RSRV_VER>>16,(RSRV_VER>>8)&255,RSRV_VER&255,
+	       CONFIG_FILE,workdir,port,localSocketName?localSocketName:"[none, TCP/IP used]",
+	       authReq?"yes":"no",usePlain?"allowed":"not allowed",pwdfile?pwdfile:"[none]",allowIO?"yes":"no");
+	return 0;	       
+      }
+      if (!strcmp(argv[i]+2,"version")) {
+	printf("Rserve v%d.%d-%d\n",RSRV_VER>>16,(RSRV_VER>>8)&255,RSRV_VER&255);
+      }
+      if (!strcmp(argv[i]+2,"help")) {
+	printf("Usage: R CMD Rserve [<options>]\n\nOptions: --help  this help screen\n --version  prints Rserve version (also passed to R)\n --RS-port <port> listen on the specified TCP port\n --RS-socket <socket> use specified local (unix) socket instead of TCP/IP. --RS-workdir <path> use specified working directory root for connections.\n --RS-conf <file> load additional config file.\n --RS-settings  dumps current settings of the Rserve\n\nAll other options are passed to the R engine.\n\n");
+	return 0;
+      }
+    }
+    if (!isRSP)
+      top_argv[top_argc++]=argv[i];
+    i++;
+  };
 
   stat=Rf_initEmbeddedR(top_argc,top_argv);
   if (stat<0) {
