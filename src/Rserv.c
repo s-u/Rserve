@@ -147,6 +147,16 @@
 typedef unsigned int socklen_t;
 #endif
 
+#ifdef sun /* we need to be more careful on Sun when handling doubles, since we're i.g.
+	      aligned on 4 bytes, but Sun requires alibnment on 8 for doubles.
+	      Therefore we copy rather than use direct assignment. */
+void storeDouble(void *b, double d) {
+  memcpy(b,&d,sizeof(double));
+};
+#else
+#define storeDouble(B,D) ((*((double*)B))=(D))
+#endif
+
 /* send buffer size (default 2MB)
    Currently Rserve stores entire responses in memory before sending it.
    This is not really neccessary and may (hopefully will) change in the future.
@@ -277,16 +287,16 @@ int* storeSEXP(int* buf, SEXP x) {
       attrFixup;
       i=0;
       while(i<LENGTH(x)) {
-	((double*)buf)[i]=dtop(REAL(x)[i]);
+	storeDouble(buf,dtop(REAL(x)[i]));
+	buf+=2; /* sizeof(double)=2*sizeof(int) */
 	i++;
       };
-      buf=(int*)(((double*)buf)+LENGTH(x));
     } else {
       *buf=itop(XT_DOUBLE|hasAttr);
       buf++;
       attrFixup;
-      *((double*)buf)=dtop(*REAL(x));
-      buf=(int*)(((double*)buf)+1);
+      storeDouble(buf,dtop(*REAL(x)));
+      buf+=2;
     };
     goto didit;
   };
