@@ -36,6 +36,7 @@ AC_CHECK_FUNCS([memset mkdir rmdir select socket])
 # Check whether we can use crypt (and if we do if it's in the crypt library)
 AC_SEARCH_LIBS(crypt, crypt,
 		      [AC_DEFINE(HAS_CRYPT, 1, [If defined Rserve supports unix crypt password encryption.])])
+AC_CHECK_HEADERS([crypt.h])
 
 # on some platforms libR expects dl code in the binary
 AC_CHECK_LIB(dl, dlopen)
