@@ -41,6 +41,34 @@
    RSERV_DEBUG - if defined various verbose output is produced
 
    DAEMON      - if defined the server daemonizes (unix only)
+
+   CONFIG_FILE - location of the config file
+*/
+
+/* config file entries: [default]
+  ----------------------
+   workdir <path> [depends on the CONFIG_FILE define]
+   pwdfile <file> [none=disabled]
+   remote enable|disable [disable]
+   auth required|disable [disable]
+   plaintext enable|disable [disable] (strongly discouraged to enable)
+   fileio enable|disable [enable]
+
+   A note about security: Anyone with access to R has access to the shell
+   via "system" command, so you should consider following rules:
+   - NEVER EVER run Rserv as root - this compromises the box totally
+   - use "remote disable" whenever you don't need remote access.
+   - if you need remote access use "auth required" and "plaintext disable"
+     consider also that anyone with the access can decipher other's passwords
+     if he knows how to. the authentication prevents hackers from the net
+     to break into Rserv, but it doesn't (and cannot) protect from
+     inside attacks (since R has no security measures).
+     You should also use a special, restricted user for running Rserv
+     as a public server, so noone can try to hack the box it runs on.
+   - don't enable plaintext unless you really have to. Passing passwords
+     in plain text over the net is not wise and not necessary since both
+     Rserv and JRclient provide encrypted passwords with server-side
+     challenge (thus safe from sniffing).
 */
 
 #define USE_RINTERNALS
@@ -55,6 +83,14 @@
 /* FORKED is default for unix platforms */
 #if defined unix && !defined THREADED && !defined COOPERATIVE && !defined FORKED
 #define FORKED
+#endif
+
+#ifndef CONFIG_FILE
+#ifdef unix
+#define CONFIG_FILE "/etc/Rserv.conf"
+#else
+#define CONFIG_FILE "Rserv.cfg"
+#endif
 #endif
 
 #include <stdio.h>
@@ -83,10 +119,13 @@ int port = default_Rsrv_port;
 int active = 1;
 int UCIX   = 1; /* unique connection index */
 
+int allowIO=1;
+
 char **top_argv;
 int top_argc;
 
 char *workdir="/tmp/Rserv";
+char *pwdfile=0;
 
 SOCKET csock=-1;
 
@@ -381,6 +420,54 @@ void sendRespData(int s, int rsp, int len, void *buf) {
 
 char *IDstring="Rsrv0100QAP1\r\n\r\n--------------\r\n";
 
+int authReq=0;
+int usePlain=0;
+
+int loadConfig(char *fn) {
+  FILE *f;
+  char buf[512];
+  char *c,*p,*c1;
+
+  f=fopen(fn,"r");
+  if (!f) return -1;
+  buf[511]=0;
+  while(!feof(f))
+    if (fgets(buf,511,f)) {
+      c=buf;
+      while(*c==' '||*c=='\t') c++;
+      p=c;
+      while(*p && *p!='\t' && *p!=' ' && *p!='=' && *p!=':') p++;
+      if (*p) {
+	*p=0;
+	p++;
+	while(*p && (*p=='\t' || *p==' ')) p++;
+      }
+      c1=p;
+      while(*c1) if(*c1=='\n'||*c1=='\r') *c1=0; else c1++;
+      if (!strcmp(c,"remote"))
+	localonly=(*p=='1' || *p=='y' || *p=='e')?0:1;
+      if (!strcmp(c,"workdir")) {
+	if (*p) {
+	  workdir=(char*)malloc(strlen(p)+1);
+	  strcpy(workdir,p);
+	} else workdir=0;
+      }
+      if (!strcmp(c,"pwdfile")) {
+	if (*p) {
+	  pwdfile=(char*)malloc(strlen(p)+1);
+	  strcpy(pwdfile,p);
+	} else pwdfile=0;
+      }
+      if (!strcmp(c,"auth"))
+	authReq=(*p=='1' || *p=='y' || *p=='r' || *p=='e')?1:0;
+      if (!strcmp(c,"plaintext"))
+	usePlain=(*p=='1' || *p=='y' || *p=='e')?1:0;
+      if (!strcmp(c,"fileio"))
+	allowIO=(*p=='1' || *p=='y' || *p=='e')?1:0;
+    };
+  fclose(f);
+}
+
 #define inBuf 2048
 #define sfbufSize 32768 /* static file buffer size */
 #ifndef decl_sbthread
@@ -396,11 +483,13 @@ void sigHandler(int i) {
 }
 #endif
 
+const char *code64="0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWYXZ01";
+
 decl_sbthread newConn(void *thp) {
   SOCKET s;
   struct args *a=(struct args*)thp;
   struct phdr ph;
-  char buf[inBuf+8], *c;
+  char buf[inBuf+8], *c,*cc,*c1,*c2;
   int *par[16];
   int pars;
   int i,j,k,n;
@@ -413,6 +502,8 @@ decl_sbthread newConn(void *thp) {
   int fbufl;
   int Rerror;
   char wdname[512];
+  int authed=0;
+  char salt[5];
   
   IoBuffer *iob;
   SEXP xp,exp;
@@ -426,12 +517,14 @@ decl_sbthread newConn(void *thp) {
 #endif
 
 #ifdef unix
-  if (chdir(workdir))
-    mkdir(workdir,0777);
-  wdname[511]=0;
-  snprintf(wdname,511,"%s/conn%d",workdir,a->ucix);
-  mkdir(wdname,0777);
-  chdir(wdname);
+  if (workdir) {
+    if (chdir(workdir))
+      mkdir(workdir,0777);
+    wdname[511]=0;
+    snprintf(wdname,511,"%s/conn%d",workdir,a->ucix);
+    mkdir(wdname,0777);
+    chdir(wdname);
+  }
 #endif
 
   iob=(IoBuffer*)malloc(sizeof(*iob));
@@ -447,7 +540,17 @@ decl_sbthread newConn(void *thp) {
   csock=s;
 #endif
 
-  send(s,IDstring,32,0);
+  strcpy(buf,IDstring);
+  if (authReq) {
+    memcpy(buf+16,"ARuc",4);
+    salt[0]='K';
+    salt[1]=code64[random()&63];
+    salt[2]=code64[random()&63];
+    salt[3]=' '; salt[4]=0;
+    memcpy(buf+20,salt,4);
+    if (usePlain) memcpy(buf+24,"ARpt",4);
+  };
+  send(s,buf,32,0);
   while((n=recv(s,&ph,sizeof(ph),0))==sizeof(ph)) {
 #ifdef RSERV_DEBUG
     printf("header read result: %d\n",n);
@@ -510,6 +613,68 @@ decl_sbthread newConn(void *thp) {
     printf("CMD=%08x, pars=%d\n",ph.cmd,pars);
 #endif
 
+    if (!authed && ph.cmd==CMD_login) {
+      if (pars<1 || PAR_TYPE(ptoi(*par[0]))!=DT_STRING) 
+	sendResp(s,SET_STAT(RESP_ERR,ERR_inv_par));
+      else {
+	c=(char*)(par[0]+1);
+	cc=c;
+	while(*cc && *cc!='\n') cc++;
+	if (*cc) { *cc=0; cc++; };
+	c1=cc;
+	while(*c1) if(*c1=='\n'||*c1=='\r') *c1=0; else c1++;
+	/* c=login, cc=pwd */
+	authed=1;
+	if (pwdfile) {
+	  authed=0; /* if pwdfile exists, default is access denied */
+	  /* TODO: opening pwd file, parsing it and responding
+	     might be a bad idea, since it allows DOS attacks as this
+	     operation is fairly costly. We should actually cache
+	     the user list and reload it only on HUP or something */
+	  /* we abuse variables of other commands since we are
+	     the first command ever used so we can trash them */
+	  cf=fopen(pwdfile,"r");
+	  if (cf) {
+	    sfbuf[sfbufSize-1]=0;
+	    while(!feof(cf))
+	      if (fgets(sfbuf,sfbufSize-1,cf)) {
+		c1=sfbuf;
+		while(*c1 && *c1!=' ' && *c1!='\t') c1++;
+		if (*c1) {
+		  *c1=0;
+		  c1++;
+		  while(*c1==' ' || *c1=='\t') c1++;
+		};
+		c2=c1;
+		while(*c2) if (*c2=='\r'||*c2=='\n') *c2=0; else c2++;
+		if (!strcmp(sfbuf,c)) { /* login found */
+		  if (usePlain && !strcmp(c1,cc))
+		    authed=1;
+		  else {
+		    c2=crypt(c1,salt+1);
+		    if (!strcmp(c2,cc)) authed=1;
+		  };
+		};
+		if (authed) break;
+	      }; /* if fgets */
+	    fclose(cf);
+	  } /* if (cf) */
+	  cf=0;
+	  if (authed) {
+	    process=1;
+	    sendResp(s,RESP_OK);
+	  }
+	}
+      }
+    };
+    /* if not authed by now, close connection */
+    if (authReq && !authed) {
+      sendResp(s,SET_STAT(RESP_ERR,ERR_auth_failed));
+      closesocket(s);
+      free(sendbuf); free(iob);
+      return;
+    };      
+
     if (ph.cmd==CMD_shutdown) {
       sendResp(s,RESP_OK);
 #ifdef RSERV_DEBUG
@@ -527,67 +692,79 @@ decl_sbthread newConn(void *thp) {
 
     if (ph.cmd==CMD_openFile||ph.cmd==CMD_createFile) {
       process=1;
-      if (pars<1 || PAR_TYPE(ptoi(*par[0]))!=DT_STRING) 
-	sendResp(s,SET_STAT(RESP_ERR,ERR_inv_par));
+      if (!allowIO) sendResp(s,SET_STAT(RESP_ERROR,ERR_accessDenied));
       else {
-	c=(char*)(par[0]+1);
-	if (cf) fclose(cf);
-	cf=fopen(c,(ph.cmd==CMD_openFile)?"rb":"wb");
-	if (!cf)
-	  sendResp(s,SET_STAT(RESP_ERR,ERR_IOerror));
-	else
-	  sendResp(s,RESP_OK);
+	if (pars<1 || PAR_TYPE(ptoi(*par[0]))!=DT_STRING) 
+	  sendResp(s,SET_STAT(RESP_ERR,ERR_inv_par));
+	else {
+	  c=(char*)(par[0]+1);
+	  if (cf) fclose(cf);
+	  cf=fopen(c,(ph.cmd==CMD_openFile)?"rb":"wb");
+	  if (!cf)
+	    sendResp(s,SET_STAT(RESP_ERR,ERR_IOerror));
+	  else
+	    sendResp(s,RESP_OK);
+	}
       }
     }
 
     if (ph.cmd==CMD_closeFile) {
       process=1;
-      if (cf) fclose(cf);
-      cf=0;
-      sendResp(s,RESP_OK);
+      if (!allowIO) sendResp(s,SET_STAT(RESP_ERROR,ERR_accessDenied));
+      else {
+	if (cf) fclose(cf);
+	cf=0;
+	sendResp(s,RESP_OK);
+      }
     }
 
     if (ph.cmd==CMD_readFile) {
       process=1;
-      if (!cf)
-	sendResp(s,SET_STAT(RESP_ERR,ERR_notOpen));
+      if (!allowIO) sendResp(s,SET_STAT(RESP_ERROR,ERR_accessDenied));
       else {
-	fbufl=sfbufSize; fbuf=sfbuf;
-	if (pars==1 && PAR_TYPE(ptoi(*par[0]))==DT_INT)
-	  fbufl=ptoi(par[0][1]);
-	if (fbufl<0) fbufl=sfbufSize;
-	if (fbufl>sfbufSize)
-	  fbuf=(char*)malloc(fbufl);
-	if (!fbuf) /* well, logically not clean, but in practice true */
-	  sendResp(s,SET_STAT(RESP_ERR,ERR_inv_par));
+	if (!cf)
+	  sendResp(s,SET_STAT(RESP_ERR,ERR_notOpen));
 	else {
-	  i=fread(fbuf,1,fbufl,cf);
-	  if (i>0)
-	    sendRespData(s,RESP_OK,i,fbuf);
-	  else
-	    sendResp(s,RESP_OK);
-	  if (fbuf!=sfbuf)
-	    free(fbuf);
+	  fbufl=sfbufSize; fbuf=sfbuf;
+	  if (pars==1 && PAR_TYPE(ptoi(*par[0]))==DT_INT)
+	    fbufl=ptoi(par[0][1]);
+	  if (fbufl<0) fbufl=sfbufSize;
+	  if (fbufl>sfbufSize)
+	    fbuf=(char*)malloc(fbufl);
+	  if (!fbuf) /* well, logically not clean, but in practice true */
+	    sendResp(s,SET_STAT(RESP_ERR,ERR_inv_par));
+	  else {
+	    i=fread(fbuf,1,fbufl,cf);
+	    if (i>0)
+	      sendRespData(s,RESP_OK,i,fbuf);
+	    else
+	      sendResp(s,RESP_OK);
+	    if (fbuf!=sfbuf)
+	      free(fbuf);
+	  }
 	}
       }
     }
 
     if (ph.cmd==CMD_writeFile) {
       process=1;
-      if (!cf)
-	sendResp(s,SET_STAT(RESP_ERR,ERR_notOpen));
+      if (!allowIO) sendResp(s,SET_STAT(RESP_ERROR,ERR_accessDenied));
       else {
-	if (pars<1 || PAR_TYPE(ptoi(*par[0]))!=DT_BYTESTREAM)
-	  sendResp(s,SET_STAT(RESP_ERR,ERR_inv_par));
+	if (!cf)
+	  sendResp(s,SET_STAT(RESP_ERR,ERR_notOpen));
 	else {
-	  i=0;
-	  c=(char*)(par[0]+1);
-	  if (PAR_LEN(ptoi(*par[0]))>0)
-	    i=fwrite(c,1,PAR_LEN(ptoi(*par[0])),cf);
-	  if (i>0 && i!=PAR_LEN(ptoi(*par[0])))
-	    sendResp(s,SET_STAT(RESP_ERR,ERR_IOerror));
-	  else
-	    sendResp(s,RESP_OK);
+	  if (pars<1 || PAR_TYPE(ptoi(*par[0]))!=DT_BYTESTREAM)
+	    sendResp(s,SET_STAT(RESP_ERR,ERR_inv_par));
+	  else {
+	    i=0;
+	    c=(char*)(par[0]+1);
+	    if (PAR_LEN(ptoi(*par[0]))>0)
+	      i=fwrite(c,1,PAR_LEN(ptoi(*par[0])),cf);
+	    if (i>0 && i!=PAR_LEN(ptoi(*par[0])))
+	      sendResp(s,SET_STAT(RESP_ERR,ERR_IOerror));
+	    else
+	      sendResp(s,RESP_OK);
+	  }
 	}
       }
     }
@@ -661,8 +838,10 @@ decl_sbthread newConn(void *thp) {
   closesocket(s);
   free(sendbuf); free(iob);
 #ifdef unix
-  chdir(workdir);
-  rmdir(wdname);
+  if (workdir) {
+    chdir(workdir);
+    rmdir(wdname);
+  }
 #endif
 
 #ifdef RSERV_DEBUG
@@ -749,6 +928,8 @@ int main(int argc, char **argv)
     printf("FATAL ERROR: This program is not correctly compiled - the endianess is wrong!\nUse -DSWAPEND when compiling on PPC or similar platforms.\n");
     return -100;
   };
+
+  loadConfig(CONFIG_FILE);
 
   top_argc=argc; top_argv=argv;
 
