@@ -114,5 +114,16 @@ struct phdr { /* always 16 bytes */
             if the first packet is not CMD_login
    "K***" - key if encoded authentification is challenged (*** is the key) */
 
+#ifdef SWAPEND  /* swap endianness - for PPC and co. */
+int itop(int i) { char b[4]; b[0]=((char*)&i)[3]; b[3]=((char*)&i)[0]; b[1]=((char*)&i)[2]; b[2]=((char*)&i)[1]; return *((int*)b); };
+double dtop(double i) { char b[8]; b[0]=((char*)&i)[7]; b[1]=((char*)&i)[6]; b[2]=((char*)&i)[5]; b[3]=((char*)&i)[4]; b[7]=((char*)&i)[0]; b[6]=((char*)&i)[1]; b[5]=((char*)&i)[2]; b[4]=((char*)&i)[3]; return *((double*)b); };
+#define ptoi(X) itop(X) /* itop*itop=id */
+#define ptod(X) dtop(X)
+#else
+#define itop(X) (X)
+#define ptoi(X) (X)
+#define dtop(X) (X)
+#define ptod(X) (X)
+#endif
 
 #endif

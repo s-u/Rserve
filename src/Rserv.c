@@ -63,18 +63,6 @@
 int port = default_Rsrv_port;
 int active = 1;
 
-#ifdef SWAPEND  /* swap endianness - for PPC and co. */
-int itop(int i) { char b[4]; b[0]=((char*)&i)[3]; b[3]=((char*)&i)[0]; b[1]=((char*)&i)[2]; b[2]=((char*)&i)[1]; return *((int*)b); };
-double dtop(double i) { char b[8]; b[0]=((char*)&i)[7]; b[1]=((char*)&i)[6]; b[2]=((char*)&i)[5]; b[3]=((char*)&i)[4]; b[7]=((char*)&i)[0]; b[6]=((char*)&i)[1]; b[5]=((char*)&i)[2]; b[4]=((char*)&i)[3]; return *((double*)b); };
-#define ptoi(X) itop(X) /* itop*itop=id */
-#define ptod(X) dtop(X)
-#else
-#define itop(X) (X)
-#define ptoi(X) (X)
-#define dtop(X) (X)
-#define ptod(X) (X)
-#endif
-
 char **top_argv;
 int top_argc;
 
@@ -528,8 +516,11 @@ decl_sbthread newConn(void *thp) {
 
     if (!process)
       sendResp(s,SET_STAT(RESP_ERR,ERR_inv_cmd));
-  };    
-  printf("malformed packet or connection terminated (n=%d). closing socket.\n",n);
+  };
+  if (n==0)
+    printf("Connection closed by peer.\n");
+  else
+    printf("malformed packet. closing socket to prevent garbage.\n",n);
   if (n>0)
     sendResp(s,SET_STAT(RESP_ERR,ERR_conn_broken));
   closesocket(s);
