@@ -62,11 +62,20 @@
 
 int port = default_Rsrv_port;
 int active = 1;
+int UCIX   = 1; /* unique connection index */
 
 char **top_argv;
 int top_argc;
 
+char *workdir="/tmp/Rserv";
+
 SOCKET csock=-1;
+
+#ifdef THREADED
+int localUCIX;
+#else
+#define localUCIX UCIX
+#endif
 
 #ifdef DEBUG
 void printDump(void *b, int len) {
@@ -344,6 +353,7 @@ SOCKET ss;
 struct args {
   int s;
   SAIN sa;
+  int ucix;
 };
 
 void sendRespData(int s, int rsp, int len, void *buf) {
@@ -365,7 +375,7 @@ void sendRespData(int s, int rsp, int len, void *buf) {
 char *IDstring="Rsrv0100QAP1\r\n\r\n--------------\r\n";
 
 #define inBuf 2048
-
+#define sfbufSize 32768 /* static file buffer size */
 #ifndef decl_sbthread
 #define decl_sbthread void
 #endif
@@ -382,13 +392,25 @@ decl_sbthread newConn(void *thp) {
   int stat;
   char *sendbuf;
   char *tail;
+  char *fbuf;
+  char sfbuf[sfbufSize];
+  int fbufl;
   
   IoBuffer *iob;
   SEXP xp,exp;
+  FILE *cf=0;
 
   memset(buf,0,inBuf+8);
 #ifdef FORKED  
   if (fork()!=0) return;
+#endif
+
+#ifdef unix
+  if (chdir(workdir))
+    mkdir(workdir,0777);
+  snprintf(buf,inBuf,"%s/conn%d",workdir);
+  mkdir(buf,0777);
+  chdir(buf);
 #endif
 
   iob=(IoBuffer*)malloc(sizeof(*iob));
@@ -476,6 +498,73 @@ decl_sbthread newConn(void *thp) {
       return;
     };
 
+    if (ph.cmd==CMD_openFile||ph.cmd==CMD_createFile) {
+      process=1;
+      if (pars<1 || PAR_TYPE(ptoi(*par[0]))!=DT_STRING) 
+	sendResp(s,SET_STAT(RESP_ERR,ERR_inv_par));
+      else {
+	c=(char*)(par[0]+1);
+	if (cf) fclose(cf);
+	cf=fopen(c,(ph.cmd==CMD_openFile)?"rb":"wb");
+	if (!cf)
+	  sendResp(s,SET_STAT(RESP_ERR,ERR_IOerror));
+	else
+	  sendResp(s,RESP_OK);
+      }
+    }
+
+    if (ph.cmd==CMD_closeFile) {
+      process=1;
+      if (cf) fclose(cf);
+      cf=0;
+      sendResp(s,RESP_OK);
+    }
+
+    if (ph.cmd==CMD_readFile) {
+      process=1;
+      if (!cf)
+	sendResp(s,SET_STAT(RESP_ERR,ERR_notOpen));
+      else {
+	fbufl=sfbufSize; fbuf=sfbuf;
+	if (pars==1 && PAR_TYPE(ptoi(*par[0]))==DT_INT)
+	  fbufl=ptoi(par[0][1]);
+	if (fbufl<0) fbufl=sfbufSize;
+	if (fbufl>sfbufSize)
+	  fbuf=(char*)malloc(fbufl);
+	if (!fbuf) /* well, logically not clean, but in practice true */
+	  sendResp(s,SET_STAT(RESP_ERR,ERR_inv_par));
+	else {
+	  i=fread(fbuf,1,fbufl,cf);
+	  if (i>0)
+	    sendRespData(s,RESP_OK,i,fbuf);
+	  else
+	    sendResp(s,RESP_OK);
+	  if (fbuf!=sfbuf)
+	    free(fbuf);
+	}
+      }
+    }
+
+    if (ph.cmd==CMD_writeFile) {
+      process=1;
+      if (!cf)
+	sendResp(s,SET_STAT(RESP_ERR,ERR_notOpen));
+      else {
+	if (pars<1 || PAR_TYPE(ptoi(*par[0]))!=DT_BYTESTREAM)
+	  sendResp(s,SET_STAT(RESP_ERR,ERR_inv_par));
+	else {
+	  i=0;
+	  c=(char*)(par[0]+1);
+	  if (PAR_LEN(ptoi(*par[0]))>0)
+	    i=fwrite(c,1,PAR_LEN(ptoi(*par[0])),cf);
+	  if (i>0 && i!=PAR_LEN(ptoi(*par[0])))
+	    sendResp(s,SET_STAT(RESP_ERR,ERR_IOerror));
+	  else
+	    sendResp(s,RESP_OK);
+	}
+      }
+    }
+
     if (ph.cmd==CMD_voidEval || ph.cmd==CMD_eval) {
       process=1;
       if (pars<1 || PAR_TYPE(ptoi(*par[0]))!=DT_STRING) 
@@ -551,6 +640,7 @@ void serverLoop() {
     memset(sa,0,sizeof(struct args));
     al=sizeof(sa->sa);
     sa->s=CF("accept",accept(ss,(SA*)&(sa->sa),&al));
+    sa->ucix=UCIX++;
     if (localonly) {
       if (sa->sa.sin_addr.s_addr==lsa.sin_addr.s_addr)
 #ifdef THREADED
@@ -576,6 +666,11 @@ int main(int argc, char **argv)
   SEXP r,s;
   SEXP env;
   char c;
+
+  if (!isByteSexOk()) {
+    printf("FATAL ERROR: This program is not correctly compiled - the endianess is wrong!\nUse -DSWAPEND when compiling on PPC or similar platforms.\n");
+    return -100;
+  };
 
   top_argc=argc; top_argv=argv;
 
