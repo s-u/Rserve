@@ -117,6 +117,11 @@
 #endif
 #endif
 
+/* we have no configure for Win32 so we have to take care of socklen_t */
+#ifdef Win32
+typedef int socklen_t;
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <sisocks.h>
@@ -187,6 +192,8 @@ char *pwdfile=0;
 SOCKET csock=-1;
 
 int parentPID=-1;
+
+int maxSendBufSize=0; /* max. sendbuf for auto-resize. 0=no limit */
 
 #ifdef THREADED
 int localUCIX;
@@ -734,6 +741,13 @@ int loadConfig(char *fn)
 	    maxInBuf=ns*1024;
 	}
       }
+      if (!strcmp(c,"maxsendbuf")) {
+	if (*p) {
+	  int ns=atoi(p);
+	  if (ns>32)
+	    maxSendBufSize=ns*1024;
+	}
+      }
       if (!strcmp(c,"workdir")) {
 	if (*p) {
 	  workdir=(char*)malloc(strlen(p)+1);
@@ -821,6 +835,7 @@ decl_sbthread newConn(void *thp) {
   char wdname[512];
   int authed=0;
   char salt[5];
+  unsigned int tempSB=0;
   
   IoBuffer *iob;
   SEXP xp,exp;
@@ -1297,6 +1312,8 @@ decl_sbthread newConn(void *thp) {
 	    if (ph.cmd==CMD_voidEval)
 	      sendResp(s,RESP_OK);
 	    else {
+	      char *sendhead=0;
+	      int canProceed=1;
 	      /* check buffer size vs REXP size to avoid dangerous overflows
 		 todo: resize the buffer as necessary
 	       */
@@ -1304,28 +1321,87 @@ decl_sbthread newConn(void *thp) {
 #ifdef RSERV_DEBUG
 	      printf("result storage size = %d bytes\n",(int)rs);
 #endif
-	      if (rs>sendBufSize-64) {
-		unsigned int osz=(rs>0xffffffff)?0xffffffff:rs;
-		osz=itop(osz);
+	      if (rs>sendBufSize-64) { /* is the send buffer too small ? */
+		canProceed=0;
+		if (maxSendBufSize && rs+64>maxSendBufSize) { /* first check if we're allowed to resize */
+		  unsigned int osz=(rs>0xffffffff)?0xffffffff:rs;
+		  osz=itop(osz);
 #ifdef RSERV_DEBUG
-		printf("ERROR: object too big (sendBuf=%d)\n",sendBufSize);
+		  printf("ERROR: object too big (sendBuf=%d)\n",sendBufSize);
 #endif
-		sendRespData(s,SET_STAT(RESP_ERR,ERR_object_too_big),4,&osz);
-	      } else {
-/* if this is defined then the old (<=0.1-9) "broken" behavior is requested where no data type header is sent */
+		  sendRespData(s,SET_STAT(RESP_ERR,ERR_object_too_big),4,&osz);
+		} else { /* try to allocate a large, temporary send buffer */
+		  tempSB=rs+64; tempSB&=0xffffff000; tempSB+=0x1000;
+#ifdef RSERV_DEBUG
+		  printf("Trying to allocate temporary send buffer of %d bytes.\n",tempSB);
+#endif
+		  free(sendbuf);
+		  sendbuf=(char*)malloc(tempSB);
+		  if (!sendbuf) {
+		    tempSB=0;
+#ifdef RSERV_DEBUG
+		    printf("Failed to allocate temporary send buffer of %d bytes. Restoring old send buffer of %d bytes.\n",tempSB,sendBufSize);
+#endif
+		    sendbuf=(char*)malloc(sendBufSize);
+		    if (!sendbuf) { /* we couldn't re-allocate the buffer */
+#ifdef RSERV_DEBUG
+		      fprintf(stderr,"FATAL: out of memory while re-allocating send buffer to %d (fallback#1)\n",sendBufSize);
+#endif
+		      sendResp(s,SET_STAT(RESP_ERR,ERR_out_of_mem));
+		      free(buf); free(iob); free(sfbuf);
+		      closesocket(s);
+		      return;
+		    } else {
+		      unsigned int osz=(rs>0xffffffff)?0xffffffff:rs;
+		      osz=itop(osz);
+#ifdef RSERV_DEBUG
+		      printf("ERROR: object too big (sendBuf=%d) and couldn't allocate big enough send buffer\n",sendBufSize);
+#endif
+		      sendRespData(s,SET_STAT(RESP_ERR,ERR_object_too_big),4,&osz);
+		    }
+		  } else canProceed=1;
+		}
+	      }
+	      if (canProceed) {
+		/* if this is defined then the old (<=0.1-9) "broken" behavior is requested where no data type header is sent */
 #ifdef FORCE_V0100 
 		tail=(char*)storeSEXP((int*)sendbuf,exp);
+		sendhead=sendbuf;
 #else
 		/* first we have 4 bytes of a header saying this is an encoded SEXP, then comes the SEXP */
-		char *sxh=sendbuf+4;
+		char *sxh=sendbuf+8;
 		tail=(char*)storeSEXP((int*)sxh,exp);
 		/* set type to DT_SEXP and correct length */
-		((int*)sendbuf)[0]=itop(SET_PAR(DT_SEXP,tail-sxh));
+		if ((tail-sxh)>0xfffff0) { /* we must use the "long" format */
+		  unsigned long ll=tail-sxh;
+		  ((int*)sendbuf)[0]=itop(SET_PAR(DT_SEXP|DT_LARGE,ll&0xffffff));
+		  ((int*)sendbuf)[1]=itop(ll>>24);
+		  sendhead=sendbuf;
+		} else {
+		  sendhead=sendbuf+4;
+		  ((int*)sendbuf)[1]=itop(SET_PAR(DT_SEXP,tail-sxh));
+		}
 #endif
 #ifdef RSERV_DEBUG
-		printf("stored SEXP; length=%d (incl. 4 bytes of header)\n",tail-sendbuf);
+		printf("stored SEXP; length=%d (incl. DT_SEXP header)\n",tail-sendhead);
 #endif
-		sendRespData(s,RESP_OK,tail-sendbuf,sendbuf);
+		sendRespData(s,RESP_OK,tail-sendhead,sendhead);
+		if (tempSB) { /* if this is just a temporary sendbuffer then shrink it back to normal */
+#ifdef RSERV_DEBUG
+		  printf("Releasing temporary sendbuf and restoring old size of %d bytes.\n",sendBufSize);
+#endif
+		  free(sendbuf);
+		  sendbuf=(char*)malloc(sendBufSize);
+		  if (!sendbuf) { /* this should be really rare since tempSB was much larger */
+#ifdef RSERV_DEBUG
+		    fprintf(stderr,"FATAL: out of memory while re-allocating send buffer to %d (fallback#2),\n",sendBufSize);
+#endif
+		    sendResp(s,SET_STAT(RESP_ERR,ERR_out_of_mem));
+		    free(buf); free(iob); free(sfbuf);
+		    closesocket(s);
+		    return;		    
+		  }
+		}
 	      }
 	    }
 	  }
