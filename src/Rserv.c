@@ -252,7 +252,7 @@ rsdist_t getStorageSize(SEXP x) {
   
   printf("getStorageSize(type=%d,len=%d)\n",t,tl);
   if (TYPEOF(ATTRIB(x))>0) {
-    rsdist_t alen=getStorageSize(x);
+    rsdist_t alen=getStorageSize(ATTRIB(x));
     len+=alen;
   }
   switch (t) {
