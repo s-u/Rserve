@@ -553,7 +553,7 @@ decl_sbthread newConn(void *thp) {
   send(s,buf,32,0);
   while((n=recv(s,&ph,sizeof(ph),0))==sizeof(ph)) {
 #ifdef RSERV_DEBUG
-    printf("header read result: %d\n",n);
+    printf("\nheader read result: %d\n",n);
     if (n>0) printDump(&ph,n);
 #endif
     ph.len=ptoi(ph.len);
@@ -576,6 +576,7 @@ decl_sbthread newConn(void *thp) {
 	
 #ifdef RSERV_DEBUG
 	printf("parsing parameters\n");
+	if (ph.len>0) printDump(buf,ph.len);
 #endif
 	c=buf+ph.dof;
 	while((c<buf+ph.dof+ph.len) && (i=ptoi(*((int*)c)))) {
@@ -699,8 +700,30 @@ decl_sbthread newConn(void *thp) {
 	else {
 	  c=(char*)(par[0]+1);
 	  if (cf) fclose(cf);
+#ifdef RSERV_DEBUG
+	  printf(">>CMD_open/createFile(%s)\n",c);
+#endif
 	  cf=fopen(c,(ph.cmd==CMD_openFile)?"rb":"wb");
 	  if (!cf)
+	    sendResp(s,SET_STAT(RESP_ERR,ERR_IOerror));
+	  else
+	    sendResp(s,RESP_OK);
+	}
+      }
+    }
+
+    if (ph.cmd==CMD_removeFile) {
+      process=1;
+      if (!allowIO) sendResp(s,SET_STAT(RESP_ERR,ERR_accessDenied));
+      else {
+	if (pars<1 || PAR_TYPE(ptoi(*par[0]))!=DT_STRING) 
+	  sendResp(s,SET_STAT(RESP_ERR,ERR_inv_par));
+	else {
+	  c=(char*)(par[0]+1);
+#ifdef RSERV_DEBUG
+	  printf(">>CMD_removeFile(%s)\n",c);
+#endif
+	  if (remove(c))
 	    sendResp(s,SET_STAT(RESP_ERR,ERR_IOerror));
 	  else
 	    sendResp(s,RESP_OK);
@@ -713,6 +736,9 @@ decl_sbthread newConn(void *thp) {
       if (!allowIO) sendResp(s,SET_STAT(RESP_ERR,ERR_accessDenied));
       else {
 	if (cf) fclose(cf);
+#ifdef RSERV_DEBUG
+	printf(">>CMD_closeFile\n",c);
+#endif
 	cf=0;
 	sendResp(s,RESP_OK);
       }
@@ -728,6 +754,9 @@ decl_sbthread newConn(void *thp) {
 	  fbufl=sfbufSize; fbuf=sfbuf;
 	  if (pars==1 && PAR_TYPE(ptoi(*par[0]))==DT_INT)
 	    fbufl=ptoi(par[0][1]);
+#ifdef RSERV_DEBUG
+	  printf(">>CMD_readFile(%d)\n",fbufl);
+#endif
 	  if (fbufl<0) fbufl=sfbufSize;
 	  if (fbufl>sfbufSize)
 	    fbuf=(char*)malloc(fbufl);
@@ -756,6 +785,9 @@ decl_sbthread newConn(void *thp) {
 	  if (pars<1 || PAR_TYPE(ptoi(*par[0]))!=DT_BYTESTREAM)
 	    sendResp(s,SET_STAT(RESP_ERR,ERR_inv_par));
 	  else {
+#ifdef RSERV_DEBUG
+	    printf(">>CMD_writeFile(%d,...)\n",PAR_LEN(ptoi(*par[0])));
+#endif
 	    i=0;
 	    c=(char*)(par[0]+1);
 	    if (PAR_LEN(ptoi(*par[0]))>0)
@@ -778,7 +810,7 @@ decl_sbthread newConn(void *thp) {
 	i=j=0; /* count the lines to pass the right parameter to parse
 		  the string should contain a trainig \n !! */
 	while(c[i]) if(c[i++]=='\n') j++;
-#ifdef RSERV_DEBUG
+#ifdef RSERV_DEBUG	
 	printf("R_IoBufferPuts(\"%s\",iob)\n",c);
 #endif
 	/* R_IoBufferWriteReset(iob);
