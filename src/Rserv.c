@@ -759,12 +759,12 @@ int loadConfig(char *fn)
 	}
       }
 #ifdef unix
-      if (strcmp(c,"uid") && *p) {
+      if (!strcmp(c,"uid") && *p) {
 	int nuid=atoi(p);
 	if (setuid(nuid))
 	  fprintf(stderr,"setuid(%d): failed. no user switch performed.",nuid);
       }
-      if (strcmp(c,"gid") && *p) {
+      if (!strcmp(c,"gid") && *p) {
 	int ngid=atoi(p);
 	if (setgid(ngid))
 	  fprintf(stderr,"setgid(%d): failed. no group switch performed.",ngid);
