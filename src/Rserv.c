@@ -74,7 +74,6 @@
 
 #define USE_RINTERNALS
 #define SOCK_ERRORS
-// #define USE_SNPRINTF
 #define LISTENQ 16
 
 #if defined __GNUC__ && !defined unix && !defined Win32 /* MacOS X hack. gcc on any platform is treated as unix */
@@ -86,6 +85,11 @@
 #define FORKED
 #endif
 
+/* AF_LOCAL is the POSIX version of AF_UNIX - we need this e.g. for AIX */
+#ifndef AF_LOCAL
+#define AF_LOCAL AF_UNIX
+#endif
+
 #ifndef CONFIG_FILE
 #ifdef unix
 #define CONFIG_FILE "/etc/Rserv.conf"
@@ -95,6 +99,7 @@
 #endif
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <sisocks.h>
 #include <string.h>
 #ifdef unix
@@ -457,7 +462,6 @@ SEXP decode_to_SEXP(int **buf, int *UPC)
     PROTECT(val=NEW_NUMERIC(l)); *UPC++;
     i=0;
     while (i<l) {
-      //printf("(*b=%x) setting index %d to %f\n",b,i,ptod(*((double*)b)));
       NUMERIC_POINTER(val)[i]=ptod(*((double*)b));
       i++; b+=2;
     }
@@ -667,7 +671,6 @@ decl_sbthread newConn(void *thp) {
   closesocket(a->ss); /* close server socket */
 #endif
 
-  // allocate input and send-file buffers
   buf=(char*) malloc(inBuf+8);
   sfbuf=(char*) malloc(sfbufSize);
   if (!buf || !sfbuf) {
@@ -1156,7 +1159,7 @@ decl_sbthread newConn(void *thp) {
 
 void serverLoop() {
   SAIN ssa;
-  int al;
+  unsigned long al;
   int reuse;
   int selRet=0;
   struct args *sa;
