@@ -22,7 +22,7 @@ AC_PROG_CC
 AC_HEADER_STDC
 AC_HEADER_SYS_WAIT
 AC_CHECK_HEADERS([string.h sys/time.h unistd.h])
-AC_CHECK_HEADERS([sys/stat.h sys/types.h sys/socket.h sys/un.h])
+AC_CHECK_HEADERS([sys/stat.h sys/types.h sys/socket.h sys/un.h netinet/in.h netinet/tcp.h])
 
 # Checks for typedefs, structures, and compiler characteristics.
 AC_C_CONST
