@@ -29,7 +29,6 @@
 #include <config.h>
 #include "Rversion.h"
 #include "Startup.h"
-#include "Defn.h"
 
 /* for askok and askyesnocancel */
 #include "graphapp/graphapp.h"
@@ -117,7 +116,8 @@ int Rf_initEmbeddedR(int argc, char **argv)
       sprintf(rhb,"R_HOME=%s",RHome);
       putenv(rhb);
     }
-    R_Home = Rp->rhome = RHome;
+    /* on Win32 this should set R_Home (in R_SetParams) as well */
+    Rp->rhome = RHome;
  /*
  * try R_USER then HOME then working directory
  */
