@@ -85,11 +85,6 @@
 #define FORKED
 #endif
 
-/* AF_LOCAL is the POSIX version of AF_UNIX - we need this e.g. for AIX */
-#ifndef AF_LOCAL
-#define AF_LOCAL AF_UNIX
-#endif
-
 #ifndef CONFIG_FILE
 #ifdef unix
 #define CONFIG_FILE "/etc/Rserv.conf"
@@ -106,6 +101,7 @@
 #include <sys/time.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/socket.h>
 #include <unistd.h>
 #include <sys/un.h> /* needed for unix sockets */
 #endif
@@ -123,6 +119,15 @@
 #include "Rsrv.h"
 #ifdef HAVE_CRYPT_H
 #include <crypt.h>
+#endif
+
+/* AF_LOCAL is the POSIX version of AF_UNIX - we need this e.g. for AIX */
+#ifndef AF_LOCAL
+#define AF_LOCAL AF_UNIX
+#endif
+
+#ifndef socklen_t
+typedef unsigned int socklen_t;
 #endif
 
 /* send buffer size (default 2MB)
