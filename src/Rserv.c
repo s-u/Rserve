@@ -108,6 +108,7 @@
 #endif
 #include <R.h>
 #include <Rinternals.h>
+#include <Rdefines.h>
 #include <IOStuff.h>
 #include <Parse.h>
 #include "Rsrv.h"
@@ -191,6 +192,10 @@ int* storeSEXP(int* buf, SEXP x) {
   int hasAttr=0;
   int *preBuf=buf;
 
+  if (!x) { /* null pointer will be treated as XT_NULL */
+    *buf=itop(XT_NULL); buf++; goto didit;
+  }
+
   if (TYPEOF(ATTRIB(x))>0) hasAttr=XT_HAS_ATTR;
 
   if (t==NILSXP) {
@@ -206,15 +211,29 @@ int* storeSEXP(int* buf, SEXP x) {
     attrFixup;
     buf=storeSEXP(buf,CAR(x));
     buf=storeSEXP(buf,CDR(x));    
+    buf=storeSEXP(buf,TAG(x));  /* since 1.22 (1.0-5) we store TAG as well */
     goto didit;
   };
 
-  if (t==LANGSXP) {
+  if (t==LANGSXP) { /* LANG are simply special lists */
     *buf=itop(XT_LANG|hasAttr);
     buf++;
     attrFixup;
+    /* before 1.22 (1.0-5) contents was ignored */
+    buf=storeSEXP(buf,CAR(x));
+    buf=storeSEXP(buf,CDR(x));
+    buf=storeSEXP(buf,TAG(x));  /* since 1.22 (1.0-5) we store TAG as well */
     goto didit;
   };
+
+  if (t==CLOSXP) { /* closures */
+    *buf=itop(XT_CLOS|hasAttr);
+    buf++;
+    attrFixup;
+    buf=storeSEXP(buf,FORMALS(x));
+    buf=storeSEXP(buf,BODY(x));
+    goto didit;
+  }
 
   if (t==REALSXP) {
     if (LENGTH(x)>1) {
@@ -301,7 +320,7 @@ int* storeSEXP(int* buf, SEXP x) {
   *buf=itop(XT_UNKNOWN|hasAttr);
   buf++;
   attrFixup;
-  *buf=TYPEOF(x);
+  *buf=itop(TYPEOF(x));
   buf++;
   
  didit:
@@ -389,6 +408,67 @@ void printSEXP(SEXP e) {
 void printBufInfo(IoBuffer *b) {
   printf("read-off: %d, write-off: %d\n",b->read_offset,b->write_offset);
 };
+
+SEXP decode_to_SEXP(int **buf, int *UPC) {
+  int *b=*buf;
+  char *c,*cc;
+  SEXP val=0;
+  int ty=PAR_TYPE(ptoi(*b));
+  int ln=PAR_LEN(ptoi(*b));
+  int i,j,k,l;
+  
+#ifdef RSERV_DEBUG
+  printf("decode: type=%x, len=%d\n",ty,ln);
+#endif
+  b++;
+
+  switch(ty) {
+  case XT_INT:
+  case XT_ARRAY_INT:
+    l=ln/4;
+    PROTECT(val=NEW_INTEGER(l));
+    *UPC++;
+    i=0;
+    while (i<l) {
+      INTEGER(val)[i]=ptoi(*b); i++; b++;
+    }
+    *buf=b;
+    break;
+  case XT_DOUBLE:
+  case XT_ARRAY_DOUBLE:
+    l=ln/8;
+    PROTECT(val=NEW_NUMERIC(l)); *UPC++;
+    i=0;
+    while (i<l) {
+      //printf("(*b=%x) setting index %d to %f\n",b,i,ptod(*((double*)b)));
+      NUMERIC_POINTER(val)[i]=ptod(*((double*)b));
+      i++; b+=2;
+    }
+    *buf=b;
+    break;
+  case XT_STR:
+  case XT_ARRAY_STR:
+    i=j=0;
+    c=(char*)(b+1);
+    while(i<ln) {
+      if (!*c) j++;
+      c++;
+      i++; 
+    };
+    PROTECT(val=NEW_STRING(j)); *UPC++;
+    i=j=0; cc=c;
+    while(i<ln) {
+      if (!*c) {
+	VECTOR_ELT(val,j)=mkChar(cc);
+	j++; cc=c+1;
+      }
+      c++; i++;
+    }
+    *buf=(int*)cc;
+    break;
+  }
+  return val;
+}
 
 int localonly=1;
 
@@ -483,6 +563,9 @@ void sigHandler(int i) {
 }
 #endif
 
+
+
+/* used for generating salt code (2x random from this array) */
 const char *code64="0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWYXZ01";
 
 decl_sbthread newConn(void *thp) {
@@ -801,6 +884,66 @@ decl_sbthread newConn(void *thp) {
       }
     }
 
+    if (ph.cmd==CMD_setSEXP || ph.cmd==CMD_assignSEXP) {
+      process=1;
+      if (pars<2 || PAR_TYPE(ptoi(*par[0]))!=DT_STRING) 
+	sendResp(s,SET_STAT(RESP_ERR,ERR_inv_par));
+      else {
+	SEXP val, sym=0;
+	int *sptr;
+	int parType=PAR_TYPE(ptoi(*par[1]));
+	int globalUPC=0;
+
+	c=(char*)(par[0]+1); /* name of the symbol */
+#ifdef RSERV_DEBUG
+	printf(">>CMD_set/assignREXP (%s, REXP)\n",c);
+#endif
+
+	if (ph.cmd==CMD_assignSEXP) {
+	  R_IoBufferInit(iob);
+	  R_IoBufferPuts(c,iob);
+	  sym=R_Parse1Buffer(iob,1,&stat);
+	  if (stat!=1) {
+#ifdef RSERV_DEBUG
+	    printf(">>CMD_assignREXP-failed to parse \"%s\", stat=%d\n",c,stat);
+#endif
+	    sendResp(s,SET_STAT(RESP_ERR,stat));
+	    goto respSt;
+	  };
+	}
+
+	switch (parType) {
+	case DT_STRING:
+#ifdef RSERV_DEBUG
+	  printf("  assigning string \"%s\"\n",((char*)(par[1]+1)));
+#endif
+	  PROTECT(val = allocVector(STRSXP,1));
+	  SET_STRING_ELT(val,0,mkChar((char*)(par[1]+1)));
+	  defineVar((sym)?sym:install(c),val,R_GlobalEnv);
+	  UNPROTECT(1);
+	  sendResp(s,RESP_OK);
+	  break;
+	case DT_SEXP:
+	  sptr=par[1]+1;
+	  val=decode_to_SEXP(&sptr,&globalUPC);
+	  if (val==0)
+	    sendResp(s,SET_STAT(RESP_ERR,ERR_inv_par));
+	  else {
+#ifdef RSERV_DEBUG
+	    printf("  assigning SEXP: ");
+	    printSEXP(val);
+#endif
+	    defineVar((sym)?sym:install(c),val,R_GlobalEnv);
+	    UNPROTECT(globalUPC);
+	    sendResp(s,RESP_OK);
+	  }
+	  break;
+	default:
+	  sendResp(s,SET_STAT(RESP_ERR,ERR_inv_par));
+	}
+      }
+    }
+
     if (ph.cmd==CMD_voidEval || ph.cmd==CMD_eval) {
       process=1;
       if (pars<1 || PAR_TYPE(ptoi(*par[0]))!=DT_STRING) 
@@ -831,7 +974,9 @@ decl_sbthread newConn(void *thp) {
           printf("R_tryEval(xp,R_GlobalEnv,&Rerror);\n");
 #endif
 	  Rerror=0;
+	  PROTECT(xp);
 	  exp=R_tryEval(xp,R_GlobalEnv,&Rerror);
+	  PROTECT(exp);
 #ifdef RSERV_DEBUG
 	  printf("buffer evaluated (Rerror=%d).\n",Rerror);
 	  if (!Rerror) printSEXP(exp);
@@ -849,12 +994,14 @@ decl_sbthread newConn(void *thp) {
 	      sendRespData(s,RESP_OK,tail-sendbuf,sendbuf);
 	    };
 	  };
+	  UNPROTECT(2);
 	};
 #ifdef RSERV_DEBUG
         printf("reply sent.\n");
 #endif
       };
     };
+  respSt:
 
     if (!process)
       sendResp(s,SET_STAT(RESP_ERR,ERR_inv_cmd));
@@ -972,8 +1119,10 @@ int main(int argc, char **argv)
   };
 
   R_IoBufferInit(&b);
+  /*
   R_IoBufferPuts("data(iris)\n",&b);
   r=R_Parse1Buffer(&b,1,&stat);r=Rf_eval(r,R_GlobalEnv);
+  */
   R_IoBufferPuts("\"Rserv: INVALID INPUT\"\n",&b);
   r=R_Parse1Buffer(&b,1,&stat);r=Rf_eval(r,R_GlobalEnv);
 #ifdef RSERV_DEBUG
