@@ -25,10 +25,10 @@ install:	$(XFILES)
 	cp Rserve.dbg $(Rbin)
 
 Rserve:	Rserv.c Rsrv.h
-	$(LINK.c) Rserv.c -o Rserve $(host_def) -DDAEMON -O -I$(Rincludes) -Iinclude -I$(port) $(linkR) -L$(Rlib) $(LIBS)
+	$(LINK.c) Rserv.c -o Rserve $(host_def) $(PKG_CFLAGS) -DDAEMON -O -I$(Rincludes) -Iinclude -I$(port) $(linkR) -L$(Rlib) $(LIBS)
 
 Rserve.dbg:	Rserv.c Rsrv.h
-	$(LINK.c) Rserv.c -o Rserve.dbg $(host_def) -DRSERV_DEBUG -I$(Rincludes) -Iinclude -I$(port) $(linkR) -L$(Rlib) $(LIBS) $(RDFLAGS) -g
+	$(LINK.c) Rserv.c -o Rserve.dbg $(host_def) $(PKG_CFLAGS) -DRSERV_DEBUG -I$(Rincludes) -Iinclude -I$(port) $(linkR) -L$(Rlib) $(LIBS) $(RDFLAGS) -g
 
 Rcli:	Rcli.c Rsrv.h
 	$(LINK.c) Rcli.c -o Rcli $(host_def) -I$(port) $(linkRln) $(LIBS)
