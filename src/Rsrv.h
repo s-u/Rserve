@@ -57,6 +57,8 @@ struct phdr { /* always 16 bytes */
 #define ERR_conn_broken      0x42 /* connection closed or broken packet killed it */
 #define ERR_inv_cmd          0x43 /* unsupported/invalid command */
 #define ERR_inv_par          0x44 /* some pars are invalid */
+#define ERR_Rerror           0x45 /* R-error occured, usually followed by
+				     connection shutdown */
 
 #define CMD_login    0x001 /* name, pwd : - */
 #define CMD_voidEval 0x002 /* string : - */
@@ -78,6 +80,7 @@ struct phdr { /* always 16 bytes */
 #define XT_STR           3 /* null-term. strg. */
 #define XT_LANG          4 /* lang XP */
 #define XT_SYM           5 /* symbol */
+#define XT_BOOL          6 /* boolean */
 
 #define XT_VECTOR        16 /* of any Xs */
 #define XT_LIST          17 /* X head, X vals */
@@ -85,10 +88,15 @@ struct phdr { /* always 16 bytes */
 #define XT_ARRAY_INT     32
 #define XT_ARRAY_DOUBLE  33
 #define XT_ARRAY_STR     34
+#define XT_ARRAY_BOOL    35
 
 #define XT_UNKNOWN       48
 
 #define XT_HAS_ATTR      128
+
+#define BOOL_TRUE  1
+#define BOOL_FALSE 0
+#define BOOL_NA    2
 
 #define GET_XT(X) ((X)&127)
 #define HAS_ATTR(X) (((X)&XT_HAS_ATTR)>0)

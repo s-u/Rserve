@@ -63,28 +63,6 @@
 int port = default_Rsrv_port;
 int active = 1;
 
-char **top_argv;
-int top_argc;
-
-void jump_now()
-{
-  extern void Rf_resetStack(int topLevel);
-  fprintf(stderr, "Handling R error locally\n");
-  //Rf_resetStack(1);
-  //elog(ERROR, "Error in R");
-}
-
-char *getParseName(int n) {
-  switch(n) {
-  case PARSE_NULL: return "null";
-  case PARSE_OK: return "ok";
-  case PARSE_INCOMPLETE: return "incomplete";
-  case PARSE_ERROR: return "error";
-  case PARSE_EOF: return "EOF";
-  };
-  return "<unknown>";
-};
-
 #ifdef SWAPEND  /* swap endianness - for PPC and co. */
 int itop(int i) { char b[4]; b[0]=((char*)&i)[3]; b[3]=((char*)&i)[0]; b[1]=((char*)&i)[2]; b[2]=((char*)&i)[1]; return *((int*)b); };
 double dtop(double i) { char b[8]; b[0]=((char*)&i)[7]; b[1]=((char*)&i)[6]; b[2]=((char*)&i)[5]; b[3]=((char*)&i)[4]; b[7]=((char*)&i)[0]; b[6]=((char*)&i)[1]; b[5]=((char*)&i)[2]; b[4]=((char*)&i)[3]; return *((double*)b); };
@@ -97,15 +75,10 @@ double dtop(double i) { char b[8]; b[0]=((char*)&i)[7]; b[1]=((char*)&i)[6]; b[2
 #define ptod(X) (X)
 #endif
 
-struct tenc {
-  int ptr;
-  int *id[256];
-  int ty[256];
-  int *buf;
-};
+char **top_argv;
+int top_argc;
 
-#define attrFixup if (hasAttr) buf=storeSEXP(buf,ATTRIB(x));
-#define dist(A,B) (((int)(((char*)B)-((char*)A)))-4)
+SOCKET csock=-1;
 
 #ifdef DEBUG
 void printDump(void *b, int len) {
@@ -121,6 +94,53 @@ void printDump(void *b, int len) {
   printf("\n");
 };
 #endif
+
+void sendResp(int s, int rsp) {
+  struct phdr ph;
+  memset(&ph,0,sizeof(ph));
+  ph.cmd=itop(rsp|CMD_RESP);
+#ifdef DEBUG
+  printf("OUT.sendResp(void data)\n");
+  printDump(&ph,sizeof(ph));
+#endif
+  send(s,&ph,sizeof(ph),0);
+};
+
+void jump_now()
+{
+  /* on error - close connection and get outa here */
+  if (csock!=-1) {
+    sendResp(csock,SET_STAT(RESP_ERR,ERR_Rerror));
+    closesocket(csock);
+  };
+  exit(0);
+  
+  //extern void Rf_resetStack(int topLevel);
+  //fprintf(stderr, "Handling R error locally\n");
+  //Rf_resetStack(1);
+  //elog(ERROR, "Error in R");
+}
+
+char *getParseName(int n) {
+  switch(n) {
+  case PARSE_NULL: return "null";
+  case PARSE_OK: return "ok";
+  case PARSE_INCOMPLETE: return "incomplete";
+  case PARSE_ERROR: return "error";
+  case PARSE_EOF: return "EOF";
+  };
+  return "<unknown>";
+};
+
+struct tenc {
+  int ptr;
+  int *id[256];
+  int ty[256];
+  int *buf;
+};
+
+#define attrFixup if (hasAttr) buf=storeSEXP(buf,ATTRIB(x));
+#define dist(A,B) (((int)(((char*)B)-((char*)A)))-4)
 
 int* storeSEXP(int* buf, SEXP x) {
   int t=TYPEOF(x);
@@ -171,6 +191,20 @@ int* storeSEXP(int* buf, SEXP x) {
       attrFixup;
       *((double*)buf)=dtop(*REAL(x));
       buf=(int*)(((double*)buf)+1);
+    };
+    goto didit;
+  };
+
+  if (t==LGLSXP) {
+    *buf=itop(((LENGTH(x)>1)?XT_ARRAY_BOOL:XT_BOOL)|hasAttr);
+    buf++;
+    attrFixup;
+    i=0;
+    while(i<LENGTH(x)) {
+      int bv=(int)VECTOR_ELT(x,i);
+      *((unsigned char*)buf)=(bv==0)?0:(bv==1)?1:2;
+      buf=(int*)(((unsigned char*)buf)+1);
+      i++;
     };
     goto didit;
   };
@@ -324,17 +358,6 @@ struct args {
   SAIN sa;
 };
 
-void sendResp(int s, int rsp) {
-  struct phdr ph;
-  memset(&ph,0,sizeof(ph));
-  ph.cmd=itop(rsp|CMD_RESP);
-#ifdef DEBUG
-  printf("OUT.sendResp(void data)\n");
-  printDump(&ph,sizeof(ph));
-#endif
-  send(s,&ph,sizeof(ph),0);
-};
-
 void sendRespData(int s, int rsp, int len, void *buf) {
   struct phdr ph;
   memset(&ph,0,sizeof(ph));
@@ -387,12 +410,18 @@ decl_sbthread newConn(void *thp) {
 #endif
   s=a->s;
   free(a);
+
+#ifndef THREADED /* in all but threaded environments we can keep the
+		    current socket globally for R-error handler */
+  csock=s;
+#endif
+
   send(s,IDstring,32,0);
   while((n=recv(s,&ph,sizeof(ph),0))==sizeof(ph)) {
 #ifdef DEBUG
     printf("header read result: %d\n",n);
     if (n>0) printDump(&ph,n);
-#endif DEBUG
+#endif
     ph.len=ptoi(ph.len);
     ph.cmd=ptoi(ph.cmd);
     ph.dof=ptoi(ph.dof);
