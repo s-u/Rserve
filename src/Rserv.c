@@ -135,6 +135,7 @@
 /* we have no configure for Win32 so we have to take care of socklen_t */
 #ifdef Win32
 typedef int socklen_t;
+#define CAN_TCP_NODELAY
 #endif
 
 #include <stdio.h>
@@ -963,7 +964,7 @@ decl_sbthread newConn(void *thp) {
 #ifdef CAN_TCP_NODELAY
   {
       int opt=1;
-      setsockopt(s, IPPROTO_TCP, TCP_NODELAY, &opt, sizeof(opt));
+      setsockopt(s, IPPROTO_TCP, TCP_NODELAY, (const char*) &opt, sizeof(opt));
   }
 #endif
                     

@@ -38,6 +38,10 @@
 #include <netinet/tcp.h>
 #include <netinet/in.h>
 #endif
+#ifdef Win32
+#define CAN_TCP_NODELAY
+#endif
+
 #include "Rsrv.h"
 
 #ifndef AF_LOCAL
@@ -484,7 +488,7 @@ int Rconnection::connect() {
     if (family==AF_INET) {
 #ifdef CAN_TCP_NODELAY
         int opt=1;
-        setsockopt(s, IPPROTO_TCP, TCP_NODELAY, &opt, sizeof(opt));
+        setsockopt(s, IPPROTO_TCP, TCP_NODELAY, (const char*) &opt, sizeof(opt));
 #endif
         i=::connect(s,(SA*)&sai,sizeof(sai));
     }
