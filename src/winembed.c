@@ -177,8 +177,10 @@ int Rf_initEmbeddedR(int argc, char **argv)
     Rp->R_Interactive = FALSE;
     Rp->RestoreAction = SA_RESTORE;
     Rp->SaveAction = SA_NOSAVE;
+#if R_VERSION < 0x2000
     Rp->CommandLineArgs = NULL;
     Rp->NumCommandLineArgs = 0;
+#endif
     /* Rp->nsize = 300000;
        Rp->vsize = 6e6; */
     R_SetParams(Rp); /* so R_ShowMessage is set */
