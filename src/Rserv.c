@@ -529,6 +529,9 @@ int authReq=0;
 /* use plain password flag (default: no) */
 int usePlain=0;
 
+/* max. size of the input buffer (per connection) */
+int maxInBuf=16*(1024*1024); /* default is 16MB maximum */
+
 /* load config file */
 int loadConfig(char *fn)
 {
@@ -554,6 +557,19 @@ int loadConfig(char *fn)
       while(*c1) if(*c1=='\n'||*c1=='\r') *c1=0; else c1++;
       if (!strcmp(c,"remote"))
 	localonly=(*p=='1' || *p=='y' || *p=='e')?0:1;
+      if (!strcmp(c,"port")) {
+	if (*p) {
+	  int np=atoi(p);
+	  if (np>0) port=np;
+	}
+      }
+      if (!strcmp(c,"maxinbuf")) {
+	if (*p) {
+	  int ns=atoi(p);
+	  if (ns>32)
+	    maxInBuf=ns*1024;
+	}
+      }
       if (!strcmp(c,"workdir")) {
 	if (*p) {
 	  workdir=(char*)malloc(strlen(p)+1);
@@ -597,8 +613,6 @@ int loadConfig(char *fn)
 */
 
 int inBuf=32768; /* 32kB should be ok unless CMD_assign sends large data */
-
-int maxInBuf=16*(1024*1024); /* default is 16MB maximum */
 
 /* static buffer size used for file transfer.
    The user is still free to allocate its own size  */
@@ -1296,17 +1310,18 @@ int main(int argc, char **argv)
 	  loadConfig(argv[++i]);
       }
       if (!strcmp(argv[i]+2,"RS-settings")) {
-	printf("Rserve v%d.%d-%d\n\nconfig file: %s\nworking root: %s\nport: %d\nlocal socket: %s\nauthorization required: %s\nplain text password: %s\npasswords file: %s\nallow I/O: %s\n\n",
+	printf("Rserve v%d.%d-%d\n\nconfig file: %s\nworking root: %s\nport: %d\nlocal socket: %s\nauthorization required: %s\nplain text password: %s\npasswords file: %s\nallow I/O: %s\nmax.input buffer size: %d kB\n\n",
 	       RSRV_VER>>16,(RSRV_VER>>8)&255,RSRV_VER&255,
 	       CONFIG_FILE,workdir,port,localSocketName?localSocketName:"[none, TCP/IP used]",
-	       authReq?"yes":"no",usePlain?"allowed":"not allowed",pwdfile?pwdfile:"[none]",allowIO?"yes":"no");
+	       authReq?"yes":"no",usePlain?"allowed":"not allowed",pwdfile?pwdfile:"[none]",allowIO?"yes":"no",
+	       maxInBuf/1024);
 	return 0;	       
       }
       if (!strcmp(argv[i]+2,"version")) {
 	printf("Rserve v%d.%d-%d\n",RSRV_VER>>16,(RSRV_VER>>8)&255,RSRV_VER&255);
       }
       if (!strcmp(argv[i]+2,"help")) {
-	printf("Usage: R CMD Rserve [<options>]\n\nOptions: --help  this help screen\n --version  prints Rserve version (also passed to R)\n --RS-port <port> listen on the specified TCP port\n --RS-socket <socket> use specified local (unix) socket instead of TCP/IP. --RS-workdir <path> use specified working directory root for connections.\n --RS-conf <file> load additional config file.\n --RS-settings  dumps current settings of the Rserve\n\nAll other options are passed to the R engine.\n\n");
+	printf("Usage: R CMD Rserve [<options>]\n\nOptions: --help  this help screen\n --version  prints Rserve version (also passed to R)\n --RS-port <port> listen on the specified TCP port\n --RS-socket <socket> use specified local (unix) socket instead of TCP/IP.\n --RS-workdir <path> use specified working directory root for connections.\n --RS-conf <file> load additional config file.\n --RS-settings  dumps current settings of the Rserve\n\nAll other options are passed to the R engine.\n\n");
 	return 0;
       }
     }
