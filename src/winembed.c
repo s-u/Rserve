@@ -29,6 +29,8 @@
 #include <config.h>
 #include "Rversion.h"
 #include "Startup.h"
+#include "Defn.h"
+
 /* for askok and askyesnocancel */
 #include "graphapp/graphapp.h"
 
@@ -85,11 +87,14 @@ static void my_onintr(int sig)
     UserBreak = 1;
 }
 
+static char Rversion[25], RUser[MAX_PATH], RHome[MAX_PATH];
+
 int Rf_initEmbeddedR(int argc, char **argv)
 {
     structRstart rp;
     Rstart Rp = &rp;
-    char Rversion[25], RUser[MAX_PATH], RHome[MAX_PATH], *p;
+    char *p;
+    char rhb[MAX_PATH+10];
    LONG h;
    DWORD t,s=MAX_PATH;
    HKEY k;
@@ -109,9 +114,10 @@ int Rf_initEmbeddedR(int argc, char **argv)
 	fprintf(stderr, "R_HOME must be set or R properly installed (\\Software\\R-core\\R\\InstallPath registry entry must exist).\n");
 	return -2;
       };
+      sprintf(rhb,"R_HOME=%s",RHome);
+      putenv(rhb);
     }
-    Rp->rhome = RHome;
-
+    R_Home = Rp->rhome = RHome;
  /*
  * try R_USER then HOME then working directory
  */
