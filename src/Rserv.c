@@ -632,14 +632,14 @@ SEXP decode_to_SEXP(unsigned int **buf, int *UPC)
   case XT_STR:
   case XT_ARRAY_STR:
     i=j=0;
-    c=(char*)(b+1);
+    c=(char*)(b);
     while(i<ln) {
       if (!*c) j++;
       c++;
       i++; 
     };
     PROTECT(val=NEW_STRING(j)); *UPC++;
-    i=j=0; cc=c;
+    i=j=0; c=(char*)b; cc=c;
     while(i<ln) {
       if (!*c) {
 	VECTOR_ELT(val,j)=mkChar(cc);
