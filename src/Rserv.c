@@ -250,7 +250,9 @@ rsdist_t getStorageSize(SEXP x) {
   unsigned int tl=LENGTH(x);
   rsdist_t len=4;
   
+#ifdef RSERV_DEBUG
   printf("getStorageSize(type=%d,len=%d)\n",t,tl);
+#endif
   if (TYPEOF(ATTRIB(x))>0) {
     rsdist_t alen=getStorageSize(ATTRIB(x));
     len+=alen;
@@ -842,7 +844,11 @@ decl_sbthread newConn(void *thp) {
   FILE *cf=0;
 
 #ifdef FORKED  
-  if ((lastChild=fork())!=0) return;
+  if ((lastChild=fork())!=0) {
+    /* close the connection socket - the child has it already */
+    closesocket(a->s);
+    return;
+  }
   parentPID=getppid();
   closesocket(a->ss); /* close server socket */
 #endif
