@@ -893,6 +893,7 @@ decl_sbthread newConn(void *thp) {
   int Rerror;
   char wdname[512];
   int authed=0;
+  int unaligned=0;
   char salt[5];
   rlen_t tempSB=0;
 
@@ -1006,6 +1007,7 @@ decl_sbthread newConn(void *thp) {
 	if (i<ph.len) break;
 	memset(buf+ph.len,0,8);
 	
+        unaligned=0;
 #ifdef RSERV_DEBUG
 	printf("parsing parameters\n");
 	if (ph.len>0) printDump(buf,ph.len);
@@ -1024,16 +1026,17 @@ decl_sbthread newConn(void *thp) {
 	  printf("PAR[%d]: %08x (PAR_LEN=%d, PAR_TYPE=%d, large=%s)\n",pars,i,parLen,parType,(headSize==8)?"yes":"no");
 #endif
 #ifdef sun
-	  if (parLen&3) { /* on Sun machines it is deadly to process unaligned parameters,
-                                 therefore we respond with ERR_inv_par */
+	  if (unaligned) { /* on Sun machines it is deadly to process unaligned parameters,
+              therefore we respond with ERR_inv_par */
 #ifdef RSERV_DEBUG
-	    printf("Sun specific: parameter %d of length %d would result in unaligned stream, sending ERR_inv_par.\n",pars,parLen);
+              printf("Sun specific: last parameter resulted in unaligned stream for the current one, sending ERR_inv_par.\n");
 #endif
-	    sendResp(s,SET_STAT(RESP_ERR,ERR_inv_par));
-	    process=1; ph.cmd=0;
-	    break;
+              sendResp(s,SET_STAT(RESP_ERR,ERR_inv_par));
+              process=1; ph.cmd=0;
+              break;
 	  }
 #endif
+	  if (parLen&3) unaligned=1;         
 	  parT[pars]=parType;
 	  parL[pars]=parLen;
 	  parP[pars]=c+headSize;
