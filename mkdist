@@ -1,0 +1,47 @@
+#!/bin/sh
+
+SWD=`pwd`
+echo "Removing previous dist ..."
+rm -rf /tmp/Rserve
+echo "Copying package base ..."
+cp -r ../Rserve /tmp
+
+echo "Copying source ..."
+if [ ! -e ../../../C/R/Rserv.c ]; then
+   echo "Can't find sources! Check out both R and C modules! (need C/R and C/portcode)"
+   exit 1
+fi
+cp ../../../C/R/Rserv.c /tmp/Rserve/src
+cp ../../../C/R/Rsrv.h /tmp/Rserve/src
+cp ../../../C/R/Rcli.c /tmp/Rserve/src
+cp ../../../C/R/configure.ac /tmp/Rserve/
+cp ../../../C/portcode/sbthread.h /tmp/Rserve/src
+cp ../../../C/portcode/sisocks.h /tmp/Rserve/src
+touch /tmp/Rserve/src/dummy.so
+rm /tmp/Rserve/mkdist
+
+echo "Running autoconf ..."
+cd /tmp/Rserve
+mkdir inst
+autoheader
+autoconf
+rm -rf autom4te*
+echo "Removing CVS stuff ..."
+rm -rf `find . -name CVS`
+echo "Updating INDEX ..."
+cd ..
+R CMD Rdindex Rserve > Rserve/INDEX
+echo "Updating version ..."
+cd Rserve
+VER=`awk -v ORS= '/Rserve v/ { print substr($6,2) }' src/Rsrv.h`
+echo "Rserve version ${VER}"
+cat DESCRIPTION| sed "s/Version:.*/Version: ${VER}/" > d
+mv d DESCRIPTION
+echo "Creating package ..."
+cd ..
+tar fcz Rserve_${VER}.tar.gz Rserve
+cd ${SWD}
+mv /tmp/Rserve_${VER}.tar.gz ..
+rm -rf /tmp/Rserve
+echo "Done."
+ls -l ../Rserve_${VER}.tar.gz
