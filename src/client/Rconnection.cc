@@ -28,7 +28,11 @@
 
 #include <stdio.h>
 #include <sisocks.h>
+#ifdef unix
 #include <sys/un.h>
+#else
+#define AF_LOCAL -1
+#endif
 #include "Rsrv.h"
 
 static char *myID= "Rsrv0102QAP1"; /* this client supports up to protocol version 0102 */
@@ -97,7 +101,7 @@ Rmessage::~Rmessage() {
     
 int Rmessage::read(int s) {
     complete=0;
-    int n=recv(s,&head,sizeof(head),0);
+    int n=recv(s,(char*)&head,sizeof(head),0);
     if (n!=sizeof(head)) {
         closesocket(s); s=-1;
         return (n==0)?-7:-8;
@@ -110,7 +114,7 @@ int Rmessage::read(int s) {
             char sb[256];
         int k=head.dof;
         while (k>0) {
-            n=recv(s,sb,(k>256)?256:k,0);
+            n=recv(s,(char*)sb,(k>256)?256:k,0);
             if (n<1) {
                 closesocket(s); s=-1;
                 return -8; // malformed packet
@@ -125,7 +129,7 @@ int Rmessage::read(int s) {
             return -10; // out of memory
         }
         char *dp=data;
-        while((n=recv(s,dp,i,0))>0) {
+        while(i>0 && (n=recv(s,(char*)dp,i,0))>0) {
             dp+=n;
             i-=n;
         }
@@ -168,7 +172,7 @@ int Rmessage::send(int s) {
     head.len=itop(head.len);
     head.dof=itop(head.dof);
     head.res=itop(head.res);
-    if (::send(s,&head,sizeof(head),0)!=sizeof(head))
+    if (::send(s,(char*)&head,sizeof(head),0)!=sizeof(head))
         failed=-1;
     if (!failed && len>0 && ::send(s,data,len,0)!=len)
         failed=-1;
@@ -445,7 +449,9 @@ Rconnection::~Rconnection() {
 }
     
 int Rconnection::connect() {
+#ifdef unix
     struct sockaddr_un sau;
+#endif
     SAIN sai;
     char IDstring[33];
     
@@ -453,9 +459,13 @@ int Rconnection::connect() {
         memset(&sai,0,sizeof(sai));
         build_sin(&sai,host,port);
     } else {
+#ifdef unix
         memset(&sau,0,sizeof(sau));
         sau.sun_family=AF_LOCAL;
         strcpy(sau.sun_path,host); // FIXME: possible overflow!
+#else
+	return -11;  // unsupported
+#endif
     }
     
     IDstring[32]=0;
@@ -464,8 +474,10 @@ int Rconnection::connect() {
     s=socket(family,SOCK_STREAM,0);
     if (family==AF_INET)
         i=::connect(s,(SA*)&sai,sizeof(sai));
+#ifdef unix
     else
         i=::connect(s,(SA*)&sau,sizeof(sau));
+#endif
     if (i==-1) {
         closesocket(s); s=-1;
         return -1; // connect failed
@@ -504,11 +516,11 @@ int Rconnection::request(Rmessage *msg, int cmd, int len, void *par) {
     memset(&ph,0,sizeof(ph));
     ph.len=itop(len);
     ph.cmd=itop(cmd);
-    if (send(s,&ph,sizeof(ph),0)!=sizeof(ph)) {
+    if (send(s,(char*)&ph,sizeof(ph),0)!=sizeof(ph)) {
         closesocket(s); s=-1;
         return -9;
     }
-    if (len>0 && send(s,par,len,0)!=len) {
+    if (len>0 && send(s,(char*)par,len,0)!=len) {
         closesocket(s); s=-1;
         return -9;
     }
