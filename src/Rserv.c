@@ -675,7 +675,7 @@ int main(int argc, char **argv)
   top_argc=argc; top_argv=argv;
 
   stat=Rf_initEmbeddedR(top_argc,top_argv);
-  if (stat) {
+  if (stat<0) {
     printf("Failed to initialize embedded R! (stat=%d)\n",stat);
     return -1;
   };
@@ -685,6 +685,8 @@ int main(int argc, char **argv)
   r=R_Parse1Buffer(&b,1,&stat);r=Rf_eval(r,R_GlobalEnv);
   R_IoBufferPuts("\"Rserv: INVALID INPUT\"\n",&b);
   r=R_Parse1Buffer(&b,1,&stat);r=Rf_eval(r,R_GlobalEnv);
-      
+#ifdef DEBUG
+  printf("Ok, ready to answer queries.\n");
+#endif      
   serverLoop();
 };
