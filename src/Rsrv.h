@@ -28,7 +28,7 @@
 
 #include "config.h"
 
-#define RSRV_VER 0x00030F /* Rserve v0.3-15 */
+#define RSRV_VER 0x000310 /* Rserve v0.3-16 */
 
 #define default_Rsrv_port 6311
 

@@ -90,6 +90,8 @@
    uid <uid>
    gid <gid>
 
+   source <file>
+   eval <expression(s)>
 
    A note about security: Anyone with access to R has access to the shell
    via "system" command, so you should consider following rules:
@@ -692,6 +694,11 @@ int usePlain=0;
 /* max. size of the input buffer (per connection) */
 int maxInBuf=256*(1024*1024); /* default is 256MB */
 
+struct source_entry {
+  struct source_entry* next;
+  char line[8];
+} *src_list=0, *src_tail=0;
+
 /* load config file */
 int loadConfig(char *fn)
 {
@@ -699,11 +706,16 @@ int loadConfig(char *fn)
   char buf[512];
   char *c,*p,*c1;
 
-  f=fopen(fn,"r");
-  if (!f) return -1;
 #ifdef RSERV_DEBUG
-  printf("Loading config file %s\n",CONFIG_FILE);
+  printf("Loading config file %s\n",fn);
 #endif
+  f=fopen(fn,"r");
+  if (!f) {
+#ifdef RSERV_DEBUG
+    printf("Failed to find config file %s\n",fn);
+#endif
+    return -1;
+  }
   buf[511]=0;
   while(!feof(f))
     if (fgets(buf,511,f)) {
@@ -718,6 +730,9 @@ int loadConfig(char *fn)
       }
       c1=p;
       while(*c1) if(*c1=='\n'||*c1=='\r') *c1=0; else c1++;
+#ifdef RSERV_DEBUG
+      printf("conf> command=\"%s\", parameter=\"%s\"\n", c, p);
+#endif
       if (!strcmp(c,"remote"))
 	localonly=(*p=='1' || *p=='y' || *p=='e')?0:1;
       if (!strcmp(c,"port")) {
@@ -731,6 +746,27 @@ int loadConfig(char *fn)
 	  int ns=atoi(p);
 	  if (ns>32)
 	    maxInBuf=ns*1024;
+	}
+      }
+      if (!strcmp(c,"source") || !strcmp(c,"eval")) {
+#ifdef RSERV_DEBUG
+	  printf("Found source entry \"%s\"\n", p);
+#endif
+	if (*p) {
+	  struct source_entry* se= (struct source_entry*) malloc(sizeof(struct source_entry)+strlen(p)+16);
+	  if (!strcmp(c,"source")) {
+	    strcpy(se->line, "try(source(\"");
+	    strcat(se->line, p);
+	    strcat(se->line, "\"))");
+	  } else
+	    strcpy(se->line, p);
+	  se->next=0;
+	  if (!src_tail)
+	    src_tail=src_list=se;
+	  else {
+	    src_tail->next=se;
+	    src_tail=se;
+	  }
 	}
       }
       if (!strcmp(c,"maxsendbuf")) {
@@ -785,7 +821,7 @@ int loadConfig(char *fn)
   }
 #endif
 #ifdef RSERV_DEBUG
-  printf("Loaded config file %s\n",CONFIG_FILE);
+  printf("Loaded config file %s\n",fn);
 #endif
   return 0;
 }
@@ -862,6 +898,53 @@ SEXP parseExps(char *s, int exps, ParseStatus *status) {
   pr=R_ParseVector(cv, 1, status);
   UNPROTECT(1);
   return pr;
+}
+
+void voidEval(char *cmd) {
+  ParseStatus stat;
+  int Rerror;
+  int j=0;
+  SEXP xp=parseString(cmd,&j,&stat);
+
+  PROTECT(xp);
+#ifdef RSERV_DEBUG
+  printf("voidEval: buffer parsed, stat=%d, parts=%d\n",stat,j);
+  if (xp)
+    printf("result type: %d, length: %d\n",TYPEOF(xp),LENGTH(xp));
+  else
+    printf("result is <null>\n");
+#endif
+  if (stat!=1) {
+    UNPROTECT(1);
+    return;
+  } else {
+    SEXP exp=R_NilValue;
+#ifdef RSERV_DEBUG
+    printf("R_tryEval(xp,R_GlobalEnv,&Rerror);\n");
+#endif
+    if (TYPEOF(xp)==EXPRSXP && LENGTH(xp)>0) {
+      int bi=0;
+      while (bi<LENGTH(xp)) {
+	SEXP pxp=VECTOR_ELT(xp, bi);
+	Rerror=0;
+#ifdef RSERV_DEBUG
+	printf("Calling R_tryEval for expression %d [type=%d] ...\n",bi+1,TYPEOF(pxp));
+#endif
+	exp=R_tryEval(pxp, R_GlobalEnv, &Rerror);
+	bi++;
+#ifdef RSERV_DEBUG
+	printf("Expression %d, error code: %d\n",bi, Rerror);
+	if (Rerror) printf(">> early error, aborting further evaluations\n");
+#endif
+	if (Rerror) break;
+      }
+    } else {
+      Rerror=0;
+      exp=R_tryEval(xp, R_GlobalEnv, &Rerror);
+    }
+    UNPROTECT(1);
+  }
+  return;
 }
 
 /* working thread/function. the parameter is of the type struct args* */
@@ -1735,6 +1818,22 @@ int main(int argc, char **argv)
     return -1;
   };
 
+  if (src_list) { /* do any sourcing if necessary */
+    struct source_entry *se=src_list;
+#ifdef RSERV_DEBUG
+    printf("Executing source/eval commands from the config file.\n");
+#endif
+    while (se) {
+#ifdef RSERV_DEBUG
+      printf("voidEval(\"%s\")\n", se->line);
+#endif
+      voidEval(se->line);
+      se=se->next;
+    }
+#ifdef RSERV_DEBUG
+    printf("Done with initial commands.\n");
+#endif
+  }
 #if defined RSERV_DEBUG || defined Win32
   printf("Rserve: Ok, ready to answer queries.\n");
 #endif      
