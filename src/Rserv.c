@@ -158,7 +158,6 @@ typedef int socklen_t;
 #include <R.h>
 #include <Rinternals.h>
 #include <Rdefines.h>
-#include <IOStuff.h>
 #include <Parse.h>
 #include "Rsrv.h"
 #ifdef HAVE_CRYPT_H
@@ -583,10 +582,6 @@ void printSEXP(SEXP e) /* merely for debugging purposes
   printf("Unknown type: %d\n",t);
 };
 
-void printBufInfo(IoBuffer *b) {
-  printf("read-off: %d, write-off: %d\n",b->read_offset,b->write_offset);
-};
-
 /* decode_toSEXP is used to decode SEXPs from binary form and create
    corresponding objects in R. UPC is a pointer to a counter of
    UNPROTECT calls which will be necessary after we're done.
@@ -836,6 +831,43 @@ void sigHandler(int i) {
 /* used for generating salt code (2x random from this array) */
 const char *code64="0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWYXZ01";
 
+/** parses a string, stores the number of expressions in parts and the resulting statis in status.
+    the returned SEXP may contain multiple expressions */ 
+SEXP parseString(char *s, int *parts, ParseStatus *status) {
+  int maxParts=1;
+  char *c=s;
+  SEXP cv, pr;
+
+  while (*c) {
+    if (*c=='\n' || *c==';') maxParts++;
+    c++;
+  }
+
+  PROTECT(cv=allocVector(STRSXP, 1));
+  SET_VECTOR_ELT(cv, 0, mkChar(s));  
+
+  while (maxParts>0) {
+    pr=R_ParseVector(cv, maxParts, status);
+    if (*status!=PARSE_INCOMPLETE && *status!=PARSE_EOF) break;
+    maxParts--;
+  }
+  UNPROTECT(1);
+  *parts=maxParts;
+
+  return pr;
+}
+
+/** parse a string containing the specified number of expressions */
+SEXP parseExps(char *s, int exps, ParseStatus *status) {
+  SEXP cv, pr;
+
+  PROTECT(cv=allocVector(STRSXP, 1));
+  SET_VECTOR_ELT(cv, 0, mkChar(s));  
+  pr=R_ParseVector(cv, 1, status);
+  UNPROTECT(1);
+  return pr;
+}
+
 /* working thread/function. the parameter is of the type struct args* */
 decl_sbthread newConn(void *thp) {
   SOCKET s;
@@ -862,7 +894,6 @@ decl_sbthread newConn(void *thp) {
   rlen_t parL[16];
   void *parP[16];
   
-  IoBuffer *iob;
   SEXP xp,exp;
   FILE *cf=0;
 
@@ -902,7 +933,6 @@ decl_sbthread newConn(void *thp) {
   }
 #endif
 
-  iob=(IoBuffer*)malloc(sizeof(*iob));
   sendBufSize=sndBS;
   sendbuf=(char*)malloc(sendBufSize);
 #ifdef RSERV_DEBUG
@@ -954,7 +984,7 @@ decl_sbthread newConn(void *thp) {
 	    fprintf(stderr,"FATAL: out of memory while resizing buffer to %d,\n",inBuf);
 #endif
 	    sendResp(s,SET_STAT(RESP_ERR,ERR_out_of_mem));
-	    free(sendbuf); free(iob); free(sfbuf);
+	    free(sendbuf); free(sfbuf);
 	    closesocket(s);
 	    return;
 	  }	    
@@ -1095,7 +1125,7 @@ decl_sbthread newConn(void *thp) {
     if (authReq && !authed) {
       sendResp(s,SET_STAT(RESP_ERR,ERR_auth_failed));
       closesocket(s);
-      free(sendbuf); free(iob); free(sfbuf); free(buf);
+      free(sendbuf); free(sfbuf); free(buf);
       return;
     };      
 
@@ -1106,7 +1136,7 @@ decl_sbthread newConn(void *thp) {
 #endif
       active=0;
       closesocket(s);
-      free(sendbuf); free(iob); free(sfbuf); free(buf);
+      free(sendbuf); free(sfbuf); free(buf);
 #ifdef FORKED
       if (parentPID>0) kill(parentPID,SIGTERM);
       exit(0);
@@ -1132,7 +1162,7 @@ decl_sbthread newConn(void *thp) {
 	    fprintf(stderr,"FATAL: out of memory while resizing send buffer to %d,\n",sendBufSize);
 #endif
 	    sendResp(s,SET_STAT(RESP_ERR,ERR_out_of_mem));
-	    free(buf); free(iob); free(sfbuf);
+	    free(buf); free(sfbuf);
 	    closesocket(s);
 	    return;
 	  }
@@ -1252,6 +1282,8 @@ decl_sbthread newConn(void *thp) {
       }
     }
 
+    /*--- CMD_setSEXP / CMD_assignSEXP ---*/
+
     if (ph.cmd==CMD_setSEXP || ph.cmd==CMD_assignSEXP) {
       process=1;
       if (pars<2 || parT[0]!=DT_STRING) 
@@ -1269,16 +1301,18 @@ decl_sbthread newConn(void *thp) {
 #endif
 
 	if (ph.cmd==CMD_assignSEXP) {
-	  R_IoBufferInit(iob);
-	  R_IoBufferPuts(c,iob);
-	  sym=R_Parse1Buffer(iob,1,&stat);
+	  sym=parseExps(c,1,&stat);
 	  if (stat!=1) {
 #ifdef RSERV_DEBUG
 	    printf(">>CMD_assignREXP-failed to parse \"%s\", stat=%d\n",c,stat);
 #endif
 	    sendResp(s,SET_STAT(RESP_ERR,stat));
 	    goto respSt;
-	  };
+	  }
+	  if (TYPEOF(sym)==EXPRSXP && LENGTH(sym)>0) {
+	    sym=VECTOR_ELT(sym,0);
+	    /* we should de-allocate the vector here .. if we can .. */
+	  }
 	}
 
 	switch (parType) {
@@ -1322,35 +1356,49 @@ decl_sbthread newConn(void *thp) {
 	sendResp(s,SET_STAT(RESP_ERR,ERR_inv_par));
       else {
 	c=(char*)parP[0];
-	i=j=0; /* count the lines to pass the right parameter to parse
-		  the string should contain a trainig \n !! */
-	while(c[i]) if(c[i++]=='\n') j++;
-#ifdef RSERV_DEBUG	
-	printf("R_IoBufferPuts(\"%s\",iob)\n",c);
-#endif
-	/* R_IoBufferWriteReset(iob);
-	   R_IoBufferReadReset(iob); */
-	R_IoBufferInit(iob);
-	R_IoBufferPuts(c,iob);
 #ifdef RSERV_DEBUG
-	printf("R_Parse1Buffer(iob,%d,&stat)\n",j);
+	printf("parseString(\"%s\")\n",c);
 #endif
-	xp=R_Parse1Buffer(iob,j,&stat);
+	j=0;
+	xp=parseString(c,&j,&stat);
+	PROTECT(xp);
 #ifdef RSERV_DEBUG
-	printf("buffer parsed, stat=%d\n",stat);
+	printf("buffer parsed, stat=%d, parts=%d\n",stat,j);
+	if (xp)
+	  printf("result type: %d, length: %d\n",TYPEOF(xp),LENGTH(xp));
+	else
+	  printf("result is <null>\n");
 #endif
 	if (stat!=1)
 	  sendResp(s,SET_STAT(RESP_ERR,stat));
-        else {	 
+        else {
 #ifdef RSERV_DEBUG
           printf("R_tryEval(xp,R_GlobalEnv,&Rerror);\n");
 #endif
-	  Rerror=0;
-	  PROTECT(xp);
-	  exp=R_tryEval(xp,R_GlobalEnv,&Rerror);
+	  exp=R_NilValue;
+	  if (TYPEOF(xp)==EXPRSXP && LENGTH(xp)>0) {
+	    int bi=0;
+	    while (bi<LENGTH(xp)) {
+	      SEXP pxp=VECTOR_ELT(xp, bi);
+	      Rerror=0;
+#ifdef RSERV_DEBUG
+	      printf("Calling R_tryEval for expression %d [type=%d] ...\n",bi+1,TYPEOF(pxp));
+#endif
+	      exp=R_tryEval(pxp, R_GlobalEnv, &Rerror);
+	      bi++;
+#ifdef RSERV_DEBUG
+	      printf("Expression %d, error code: %d\n",bi, Rerror);
+	      if (Rerror) printf(">> early error, aborting further evaluations\n");
+#endif
+	      if (Rerror) break;
+	    }
+	  } else {
+	    Rerror=0;
+	    exp=R_tryEval(xp, R_GlobalEnv, &Rerror);
+	  }
 	  PROTECT(exp);
 #ifdef RSERV_DEBUG
-	  printf("buffer evaluated (Rerror=%d).\n",Rerror);
+	  printf("expression(s) evaluated (Rerror=%d).\n",Rerror);
 	  if (!Rerror) printSEXP(exp);
 #endif
 	  if (Rerror) {
@@ -1395,7 +1443,7 @@ decl_sbthread newConn(void *thp) {
 		      fprintf(stderr,"FATAL: out of memory while re-allocating send buffer to %d (fallback#1)\n",sendBufSize);
 #endif
 		      sendResp(s,SET_STAT(RESP_ERR,ERR_out_of_mem));
-		      free(buf); free(iob); free(sfbuf);
+		      free(buf); free(sfbuf);
 		      closesocket(s);
 		      return;
 		    } else {
@@ -1444,15 +1492,16 @@ decl_sbthread newConn(void *thp) {
 		    fprintf(stderr,"FATAL: out of memory while re-allocating send buffer to %d (fallback#2),\n",sendBufSize);
 #endif
 		    sendResp(s,SET_STAT(RESP_ERR,ERR_out_of_mem));
-		    free(buf); free(iob); free(sfbuf);
+		    free(buf); free(sfbuf);
 		    closesocket(s);
 		    return;		    
 		  }
 		}
 	      }
 	    }
+	    UNPROTECT(1); /* exp */
 	  }
-	  UNPROTECT(2);
+	  UNPROTECT(1); /* xp */
 	};
 #ifdef RSERV_DEBUG
         printf("reply sent.\n");
@@ -1475,7 +1524,7 @@ decl_sbthread newConn(void *thp) {
   if (n>0)
     sendResp(s,SET_STAT(RESP_ERR,ERR_conn_broken));
   closesocket(s);
-  free(sendbuf); free(iob); free(sfbuf); free(buf);
+  free(sendbuf); free(sfbuf); free(buf);
 #ifdef unix
   if (workdir) {
     chdir(workdir);
@@ -1587,7 +1636,6 @@ void serverLoop() {
 /* main function - start Rserve */
 int main(int argc, char **argv)
 {
-  IoBuffer b;
   int stat,i;
 
 #ifdef RSERV_DEBUG
@@ -1678,7 +1726,6 @@ int main(int argc, char **argv)
     return -1;
   };
 
-  R_IoBufferInit(&b);
 #if defined RSERV_DEBUG || defined Win32
   printf("Rserve: Ok, ready to answer queries.\n");
 #endif      
