@@ -3,6 +3,9 @@
    
    conditional defines: 
 
+   MAIN
+     should be defined in just one file that will contain the fn definitions and variables
+
    USE_SNPRINTF 
      emulate snprintf on Win platforms (you will
      lose the security which is provided under unix of course)
@@ -20,8 +23,8 @@
 
 #if defined SOCK_ERRORS || defined USE_SNPRINTF
 #include <stdio.h>
-#include <string.h>
 #endif
+#include <string.h>
 
 #ifdef unix
 #include <sys/types.h>
@@ -30,6 +33,7 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <errno.h>
+#include <stdlib.h>
 
 #define sockerrno errno
 
@@ -43,6 +47,7 @@
 #include <windows.h>
 #include <winsock.h>
 #include <string.h>
+#include <stdlib.h>
 #define inet_aton(A,B) (0, B.s_addr=inet_addr(A))
 
 #define sockerrno WSAGetLastError()
@@ -64,6 +69,7 @@
 #define EACCES WSAEACCES
 
 #ifdef USE_SNPRINTF
+#ifdef MAIN
 int snprintf(char *buf, int len, char *fmt, ...)
 {
    va_list argptr;
@@ -75,7 +81,9 @@ int snprintf(char *buf, int len, char *fmt, ...)
 
    return(cnt);
 }
-
+#else
+extern int snprintf(char *buf, int len, char *fmt, ...);
+#endif
 #endif
 
 #endif
@@ -85,12 +93,16 @@ int snprintf(char *buf, int len, char *fmt, ...)
 
 #ifdef windows
 
+#ifdef MAIN
 int initsocks(void)
 {
   WSADATA dt;
   /* initialize WinSock 1.1 */
   return (WSAStartup(0x0101,&dt))?-1:0;
 };
+#else
+extern int initsocks(void);
+#endif
 
 #define donesocks() WSACleanup()
 #else
@@ -103,6 +115,7 @@ int initsocks(void)
 
 #ifdef SOCK_ERRORS
 
+#ifdef MAIN
 int suppmode=0;
 int socklasterr;
 FILE *sockerrlog=0;
@@ -172,12 +185,21 @@ int sockerrorcheck(char *sn, int rtb, int res) {
   };
   return res;
 };
+#else
+extern int suppmode=0;
+extern int socklasterr;
+extern FILE *sockerrlog=0;
 
+int sockerrorchecks(char *buf, int blen, int res);
+int sockerrorcheck(char *sn, int rtb, int res);
+#endif
+    
 #define FCF(X,F) sockerrorcheck(X,1,F)
 #define CF(X,F) sockerrorcheck(X,0,F)
 
 #endif
 
+#ifdef MAIN
 struct sockaddr *build_sin(struct sockaddr_in *sa,char *ip,int port) {
   memset(sa,0,sizeof(struct sockaddr_in));
   sa->sin_family=AF_INET;
@@ -185,5 +207,8 @@ struct sockaddr *build_sin(struct sockaddr_in *sa,char *ip,int port) {
   sa->sin_addr.s_addr=(ip)?inet_addr(ip):htonl(INADDR_ANY);
   return (struct sockaddr*)sa;
 };
+#else
+struct sockaddr *build_sin(struct sockaddr_in *sa,char *ip,int port);
+#endif
           
 #endif /* __SISOCKS_H__ */

@@ -19,12 +19,16 @@
  *  $Id$
  */
 
+/* external defines:
+   MAIN - should be defined in just one file that will contain the fn definitions and variables
+ */
+
 #ifndef __RSRV_H__
 #define __RSRV_H__
 
 #include "config.h"
 
-#define RSRV_VER 0x00030D /* Rserve v0.3-13 */
+#define RSRV_VER 0x00030E /* Rserve v0.3-14 */
 
 #define default_Rsrv_port 6311
 
@@ -239,8 +243,13 @@ struct phdr { /* always 16 bytes */
    currently ony PPC style and Intel style are supported */
 
 #ifdef SWAPEND  /* swap endianness - for PPC and co. */
+#ifdef MAIN
 unsigned int itop(unsigned int i) { char b[4]; b[0]=((char*)&i)[3]; b[3]=((char*)&i)[0]; b[1]=((char*)&i)[2]; b[2]=((char*)&i)[1]; return *((unsigned int*)b); };
 double dtop(double i) { char b[8]; b[0]=((char*)&i)[7]; b[1]=((char*)&i)[6]; b[2]=((char*)&i)[5]; b[3]=((char*)&i)[4]; b[7]=((char*)&i)[0]; b[6]=((char*)&i)[1]; b[5]=((char*)&i)[2]; b[4]=((char*)&i)[3]; return *((double*)b); };
+#else
+extern unsigned int itop(unsigned int i);
+extern double dtop(double i);
+#endif
 #define ptoi(X) itop(X) /* itop*itop=id */
 #define ptod(X) dtop(X)
 #else
@@ -254,11 +263,16 @@ double dtop(double i) { char b[8]; b[0]=((char*)&i)[7]; b[1]=((char*)&i)[6]; b[2
 /* this tiny function can be used to make sure that the endianess
    is correct (it is not included if the package was configured with
    autoconf since then it should be fine anyway) */
+#ifdef MAIN
 int isByteSexOk() {
   int i;
   i=itop(0x12345678);
   return (*((char*)&i)==0x78);
 }
+#else
+extern int isByteSexOk();
+#endif
+
 #else
 #define isByteSexOk 1
 #endif
