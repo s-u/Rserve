@@ -132,6 +132,7 @@ typedef int socklen_t;
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/signal.h>
 #include <unistd.h>
 #include <sys/un.h> /* needed for unix sockets */
 #endif
