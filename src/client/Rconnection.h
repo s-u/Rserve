@@ -25,6 +25,9 @@
               (this is inherited from Rsrv.h and sisocks.h)
 */
 
+#ifndef __RCONNECTION_H__
+#define __RCONNECTION_H__
+
 #if defined __GNUC__ && !defined unix && !defined Win32 && !defined WIN32
 #define unix
 #endif
@@ -36,6 +39,19 @@
 #include "Rsrv.h"
 
 typedef unsigned int Rsize_t;
+
+//=== Rconnection error codes
+
+#define CERR_connect_failed    -1
+#define CERR_handshake_failed  -2
+#define CERR_invalid_id        -3
+#define CERR_protocol_not_supp -4
+#define CERR_not_connected     -5
+#define CERR_peer_closed       -7
+#define CERR_malformed_packet  -8
+#define CERR_send_error        -9
+#define CERR_out_of_mem       -10
+#define CERR_not_supported    -11
 
 //===================================== Rmessage ---- QAP1 storage
 
@@ -307,3 +323,5 @@ public:
     int voidEval(const char *cmd);
     Rexp *eval(const char *cmd, int *status=0, int opt=0);
 };
+
+#endif
