@@ -33,6 +33,8 @@
    - if none of the above is specified then cooperative serving is used
      (which is currently the only way available in Windows - if embedding R
      worked in that setup)
+
+   SWAPEND  - define if the platform has byte order inverse to Intel (like PPC)
 */
 
 #define USE_RINTERNALS
