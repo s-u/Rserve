@@ -8,7 +8,7 @@ LIBS  = @LIBS@
 
 # if you have some non-standard setup you might want to modify those as well
 Rincludes = $(Rhome)/include
-Rlib      = $(Rhome)/bin
+Rlib      = $(Rhome)/bin -L$(Rhome)/lib
 Rbin      = $(Rhome)/bin
 linkR     = -lR
 linkRln   = @LINK_READLINE@
