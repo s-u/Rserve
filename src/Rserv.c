@@ -901,6 +901,7 @@ decl_sbthread newConn(void *thp) {
     process=0;
     pars=0;
     if (ph.len>0) {
+      unsigned int phead;
       int parType=0;
       rlen_t parLen=0;
 
@@ -937,10 +938,10 @@ decl_sbthread newConn(void *thp) {
 	if (ph.len>0) printDump(buf,ph.len);
 #endif
 	c=buf+ph.dof;
-	while((c<buf+ph.dof+ph.len) && (i=ptoi(*((unsigned int*)c)))) {
+	while((c<buf+ph.dof+ph.len) && (phead=ptoi(*((unsigned int*)c)))) {
 	  rlen_t headSize=4;
-	  parType=PAR_TYPE(i);
-	  parLen=PAR_LEN(i);
+	  parType=PAR_TYPE(phead);
+	  parLen=PAR_LEN(phead);
 	  if ((parType&DT_LARGE)>0) { /* large parameter */
 	    headSize+=4;
 	    parLen|=((rlen_t)(ptoi(*(unsigned int*)(c+4))))<<24;
