@@ -1,0 +1,8 @@
+#!/bin/sh
+
+VER=`awk -v ORS= '/Rserve v/ { print substr($6,2) }' src/Rsrv.h`
+if test "$1" == "-f"; then 
+    echo "Rserve_${VER}.tar.gz"
+else
+    echo "${VER}"
+fi
