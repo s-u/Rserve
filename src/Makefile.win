@@ -16,7 +16,7 @@ Rserv.o:	Rserv.c
 	$(CC) $(CFLAGS) $($*-CFLAGS) -c Rserv.c -o Rserv.o
 
 Rserve.exe:	Rserv.o winembed.o
-	$(LINKER) -s $(LINKFLAGS) $($*-LINKFLAGS) -o Rserve.exe winembed.o Rserv.o $($*-LIBS) $(LIBS) -L$(RHOME)/bin -lR -lwsock32
+	$(LINKER) -s $(LINKFLAGS) $($*-LINKFLAGS) -o Rserve.exe winembed.o Rserv.o $($*-LIBS) $(LIBS) -lwsock32 $(DLLLIBS)
 
 # there's not really a DLL - all we want is the EXE,
 # so we need to fake the DLL and copy the EXE manually.
