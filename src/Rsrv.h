@@ -138,6 +138,7 @@ struct phdr { /* always 16 bytes */
 				  server is free to choose any value - usually
 				  it uses the size of its static buffer */
 #define CMD_writeFile    0x014 /* data : - */
+#define CMD_removeFile   0x15  /* fn : - */
 
 /* data types for the transport protocol (QAP1)
    do NOT confuse with XT_.. values. */
