@@ -427,7 +427,7 @@ decl_sbthread newConn(void *thp) {
 #ifdef unix
   if (chdir(workdir))
     mkdir(workdir,0777);
-  snprintf(buf,inBuf,"%s/conn%d",workdir);
+  snprintf(buf,inBuf,"%s/conn%d",workdir,a->ucix&511);
   mkdir(buf,0777);
   chdir(buf);
 #endif
