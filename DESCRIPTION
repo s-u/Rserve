@@ -1,14 +1,16 @@
 Package: Rserve
-Version: 0.1-7
-Title: Binary TCP/IP R server
+Version: 0.1-9
+Title: Binary R server
 Author: Simon Urbanek <Simon.Urbanek@math.uni-augsburg.de>
 Maintainer: Simon Urbanek <Simon.Urbanek@math.uni-augsburg.de>
 Depends: R (>= 1.5.0)
-Description: Rserve acts as a TCP/IP server which allows binary requests to
-  be sent to R. Every connection has a separate workspace and working
-  directory. Client-side implementations are available for popular languages
-  such as C/C++ and Java, allowing any application to use facilities of R
-  without the need of linking against R code. Rserve supports
-  remote connection, user authentication and file transfer.
+Description: Rserve acts as a socket server (TCP/IP or local sockets) 
+	     which allows binary requests to be sent to R. Every
+	     connection has a separate workspace and working
+	     directory. Client-side implementations are available
+	     for popular languages such as C/C++ and Java, allowing
+	     any application to use facilities of R without the need of
+	     linking to R code. Rserve supports remote connection,
+	     user authentication and file transfer.
 License: GPL version 2 or newer
-URL: http://www.rosuda.org/Rserve/
+URL: http://stats.math.uni-augsburg.de/Rserve/
