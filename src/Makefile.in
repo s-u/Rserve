@@ -1,0 +1,36 @@
+SFILES = $(wildcard *.c)
+XFILES = Rserve Rserve.dbg
+
+# modify these variables to match your setup
+Rhome = @R_HOME@
+port  = .
+
+# if you have some non-standard setup you might want to modify those as well
+Rincludes = $(Rhome)/include
+Rlib      = $(Rhome)/bin
+Rbin      = $(Rhome)/bin
+linkR     = -lR
+linkRln   = @LINK_READLINE@
+
+all:	$(XFILES)
+	# if we got that far Rserve is compiled, so install it since
+	# this is Makefile for the package version ;)
+	cp Rserve $(Rbin)
+	# .. and put them in inst just in case anyone cares ...
+	cp $(XFILES) ../inst
+
+install:	$(XFILES)
+	cp Rserve $(Rbin)
+	cp Rserve.dbg $(Rbin)
+
+Rserve:	Rserv.c Rsrv.h
+	$(LINK.c) Rserv.c -o Rserve $(host_def) -DDAEMON -O -I$(Rincludes) -Iinclude -I$(port) $(linkR) -L$(Rlib)
+
+Rserve.dbg:	Rserv.c Rsrv.h
+	$(LINK.c) Rserv.c -o Rserve.dbg $(host_def) -DRSERV_DEBUG -I$(Rincludes) -Iinclude -I$(port) $(linkR) -L$(Rlib) -g
+
+Rcli:	Rcli.c Rsrv.h
+	$(LINK.c) Rcli.c -o Rcli $(host_def) -I$(port) $(linkRln)
+
+clean:
+	rm -f *~ *.o *.lo *.so \#* $(XFILES)

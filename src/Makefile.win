@@ -1,0 +1,36 @@
+# Win32 version of the Makefile. Tested with MinGW and R-1.6.2.
+
+all:	Rserve.dll Rserve.exe
+
+TOP=..
+
+PKG_NAME=Rserve
+
+DLLLIBS=-L$(RHOME)/src/gnuwin32 -lR
+CFLAGS+=-DWin32 -I. -D_R_ -I$(TOP)/inst/include -I$(RHOME)/src/include -Iinclude -Iinclude/Win32
+
+winembed.o:	winembed.c
+	$(CC) $(CFLAGS) $($*-CFLAGS) -c winembed.c -o winembed.o
+
+Rserv.o:	Rserv.c
+	$(CC) $(CFLAGS) $($*-CFLAGS) -c Rserv.c -o Rserv.o
+
+Rserve.exe:	Rserv.o winembed.o
+	$(LINKER) -s $(LINKFLAGS) $($*-LINKFLAGS) -o Rserve.exe winembed.o Rserv.o $($*-LIBS) $(LIBS) -L$(RHOME)/bin -lR -lwsock32
+
+# there's not really a DLL - all we want is the EXE,
+# so we need to fake the DLL and copy the EXE manually.
+Rserve.dll:	Rserve.exe
+	touch Rserve.dll
+	cp Rserve.exe $(RHOME)/bin
+
+include $(RHOME)/src/gnuwin32/MkRules
+
+install: Rserve.exe
+	cp Rserve.exe $(RHOME)/bin
+
+clean: 
+	-rm *.o
+
+distclean: clean
+	-rm Rserve.exe

@@ -1,0 +1,5 @@
+#!/bin/sh
+
+rm -f config.log config.status *~
+cd src; make clean ; cd ..
+
