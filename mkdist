@@ -6,19 +6,8 @@ rm -rf /tmp/Rserve
 echo "Copying package base ..."
 cp -r ../Rserve /tmp
 
-echo "Copying source ..."
-if [ ! -e ../../../C/R/Rserv.c ]; then
-   echo "Can't find sources! Check out both R and C modules! (need C/R and C/portcode)"
-   exit 1
-fi
-cp ../../../C/R/Rserv.c /tmp/Rserve/src
-cp ../../../C/R/Rsrv.h /tmp/Rserve/src
-cp ../../../C/R/Rcli.c /tmp/Rserve/src
-cp ../../../C/R/winembed.c /tmp/Rserve/src
-cp ../../../C/portcode/sbthread.h /tmp/Rserve/src
-cp ../../../C/portcode/sisocks.h /tmp/Rserve/src
 touch /tmp/Rserve/src/dummy.so
-rm /tmp/Rserve/mkdist
+rm -f /tmp/Rserve/mkdist
 
 echo "Running autoconf ..."
 cd /tmp/Rserve
@@ -26,13 +15,19 @@ mkdir inst
 autoheader
 autoconf
 rm -rf autom4te*
-echo "Removing CVS stuff ..."
+
+echo "Removing CVS and backup stuff ..."
 rm -rf `find . -name CVS`
-echo "Updating INDEX ..."
-cd ..
-R CMD Rdindex Rserve > Rserve/INDEX
+rm -f `find . -name \*~`
+
+# no INDEX since 1.8
+#echo "Updating INDEX ..."
+#cd ..
+#R CMD Rdindex Rserve > Rserve/INDEX
+#rm -f Rserve/INDEX
+#cd Rserve
+
 echo "Updating version ..."
-cd Rserve
 VER=`awk -v ORS= '/Rserve v/ { print substr($6,2) }' src/Rsrv.h`
 echo "Rserve version ${VER}"
 cat DESCRIPTION| sed "s/Version:.*/Version: ${VER}/" > d
