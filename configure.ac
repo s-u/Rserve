@@ -22,6 +22,7 @@ AC_PROG_CC
 AC_HEADER_STDC
 AC_HEADER_SYS_WAIT
 AC_CHECK_HEADERS([string.h sys/time.h unistd.h])
+AC_CHECK_HEADERS([sys/stat.h sys/types.h sys/socket.h sys/un.h])
 
 # Checks for typedefs, structures, and compiler characteristics.
 AC_C_CONST
@@ -37,6 +38,45 @@ AC_CHECK_FUNCS([memset mkdir rmdir select socket])
 AC_SEARCH_LIBS(crypt, crypt,
 		      [AC_DEFINE(HAS_CRYPT, 1, [If defined Rserve supports unix crypt password encryption.])])
 AC_CHECK_HEADERS([crypt.h])
+
+# socket related stuff - indroduced first due to Solaris
+# socklen_t - note that we don't try to find an equivalent!
+# we'll use BSD-style int in case this one isn't defined.
+# that should be fine for all major platforms.
+AC_CHECK_TYPE(socklen_t,,
+    AC_DEFINE(socklen_t, int, [Define to `int' if neither <sys/types.h> nor <sys/socket.h> define.]),
+    [
+#include <sys/types.h>
+#include <sys/socket.h>
+    ])
+# connect may need -lsocket and/or -lnsl (e.g. on Solaris)
+AC_CHECK_FUNCS(connect)
+if test x"$ac_cv_func_connect" = x"no"; then
+    case "$LIBS" in
+    *-lnsl*) ;;
+    *) AC_CHECK_LIB(nsl_s, printf) ;;
+    esac
+    case "$LIBS" in
+    *-lnsl*) ;;
+    *) AC_CHECK_LIB(nsl, printf) ;;
+    esac
+    case "$LIBS" in
+    *-lsocket*) ;;
+    *) AC_CHECK_LIB(socket, connect) ;;
+    esac
+    case "$LIBS" in
+    *-linet*) ;;
+    *) AC_CHECK_LIB(inet, connect) ;;
+    esac
+    dnl We can't just call AC_CHECK_FUNCS(connect) here, because the value
+    dnl has been cached.
+    if test x"$ac_cv_lib_socket_connect" = x"yes" || 
+       test x"$ac_cv_lib_inet_connect" = x"yes"; then
+        # ac_cv_func_connect=yes
+        # don't!  it would cause AC_CHECK_FUNC to succeed next time configure is run
+        AC_DEFINE(HAVE_CONNECT, 1, [ ])
+    fi
+fi
 
 # on some platforms libR expects dl code in the binary
 AC_CHECK_LIB(dl, dlopen)
