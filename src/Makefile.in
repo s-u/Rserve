@@ -4,6 +4,7 @@ XFILES = Rserve Rserve.dbg
 # modify these variables to match your setup
 Rhome = @R_HOME@
 port  = .
+LIBS  = @LIBS@
 
 # if you have some non-standard setup you might want to modify those as well
 Rincludes = $(Rhome)/include
@@ -24,13 +25,13 @@ install:	$(XFILES)
 	cp Rserve.dbg $(Rbin)
 
 Rserve:	Rserv.c Rsrv.h
-	$(LINK.c) Rserv.c -o Rserve $(host_def) -DDAEMON -O -I$(Rincludes) -Iinclude -I$(port) $(linkR) -L$(Rlib)
+	$(LINK.c) Rserv.c -o Rserve $(host_def) -DDAEMON -O -I$(Rincludes) -Iinclude -I$(port) $(linkR) -L$(Rlib) $(LIBS)
 
 Rserve.dbg:	Rserv.c Rsrv.h
-	$(LINK.c) Rserv.c -o Rserve.dbg $(host_def) -DRSERV_DEBUG -I$(Rincludes) -Iinclude -I$(port) $(linkR) -L$(Rlib) -g
+	$(LINK.c) Rserv.c -o Rserve.dbg $(host_def) -DRSERV_DEBUG -I$(Rincludes) -Iinclude -I$(port) $(linkR) -L$(Rlib) $(LIBS) -g
 
 Rcli:	Rcli.c Rsrv.h
-	$(LINK.c) Rcli.c -o Rcli $(host_def) -I$(port) $(linkRln)
+	$(LINK.c) Rcli.c -o Rcli $(host_def) -I$(port) $(linkRln) $(LIBS)
 
 clean:
 	rm -f *~ *.o *.lo *.so \#* $(XFILES)
