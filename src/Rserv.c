@@ -560,6 +560,12 @@ int loadConfig(char *fn)
 	  strcpy(workdir,p);
 	} else workdir=0;
       }
+      if (!strcmp(c,"socket")) {
+	if (*p) {
+	  localSocketName=(char*)malloc(strlen(p)+1);
+	  strcpy(localSocketName,p);
+	} else localSocketName=0;
+      }
       if (!strcmp(c,"pwdfile")) {
 	if (*p) {
 	  pwdfile=(char*)malloc(strlen(p)+1);
@@ -585,8 +591,15 @@ int loadConfig(char *fn)
 /* size of the input buffer (default 512kB)
    was 2k before 1.23, but since 1.22 we support CMD_assign/set and hence
    the incoming packets can be substantially bigger.
+
+   since 1.29 we support input buffer resizing,
+   therefore we start with a small buffer and allocate more if necessary
 */
-#define inBuf (512*1024)
+
+int inBuf=32768; /* 32kB should be ok unless CMD_assign sends large data */
+
+int maxInBuf=16*(1024*1024); /* default is 16MB maximum */
+
 /* static buffer size used for file transfer.
    The user is still free to allocate its own size  */
 #define sfbufSize 32768 /* static file buffer size */
@@ -620,6 +633,7 @@ decl_sbthread newConn(void *thp) {
   int process;
   int stat;
   char *sendbuf;
+  int sendBufSize;
   char *tail;
   char *fbuf;
   char *sfbuf;
@@ -633,17 +647,23 @@ decl_sbthread newConn(void *thp) {
   SEXP xp,exp;
   FILE *cf=0;
 
-  // allocate input and send-file buffers
-  buf=(char*) malloc(inBuf+8);
-  sfbuf=(char*) malloc(sfbufSize);
-  if (!buf || !sfbuf) return;
-
-  memset(buf,0,inBuf+8);
 #ifdef FORKED  
   if ((lastChild=fork())!=0) return;
   parentPID=getppid();
   closesocket(a->ss); /* close server socket */
 #endif
+
+  // allocate input and send-file buffers
+  buf=(char*) malloc(inBuf+8);
+  sfbuf=(char*) malloc(sfbufSize);
+  if (!buf || !sfbuf) {
+    fprintf(stderr,"FATAL: cannot allocate initial buffers. closing client connection.\n");
+    s=a->s;
+    free(a);
+    closesocket(s);
+    return;
+  }
+  memset(buf,0,inBuf+8);
 
 #ifdef unix
   if (workdir) {
@@ -657,7 +677,8 @@ decl_sbthread newConn(void *thp) {
 #endif
 
   iob=(IoBuffer*)malloc(sizeof(*iob));
-  sendbuf=(char*)malloc(sndBS);
+  sendBufSize=sndBS;
+  sendbuf=(char*)malloc(sendBufSize);
 #ifdef RSERV_DEBUG
   printf("connection accepted.\n");
 #endif
@@ -691,7 +712,23 @@ decl_sbthread newConn(void *thp) {
     process=0;
     pars=0;
     if (ph.len>0) {
-      if (ph.len<inBuf) {
+      if (ph.len<maxInBuf) {
+	if (ph.len>=inBuf) {
+#ifdef RSERV_DEBUG
+	  printf("resizing input buffer (was %d, need %d) to %d\n",inBuf,ph.len,((ph.len|0x1fff)+1));
+#endif
+	  free(buf); /* the buffer is just a scratchpad, so we don't need to use realloc */
+	  buf=(char*)malloc(inBuf=((ph.len|0x1fff)+1)); /* use 8kB granularity */
+	  if (!buf) {
+#ifdef RSERV_DEBUG
+	    fprintf(stderr,"FATAL: out of memory while resizing buffer to %d,\n",inBuf);
+#endif
+	    sendResp(s,SET_STAT(RESP_ERR,ERR_out_of_mem));
+	    free(sendbuf); free(iob); free(sfbuf);
+	    closesocket(s);
+	    return;
+	  }	    
+	}
 #ifdef RSERV_DEBUG
 	printf("loading buffer (awaiting %d bytes)\n",ph.len);
 #endif
@@ -799,7 +836,7 @@ decl_sbthread newConn(void *thp) {
     if (authReq && !authed) {
       sendResp(s,SET_STAT(RESP_ERR,ERR_auth_failed));
       closesocket(s);
-      free(sendbuf); free(iob);
+      free(sendbuf); free(iob); free(sfbuf); free(buf);
       return;
     };      
 
@@ -810,13 +847,40 @@ decl_sbthread newConn(void *thp) {
 #endif
       active=0;
       closesocket(s);
-      free(sendbuf); free(iob);
+      free(sendbuf); free(iob); free(sfbuf); free(buf);
 #ifdef FORKED
       if (parentPID>0) kill(parentPID,SIGTERM);
       exit(0);
 #endif
       return;
     };
+
+    if (ph.cmd==CMD_setBufferSize) {
+      process=1;
+      if (pars<1 || PAR_TYPE(ptoi(*par[0]))!=DT_INT) 
+	sendResp(s,SET_STAT(RESP_ERR,ERR_inv_par));
+      else {
+	int ns=ptoi(par[0][1]);
+#ifdef RSERV_DEBUG
+	printf(">>CMD_setSendBuf to %d bytes.\n",ns);
+#endif
+	if (ns>0) { /* 0 means don't touch the buffer size */
+	  if (ns<32768) ns=32768; /* we enforce a minimum of 32kB */
+	  free(sendbuf);
+	  sendbuf=(char*)malloc(sendBufSize);
+	  if (!sendbuf) {
+#ifdef RSERV_DEBUG
+	    fprintf(stderr,"FATAL: out of memory while resizing send buffer to %d,\n",sendBufSize);
+#endif
+	    sendResp(s,SET_STAT(RESP_ERR,ERR_out_of_mem));
+	    free(buf); free(iob); free(sfbuf);
+	    closesocket(s);
+	    return;
+	  }
+	}
+	sendResp(s,RESP_OK);
+      }
+    }
 
     if (ph.cmd==CMD_openFile||ph.cmd==CMD_createFile) {
       process=1;
@@ -1059,7 +1123,7 @@ decl_sbthread newConn(void *thp) {
   if (n>0)
     sendResp(s,SET_STAT(RESP_ERR,ERR_conn_broken));
   closesocket(s);
-  free(sendbuf); free(iob);
+  free(sendbuf); free(iob); free(sfbuf); free(buf);
 #ifdef unix
   if (workdir) {
     chdir(workdir);
