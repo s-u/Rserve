@@ -113,6 +113,9 @@
 #include <IOStuff.h>
 #include <Parse.h>
 #include "Rsrv.h"
+#ifdef HAVE_CRYPT_H
+#include <crypt.h>
+#endif
 
 /* send buffer size (default 2MB)
    Currently Rserve stores entire responses in memory before sending it.
