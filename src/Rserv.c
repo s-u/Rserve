@@ -604,7 +604,7 @@ decl_sbthread newConn(void *thp) {
   SOCKET s;
   struct args *a=(struct args*)thp;
   struct phdr ph;
-  char buf[inBuf+8], *c,*cc,*c1,*c2;
+  char *buf, *c,*cc,*c1,*c2;
   int *par[16];
   int pars;
   int i,j,k,n;
@@ -613,7 +613,7 @@ decl_sbthread newConn(void *thp) {
   char *sendbuf;
   char *tail;
   char *fbuf;
-  char sfbuf[sfbufSize];
+  char *sfbuf;
   int fbufl;
   int Rerror;
   char wdname[512];
@@ -623,6 +623,11 @@ decl_sbthread newConn(void *thp) {
   IoBuffer *iob;
   SEXP xp,exp;
   FILE *cf=0;
+
+  // allocate input and send-file buffers
+  buf=(char*) malloc(inBuf+8);
+  sfbuf=(char*) malloc(sfbufSize);
+  if (!buf || !sfbuf) return 0;
 
   memset(buf,0,inBuf+8);
 #ifdef FORKED  
