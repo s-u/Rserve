@@ -136,6 +136,9 @@ struct phdr { /* always 16 bytes */
 				     If received after CMD_eval then
 				     the evaluation itself was successful
 				  */
+/* since 1.29/0.1-9 */
+#define ERR_out_of_mem       0x4d /* out of memory. the connection is usually
+				     closed after this error was sent */
 
 /* availiable commands */
 
@@ -157,6 +160,13 @@ struct phdr { /* always 16 bytes */
 #define CMD_setSEXP      0x020 /* string(name), REXP : - */
 #define CMD_assignSEXP   0x021 /* string(name), REXP : - ; same as setSEXP
 				  except that the name is parsed */
+/* 'internal' commands (since 0.1-9) */
+#define CMD_setBufferSize 0x081  /* [int sendBufSize] 
+				  this commad allow clients to request
+				  bigger buffer sizes if large data is to be
+				  transported from Rserve to the client.
+				  (incoming buffer is resized automatically)
+				 */
 
 /* data types for the transport protocol (QAP1)
    do NOT confuse with XT_.. values. */
