@@ -24,7 +24,7 @@
 
 #include "config.h"
 
-#define RSRV_VER 0x000302 /* Rserve v0.3-2 */
+#define RSRV_VER 0x000304 /* Rserve v0.3-4 */
 
 #define default_Rsrv_port 6311
 
@@ -93,7 +93,7 @@ struct phdr { /* always 16 bytes */
 #define PAR_TYPE(X) ((X)&255)
 #define PAR_LEN(X) ((X)>>8)
 #define PAR_LENGTH PAR_LEN
-#define SET_PAR(TY,LEN) ((((LEN)&0x7fffff)<<8)|((TY)&255))
+#define SET_PAR(TY,LEN) ((((LEN)&0xffffff)<<8)|((TY)&255))
 
 #define CMD_STAT(X) (((X)>>24)&127) /* returns the stat code of the response */
 #define SET_STAT(X,s) ((X)|(((s)&127)<<24)) /* sets the stat code */
@@ -239,7 +239,7 @@ struct phdr { /* always 16 bytes */
    currently ony PPC style and Intel style are supported */
 
 #ifdef SWAPEND  /* swap endianness - for PPC and co. */
-int itop(int i) { char b[4]; b[0]=((char*)&i)[3]; b[3]=((char*)&i)[0]; b[1]=((char*)&i)[2]; b[2]=((char*)&i)[1]; return *((int*)b); };
+unsigned int itop(unsigned int i) { char b[4]; b[0]=((char*)&i)[3]; b[3]=((char*)&i)[0]; b[1]=((char*)&i)[2]; b[2]=((char*)&i)[1]; return *((unsigned int*)b); };
 double dtop(double i) { char b[8]; b[0]=((char*)&i)[7]; b[1]=((char*)&i)[6]; b[2]=((char*)&i)[5]; b[3]=((char*)&i)[4]; b[7]=((char*)&i)[0]; b[6]=((char*)&i)[1]; b[5]=((char*)&i)[2]; b[4]=((char*)&i)[3]; return *((double*)b); };
 #define ptoi(X) itop(X) /* itop*itop=id */
 #define ptod(X) dtop(X)

@@ -241,21 +241,21 @@ char *getParseName(int n) {
 
 /* this is the type used to calculate pointer distances
    we should re-define it to 64-bit type on 64-bit archs */
-typedef unsigned int rsdist_t;
+typedef unsigned long rlen_t; 
 
 #define attrFixup if (hasAttr) buf=storeSEXP(buf,ATTRIB(x));
-#define dist(A,B) (((rsdist_t)(((char*)B)-((char*)A)))-4)
+#define dist(A,B) (((rlen_t)(((char*)B)-((char*)A)))-4)
 
-rsdist_t getStorageSize(SEXP x) {
+rlen_t getStorageSize(SEXP x) {
   int t=TYPEOF(x);
   unsigned int tl=LENGTH(x);
-  rsdist_t len=4;
+  rlen_t len=4;
   
 #ifdef RSERV_DEBUG
   printf("getStorageSize(type=%d,len=%d)\n",t,tl);
 #endif
   if (TYPEOF(ATTRIB(x))>0) {
-    rsdist_t alen=getStorageSize(ATTRIB(x));
+    rlen_t alen=getStorageSize(ATTRIB(x));
     len+=alen;
   }
   switch (t) {
@@ -315,13 +315,13 @@ rsdist_t getStorageSize(SEXP x) {
   return len;
 }
 
-int* storeSEXP(int* buf, SEXP x) {
+unsigned int* storeSEXP(unsigned int* buf, SEXP x) {
   int t=TYPEOF(x);
   int i;
   int hasAttr=0;
   int isLarge=0;
-  int *preBuf=buf;
-  rsdist_t txlen;
+  unsigned int *preBuf=buf;
+  rlen_t txlen;
 
   if (!x) { /* null pointer will be treated as XT_NULL */
     *buf=itop(XT_NULL); buf++; goto didit;
@@ -406,11 +406,11 @@ int* storeSEXP(int* buf, SEXP x) {
     while(i<LENGTH(x)) { /* logical values are stored as bytes of values 0/1/2 */
       int bv=(int)VECTOR_ELT(x,i);
       *((unsigned char*)buf)=(bv==0)?0:(bv==1)?1:2;
-      buf=(int*)(((unsigned char*)buf)+1);
+      buf=(unsigned int*)(((unsigned char*)buf)+1);
       i++;
     };
     /* pad by 0xff to a multiple of 4 */
-    while (i&3) { *((unsigned char*)buf)=0xff; i++; buf=(int*)(((unsigned char*)buf)+1); };
+    while (i&3) { *((unsigned char*)buf)=0xff; i++; buf=(unsigned int*)(((unsigned char*)buf)+1); };
     goto didit;
   };
 
@@ -454,7 +454,7 @@ int* storeSEXP(int* buf, SEXP x) {
     while (sl&3) { /* pad by 0 to a length divisible by 4 (since 0.1-10) */
       buf[sl]=0; sl++;
     }
-    buf=(int*)(((char*)buf)+sl);
+    buf=(unsigned int*)(((char*)buf)+sl);
     goto didit;
   };
 
@@ -572,19 +572,18 @@ void printBufInfo(IoBuffer *b) {
   printf("read-off: %d, write-off: %d\n",b->read_offset,b->write_offset);
 };
 
-
 /* decode_toSEXP is used to decode SEXPs from binary form and create
    corresponding objects in R. UPC is a pointer to a counter of
    UNPROTECT calls which will be necessary after we're done.
    The buffer position is advanced to the point where the SEXP ends
    (more precisely it points to the next stored SEXP). */
-SEXP decode_to_SEXP(int **buf, int *UPC)
+SEXP decode_to_SEXP(unsigned int **buf, int *UPC)
 {
-  int *b=*buf;
+  unsigned int *b=*buf;
   char *c,*cc;
   SEXP val=0;
   int ty=PAR_TYPE(ptoi(*b));
-  int ln=PAR_LEN(ptoi(*b));
+  rlen_t ln=PAR_LEN(ptoi(*b));
   int i,j,l;
 
   if (IS_LARGE(ty)) {
@@ -638,7 +637,7 @@ SEXP decode_to_SEXP(int **buf, int *UPC)
       }
       c++; i++;
     }
-    *buf=(int*)cc;
+    *buf=(unsigned int*)cc;
     break;
   }
   return val;
@@ -827,7 +826,7 @@ decl_sbthread newConn(void *thp) {
   unsigned int tempSB=0;
 
   int parT[16];
-  unsigned int parL[16];
+  rlen_t parL[16];
   void *parP[16];
   
   IoBuffer *iob;
@@ -903,7 +902,7 @@ decl_sbthread newConn(void *thp) {
     pars=0;
     if (ph.len>0) {
       int parType=0;
-      unsigned int parLen=0; /* FIX64 */
+      rlen_t parLen=0;
 
       if (ph.len<maxInBuf) {
 	if (ph.len>=inBuf) {
@@ -938,13 +937,13 @@ decl_sbthread newConn(void *thp) {
 	if (ph.len>0) printDump(buf,ph.len);
 #endif
 	c=buf+ph.dof;
-	while((c<buf+ph.dof+ph.len) && (i=ptoi(*((int*)c)))) {
-	  int headSize=4;
+	while((c<buf+ph.dof+ph.len) && (i=ptoi(*((unsigned int*)c)))) {
+	  rlen_t headSize=4;
 	  parType=PAR_TYPE(i);
 	  parLen=PAR_LEN(i);
 	  if ((parType&DT_LARGE)>0) { /* large parameter */
 	    headSize+=4;
-	    parLen|=(ptoi(*(int*)(c+4)))<<24; /* FIX64 */
+	    parLen|=((rlen_t)(ptoi(*(unsigned int*)(c+4))))<<24;
 	    parType^=DT_LARGE;
 	  } 
 #ifdef RSERV_DEBUG
@@ -1082,7 +1081,7 @@ decl_sbthread newConn(void *thp) {
       if (pars<1 || parT[0]!=DT_INT) 
 	sendResp(s,SET_STAT(RESP_ERR,ERR_inv_par));
       else {
-	int ns=ptoi(*(int*)parP);
+	rlen_t ns=ptoi(*(unsigned int*)parP);
 #ifdef RSERV_DEBUG
 	printf(">>CMD_setSendBuf to %d bytes.\n",ns);
 #endif
@@ -1167,7 +1166,7 @@ decl_sbthread newConn(void *thp) {
 	else {
 	  fbufl=sfbufSize; fbuf=sfbuf;
 	  if (pars==1 && parT[0]==DT_INT)
-	    fbufl=ptoi(*(int*)parP[0]);
+	    fbufl=ptoi(*(unsigned int*)parP[0]);
 #ifdef RSERV_DEBUG
 	  printf(">>CMD_readFile(%d)\n",fbufl);
 #endif
@@ -1221,7 +1220,7 @@ decl_sbthread newConn(void *thp) {
 	sendResp(s,SET_STAT(RESP_ERR,ERR_inv_par));
       else {
 	SEXP val, sym=0;
-	int *sptr;
+	unsigned int *sptr;
 	int parType=parT[1];
 	int globalUPC=0;
 	int boffs=0;
@@ -1259,7 +1258,7 @@ decl_sbthread newConn(void *thp) {
 	  boffs=1; /* we're not using the size, so in fact we just
 		      advance the pointer and don't care about the length */
 	case DT_SEXP:
-	  sptr=((int*)parP[1])+boffs;
+	  sptr=((unsigned int*)parP[1])+boffs;
 	  val=decode_to_SEXP(&sptr,&globalUPC);
 	  if (val==0)
 	    sendResp(s,SET_STAT(RESP_ERR,ERR_inv_par));
@@ -1327,7 +1326,7 @@ decl_sbthread newConn(void *thp) {
 	      /* check buffer size vs REXP size to avoid dangerous overflows
 		 todo: resize the buffer as necessary
 	       */
-	      rsdist_t rs=getStorageSize(exp);
+	      rlen_t rs=getStorageSize(exp);
 #ifdef RSERV_DEBUG
 	      printf("result storage size = %d bytes\n",(int)rs);
 #endif
@@ -1375,21 +1374,21 @@ decl_sbthread newConn(void *thp) {
 	      if (canProceed) {
 		/* if this is defined then the old (<=0.1-9) "broken" behavior is requested where no data type header is sent */
 #ifdef FORCE_V0100 
-		tail=(char*)storeSEXP((int*)sendbuf,exp);
+		tail=(char*)storeSEXP((unsigned int*)sendbuf,exp);
 		sendhead=sendbuf;
 #else
 		/* first we have 4 bytes of a header saying this is an encoded SEXP, then comes the SEXP */
 		char *sxh=sendbuf+8;
-		tail=(char*)storeSEXP((int*)sxh,exp);
+		tail=(char*)storeSEXP((unsigned int*)sxh,exp);
 		/* set type to DT_SEXP and correct length */
 		if ((tail-sxh)>0xfffff0) { /* we must use the "long" format */
-		  unsigned long ll=tail-sxh;
-		  ((int*)sendbuf)[0]=itop(SET_PAR(DT_SEXP|DT_LARGE,ll&0xffffff));
-		  ((int*)sendbuf)[1]=itop(ll>>24);
+		  rlen_t ll=tail-sxh;
+		  ((unsigned int*)sendbuf)[0]=itop(SET_PAR(DT_SEXP|DT_LARGE,ll&0xffffff));
+		  ((unsigned int*)sendbuf)[1]=itop(ll>>24);
 		  sendhead=sendbuf;
 		} else {
 		  sendhead=sendbuf+4;
-		  ((int*)sendbuf)[1]=itop(SET_PAR(DT_SEXP,tail-sxh));
+		  ((unsigned int*)sendbuf)[1]=itop(SET_PAR(DT_SEXP,tail-sxh));
 		}
 #endif
 #ifdef RSERV_DEBUG
