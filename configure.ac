@@ -1,6 +1,6 @@
 # Process this file with autoconf to produce a configure script.
 AC_INIT(Rserve, 0.1, Simon.Urbanek@math.uni-augsburg.de)
-AC_CONFIG_SRCDIR([src/Rcli.c])
+AC_CONFIG_SRCDIR([src/Rserv.c])
 AC_CONFIG_HEADER([src/config.h])
 
 # find R home and set CC/CFLAGS
