@@ -40,6 +40,7 @@
 
    RSERV_DEBUG - if defined various verbose output is produced
       NOFULL   - dumps show first 100 bytes only
+                 (removed in 0.3-3 and replaced by dumpLimit variable)
 
    DAEMON      - if defined the server daemonizes (unix only)
 
@@ -175,6 +176,8 @@ void storeDouble(void *b, double d) {
 #define sndBS (2048*1024)
 #endif
 
+int dumpLimit=128;
+
 int port = default_Rsrv_port;
 int active = 1; /* 1=server loop is active, 0=shutdown */
 int UCIX   = 1; /* unique connection index */
@@ -208,9 +211,7 @@ void printDump(void *b, int len) {
   printf("DUMP [%d]:",len);
   while(i<len) {
     printf(" %02x",((unsigned char*)b)[i++]);
-#ifdef NOFULL
-    if(i>100) { printf(" ..."); break; };
-#endif
+    if(dumpLimit && i>dumpLimit) { printf(" ..."); break; };
   };
   printf("\n");
 };
@@ -473,9 +474,9 @@ int* storeSEXP(int* buf, SEXP x) {
   
  didit:
   if (isLarge) {
-    txlen=dist(preBuf+1,buf)-4;
-    preBuf[0]=itop(SET_PAR(PAR_TYPE(ptoi(*preBuf|XT_LARGE)),txlen&0xffffff));
-    preBuf[1]=txlen>>24;
+    txlen=dist(preBuf,buf)-4;
+    preBuf[0]=itop(SET_PAR(PAR_TYPE(((unsigned char*) preBuf)[4]|XT_LARGE),txlen&0xffffff));
+    preBuf[1]=itop(txlen>>24);
   } else
     *preBuf=itop(SET_PAR(PAR_TYPE(ptoi(*preBuf)),dist(preBuf,buf)));
 
@@ -503,16 +504,11 @@ void printSEXP(SEXP e) /* merely for debugging purposes
       printf("Vector of real variables: ");
       i=0;
       while(i<LENGTH(e)) {
-#ifdef NOFULL
-	if (i<100) {
-	  printf("%f",REAL(e)[i]);
-	  if (i<LENGTH(e)-1) printf(", ");
-	} else if (i==100)
-	  printf("...");
-#else
 	printf("%f",REAL(e)[i]);
 	if (i<LENGTH(e)-1) printf(", ");
-#endif
+	if (dumpLimit && i>dumpLimit) {
+	  printf("..."); break;
+	}
 	i++;
       };
       putchar('\n');
@@ -524,9 +520,7 @@ void printSEXP(SEXP e) /* merely for debugging purposes
     printf("Vector of %d expressions:\n",LENGTH(e));
     i=0;
     while(i<LENGTH(e)) {
-#ifdef NOFULL
-      if (i>100) { printf("..."); break; };
-#endif
+      if (dumpLimit && i>dumpLimit) { printf("..."); break; };
       printSEXP(VECTOR_ELT(e,i));
       i++;
     };
@@ -536,9 +530,7 @@ void printSEXP(SEXP e) /* merely for debugging purposes
     printf("Vector of %d integers:\n",LENGTH(e));
     i=0;
     while(i<LENGTH(e)) {
-#ifdef NOFULL
-      if (i>100) { printf("..."); break; }
-#endif
+      if (dumpLimit && i>dumpLimit) { printf("..."); break; }
       printf("%d",INTEGER(e)[i]);
       if (i<LENGTH(e)-1) printf(", ");
       i++;
@@ -550,9 +542,7 @@ void printSEXP(SEXP e) /* merely for debugging purposes
     printf("Vector of %d fields:\n",LENGTH(e));
     i=0;
     while(i<LENGTH(e)) {
-#ifdef NOFULL
-      if (i>100) { printf("..."); break; };
-#endif
+      if (dumpLimit && i>dumpLimit) { printf("..."); break; };
       printSEXP(VECTOR_ELT(e,i));
       i++;
     };
@@ -562,9 +552,7 @@ void printSEXP(SEXP e) /* merely for debugging purposes
     i=0;
     printf("String vector of length %d:\n",LENGTH(e));
     while(i<LENGTH(e)) {
-#ifdef NOFULL
-      if (i>100) { printf("..."); break; };
-#endif
+      if (dumpLimit && i>dumpLimit) { printf("..."); break; };
       printSEXP(VECTOR_ELT(e,i)); i++;
     };
     return;
@@ -822,7 +810,6 @@ decl_sbthread newConn(void *thp) {
   struct args *a=(struct args*)thp;
   struct phdr ph;
   char *buf, *c,*cc,*c1,*c2;
-  int *par[16];
   int pars;
   int i,j,n;
   int process;
@@ -838,6 +825,10 @@ decl_sbthread newConn(void *thp) {
   int authed=0;
   char salt[5];
   unsigned int tempSB=0;
+
+  int parT[16];
+  unsigned int parL[16];
+  void *parP[16];
   
   IoBuffer *iob;
   SEXP xp,exp;
@@ -911,6 +902,9 @@ decl_sbthread newConn(void *thp) {
     process=0;
     pars=0;
     if (ph.len>0) {
+      int parType=0;
+      unsigned int parLen=0; /* FIX64 */
+
       if (ph.len<maxInBuf) {
 	if (ph.len>=inBuf) {
 #ifdef RSERV_DEBUG
@@ -945,23 +939,33 @@ decl_sbthread newConn(void *thp) {
 #endif
 	c=buf+ph.dof;
 	while((c<buf+ph.dof+ph.len) && (i=ptoi(*((int*)c)))) {
+	  int headSize=4;
+	  parType=PAR_TYPE(i);
+	  parLen=PAR_LEN(i);
+	  if ((parType&DT_LARGE)>0) { /* large parameter */
+	    headSize+=4;
+	    parLen|=(ptoi(*(int*)(c+4)))<<24; /* FIX64 */
+	    parType^=DT_LARGE;
+	  } 
 #ifdef RSERV_DEBUG
-	  printf("PAR[%d]: %08x (PAR_LEN=%d, PAR_TYPE=%d)\n",pars,i,PAR_LEN(i),PAR_TYPE(i));
+	  printf("PAR[%d]: %08x (PAR_LEN=%d, PAR_TYPE=%d, large=%s)\n",pars,i,parLen,parType,(headSize==8)?"yes":"no");
 #endif
 #ifdef sun
-	  if (PAR_LEN(i)&3) { /* on Sun machines it is deadly to process unaligned parameters,
+	  if (parLen&3) { /* on Sun machines it is deadly to process unaligned parameters,
                                  therefore we respond with ERR_inv_par */
 #ifdef RSERV_DEBUG
-	    printf("Sun specific: parameter %d of length %d would result in unaligned stream, sending ERR_inv_par.\n",pars,PAR_LEN(i));
+	    printf("Sun specific: parameter %d of length %d would result in unaligned stream, sending ERR_inv_par.\n",pars,parLen);
 #endif
 	    sendResp(s,SET_STAT(RESP_ERR,ERR_inv_par));
 	    process=1; ph.cmd=0;
 	    break;
 	  }
 #endif
-	  par[pars]=(int*)c;
+	  parT[pars]=parType;
+	  parL[pars]=parLen;
+	  parP[pars]=c+headSize;
 	  pars++;
-	  c+=PAR_LEN(i)+4; /* par length plus par head (4 bytes) */
+	  c+=parLen+headSize; /* par length plus par head */
 	  if (pars>15) break;
 	}; /* we don't parse more than 16 parameters */
       } else {
@@ -995,10 +999,10 @@ decl_sbthread newConn(void *thp) {
 #endif
 
     if (!authed && ph.cmd==CMD_login) {
-      if (pars<1 || PAR_TYPE(ptoi(*par[0]))!=DT_STRING) 
+      if (pars<1 || parT[0]!=DT_STRING) 
 	sendResp(s,SET_STAT(RESP_ERR,ERR_inv_par));
       else {
-	c=(char*)(par[0]+1);
+	c=(char*)parP[0];
 	cc=c;
 	while(*cc && *cc!='\n') cc++;
 	if (*cc) { *cc=0; cc++; };
@@ -1075,10 +1079,10 @@ decl_sbthread newConn(void *thp) {
 
     if (ph.cmd==CMD_setBufferSize) {
       process=1;
-      if (pars<1 || PAR_TYPE(ptoi(*par[0]))!=DT_INT) 
+      if (pars<1 || parT[0]!=DT_INT) 
 	sendResp(s,SET_STAT(RESP_ERR,ERR_inv_par));
       else {
-	int ns=ptoi(par[0][1]);
+	int ns=ptoi(*(int*)parP);
 #ifdef RSERV_DEBUG
 	printf(">>CMD_setSendBuf to %d bytes.\n",ns);
 #endif
@@ -1105,10 +1109,10 @@ decl_sbthread newConn(void *thp) {
       process=1;
       if (!allowIO) sendResp(s,SET_STAT(RESP_ERR,ERR_accessDenied));
       else {
-	if (pars<1 || PAR_TYPE(ptoi(*par[0]))!=DT_STRING) 
+	if (pars<1 || parT[0]!=DT_STRING) 
 	  sendResp(s,SET_STAT(RESP_ERR,ERR_inv_par));
 	else {
-	  c=(char*)(par[0]+1);
+	  c=(char*)(parP[0]);
 	  if (cf) fclose(cf);
 #ifdef RSERV_DEBUG
 	  printf(">>CMD_open/createFile(%s)\n",c);
@@ -1126,10 +1130,10 @@ decl_sbthread newConn(void *thp) {
       process=1;
       if (!allowIO) sendResp(s,SET_STAT(RESP_ERR,ERR_accessDenied));
       else {
-	if (pars<1 || PAR_TYPE(ptoi(*par[0]))!=DT_STRING) 
+	if (pars<1 || parT[0]!=DT_STRING) 
 	  sendResp(s,SET_STAT(RESP_ERR,ERR_inv_par));
 	else {
-	  c=(char*)(par[0]+1);
+	  c=(char*)parP[0];
 #ifdef RSERV_DEBUG
 	  printf(">>CMD_removeFile(%s)\n",c);
 #endif
@@ -1162,8 +1166,8 @@ decl_sbthread newConn(void *thp) {
 	  sendResp(s,SET_STAT(RESP_ERR,ERR_notOpen));
 	else {
 	  fbufl=sfbufSize; fbuf=sfbuf;
-	  if (pars==1 && PAR_TYPE(ptoi(*par[0]))==DT_INT)
-	    fbufl=ptoi(par[0][1]);
+	  if (pars==1 && parT[0]==DT_INT)
+	    fbufl=ptoi(*(int*)parP[0]);
 #ifdef RSERV_DEBUG
 	  printf(">>CMD_readFile(%d)\n",fbufl);
 #endif
@@ -1192,17 +1196,17 @@ decl_sbthread newConn(void *thp) {
 	if (!cf)
 	  sendResp(s,SET_STAT(RESP_ERR,ERR_notOpen));
 	else {
-	  if (pars<1 || PAR_TYPE(ptoi(*par[0]))!=DT_BYTESTREAM)
+	  if (pars<1 || parT[0]!=DT_BYTESTREAM)
 	    sendResp(s,SET_STAT(RESP_ERR,ERR_inv_par));
 	  else {
 #ifdef RSERV_DEBUG
-	    printf(">>CMD_writeFile(%d,...)\n",PAR_LEN(ptoi(*par[0])));
+	    printf(">>CMD_writeFile(%d,...)\n",parL[0]);
 #endif
 	    i=0;
-	    c=(char*)(par[0]+1);
-	    if (PAR_LEN(ptoi(*par[0]))>0)
-	      i=fwrite(c,1,PAR_LEN(ptoi(*par[0])),cf);
-	    if (i>0 && i!=PAR_LEN(ptoi(*par[0])))
+	    c=(char*)parP[0];
+	    if (parL[0]>0)
+	      i=fwrite(c,1,parL[0],cf);
+	    if (i>0 && i!=parL[0])
 	      sendResp(s,SET_STAT(RESP_ERR,ERR_IOerror));
 	    else
 	      sendResp(s,RESP_OK);
@@ -1213,16 +1217,16 @@ decl_sbthread newConn(void *thp) {
 
     if (ph.cmd==CMD_setSEXP || ph.cmd==CMD_assignSEXP) {
       process=1;
-      if (pars<2 || PAR_TYPE(ptoi(*par[0]))!=DT_STRING) 
+      if (pars<2 || parT[0]!=DT_STRING) 
 	sendResp(s,SET_STAT(RESP_ERR,ERR_inv_par));
       else {
 	SEXP val, sym=0;
 	int *sptr;
-	int parType=PAR_TYPE(ptoi(*par[1]));
+	int parType=parT[1];
 	int globalUPC=0;
 	int boffs=0;
 
-	c=(char*)(par[0]+1); /* name of the symbol */
+	c=(char*)parP[0]; /* name of the symbol */
 #ifdef RSERV_DEBUG
 	printf(">>CMD_set/assignREXP (%s, REXP)\n",c);
 #endif
@@ -1243,19 +1247,19 @@ decl_sbthread newConn(void *thp) {
 	switch (parType) {
 	case DT_STRING:
 #ifdef RSERV_DEBUG
-	  printf("  assigning string \"%s\"\n",((char*)(par[1]+1)));
+	  printf("  assigning string \"%s\"\n",((char*)(parP[1])));
 #endif
 	  PROTECT(val = allocVector(STRSXP,1));
-	  SET_STRING_ELT(val,0,mkChar((char*)(par[1]+1)));
+	  SET_STRING_ELT(val,0,mkChar((char*)(parP[1])));
 	  defineVar((sym)?sym:install(c),val,R_GlobalEnv);
 	  UNPROTECT(1);
 	  sendResp(s,RESP_OK);
 	  break;
 	case DT_SEXP|DT_LARGE:
-	  boffs=4; /* we're not using the size, so in fact we just
+	  boffs=1; /* we're not using the size, so in fact we just
 		      advance the pointer and don't care about the length */
 	case DT_SEXP:
-	  sptr=par[1]+boffs+1;
+	  sptr=((int*)parP[1])+boffs;
 	  val=decode_to_SEXP(&sptr,&globalUPC);
 	  if (val==0)
 	    sendResp(s,SET_STAT(RESP_ERR,ERR_inv_par));
@@ -1277,10 +1281,10 @@ decl_sbthread newConn(void *thp) {
 
     if (ph.cmd==CMD_voidEval || ph.cmd==CMD_eval) {
       process=1;
-      if (pars<1 || PAR_TYPE(ptoi(*par[0]))!=DT_STRING) 
+      if (pars<1 || parT[0]!=DT_STRING) 
 	sendResp(s,SET_STAT(RESP_ERR,ERR_inv_par));
       else {
-	c=(char*)(par[0]+1);
+	c=(char*)parP[0];
 	i=j=0; /* count the lines to pass the right parameter to parse
 		  the string should contain a trainig \n !! */
 	while(c[i]) if(c[i++]=='\n') j++;
@@ -1583,6 +1587,13 @@ int main(int argc, char **argv)
 	  }
 	}
       }
+      if (!strcmp(argv[i]+2,"RS-dumplimit")) {
+	isRSP=1;
+	if (i+1==argc)
+	  fprintf(stderr,"Missing limit specification for --RS-dumplimit.\n");
+	else
+	  dumpLimit=atoi(argv[++i]);
+      }
       if (!strcmp(argv[i]+2,"RS-socket")) {
 	isRSP=1;
 	if (i+1==argc)
@@ -1617,6 +1628,9 @@ int main(int argc, char **argv)
       }
       if (!strcmp(argv[i]+2,"help")) {
 	printf("Usage: R CMD Rserve [<options>]\n\nOptions: --help  this help screen\n --version  prints Rserve version (also passed to R)\n --RS-port <port> listen on the specified TCP port\n --RS-socket <socket> use specified local (unix) socket instead of TCP/IP.\n --RS-workdir <path> use specified working directory root for connections.\n --RS-conf <file> load additional config file.\n --RS-settings  dumps current settings of the Rserve\n\nAll other options are passed to the R engine.\n\n");
+#ifdef RSERV_DEBUG
+	printf("debugging flag:\n --RS-dumplimit <number>  sets limit of items/bytes to dump in debugging output. set to 0 for unlimited\n\n");
+#endif
 	return 0;
       }
     }
