@@ -15,7 +15,7 @@ else
 endif
 
 DLLLIBS=-L$(RHOME)/src/gnuwin32 -lR
-CFLAGS+=$(DEBUGFLAG) -DWin32 -I. -D_R_ -I$(TOP)/inst/include -I$(RHOME)/src/include -Iinclude -Iinclude/Win32
+CFLAGS+=$(DEBUGFLAG) -DWin32 -I. -D_R_ -I$(TOP)/inst/include -I$(RHOME)/src/include -I$(RHOME)/include -Iinclude -Iinclude/Win32
 
 winembed.o:	winembed.c
 	$(CC) $(CFLAGS) $($*-CFLAGS) -c winembed.c -o winembed.o
