@@ -1,6 +1,6 @@
 /*
  *  Rserv : R-server that allows to use embedded R via TCP/IP
- *          currently based on R-1.5.1 API (tested up to R-devel 1.7.0)
+ *          currently based on R-1.5.1 API (tested up to R 1.8.1)
  *  Copyright (C) 2002,3 Simon Urbanek
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -51,6 +51,8 @@
 		 was a buggy behavior in versions up to 0.1-9. This feature is
 		 provided only for compatibility with old clients and should be
 		 avoided. Update the clients instead, if possible.
+		 (Warning: since 0.3 this feature is untested and not likely
+		  to work!)
 
    reported versions:
   --------------------
@@ -80,9 +82,19 @@
    plaintext enable|disable [disable] (strongly discouraged to enable)
    fileio enable|disable [enable]
 
+   socket <unix-socket-name> [none]
+   maxinbuf <size in kB> [262144 = 256MB]
+   maxsendbuf <size in kB> [0 = no limit]
+   
+   unix only (works only if Rserve was started by root):
+   uid <uid>
+   gid <gid>
+
+
    A note about security: Anyone with access to R has access to the shell
    via "system" command, so you should consider following rules:
-   - NEVER EVER run Rserv as root - this compromises the box totally
+   - NEVER EVER run Rserv as root (unless uid/gid is used) - this compromises
+     the box totally
    - use "remote disable" whenever you don't need remote access.
    - if you need remote access use "auth required" and "plaintext disable"
      consider also that anyone with the access can decipher other's passwords
@@ -101,7 +113,8 @@
 #define SOCK_ERRORS
 #define LISTENQ 16
 
-#if defined __GNUC__ && !defined unix && !defined Win32 /* MacOS X hack. gcc on any platform is treated as unix */
+/* MacOS X hack. gcc on any (non-windows) platform is treated as unix */
+#if defined __GNUC__ && !defined unix && !defined Win32
 #define unix
 #endif
 
@@ -692,7 +705,7 @@ int authReq=0;
 int usePlain=0;
 
 /* max. size of the input buffer (per connection) */
-int maxInBuf=16*(1024*1024); /* default is 16MB maximum */
+int maxInBuf=256*(1024*1024); /* default is 256MB */
 
 /* load config file */
 int loadConfig(char *fn)
@@ -703,6 +716,9 @@ int loadConfig(char *fn)
 
   f=fopen(fn,"r");
   if (!f) return -1;
+#ifdef RSERV_DEBUG
+  printf("Loading config file %s\n",CONFIG_FILE);
+#endif
   buf[511]=0;
   while(!feof(f))
     if (fgets(buf,511,f)) {
@@ -779,9 +795,12 @@ int loadConfig(char *fn)
   fclose(f);
 #ifndef HAS_CRYPT
   if (!usePlain) {
-    fprintf(stderr,"Warning: useplain=yes, but this Rserve has no crypt support!\nCompile with crypt support and make sure your system supports crypt.\nFalling back to plain text password.\n");
+    fprintf(stderr,"Warning: useplain=no, but this Rserve has no crypt support!\nSet useplain=yes or compile with crypt support (if your system supports crypt).\nFalling back to plain text password.\n");
     usePlain=1;
   }
+#endif
+#ifdef RSERV_DEBUG
+  printf("Loaded config file %s\n",CONFIG_FILE);
 #endif
   return 0;
 }
@@ -923,7 +942,7 @@ decl_sbthread newConn(void *thp) {
       int parType=0;
       rlen_t parLen=0;
 
-      if (ph.len<maxInBuf) {
+      if (!maxinbuf || ph.len<maxInBuf) {
 	if (ph.len>=inBuf) {
 #ifdef RSERV_DEBUG
 	  printf("resizing input buffer (was %d, need %d) to %d\n",inBuf,ph.len,((ph.len|0x1fff)+1));
@@ -1169,7 +1188,7 @@ decl_sbthread newConn(void *thp) {
       else {
 	if (cf) fclose(cf);
 #ifdef RSERV_DEBUG
-	printf(">>CMD_closeFile\n",c);
+	printf(">>CMD_closeFile\n");
 #endif
 	cf=0;
 	sendResp(s,RESP_OK);
@@ -1570,7 +1589,6 @@ int main(int argc, char **argv)
 {
   IoBuffer b;
   int stat,i;
-  SEXP r;
 
 #ifdef RSERV_DEBUG
   printf("Rserve %d.%d-%d (C)Copyright 2002,3 Simon Urbanek\n\n",RSRV_VER>>16,(RSRV_VER>>8)&255,RSRV_VER&255);
@@ -1581,9 +1599,6 @@ int main(int argc, char **argv)
   };
 
   loadConfig(CONFIG_FILE);
-#ifdef RSERV_DEBUG
-  printf("Loaded config file %s\n",CONFIG_FILE);
-#endif
 
   /** copy argv while removing Rserve specific parameters */
   top_argc=1;
