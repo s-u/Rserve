@@ -24,7 +24,7 @@
 
 #include "config.h"
 
-#define RSRV_VER 0x000200 /* Rserve v0.2-1 */
+#define RSRV_VER 0x000300 /* Rserve v0.3-0 */
 
 #define default_Rsrv_port 6311
 
@@ -82,9 +82,14 @@ struct phdr { /* always 16 bytes */
    parameter list may be terminated by 0/0/0/0 but doesn't have to since "len"
    field specifies the packet length sufficiently (hint: best method for parsing is
    to allocate len+4 bytes, set the last 4 bytes to 0 and trverse list of parameters
-   until (int)0 occurs */
+   until (int)0 occurs
+   
+   since 0102:
+   if the 7-th bit (0x40) in parameter type is set then the length is encoded
+   in 7 bytes enlarging the header by 4 bytes. 
+ */
 
-/* macros for handling the first int - split/combine */
+/* macros for handling the first int - split/combine (24-bit version only!) */
 #define PAR_TYPE(X) ((X)&255)
 #define PAR_LEN(X) ((X)>>8)
 #define PAR_LENGTH PAR_LEN
@@ -140,7 +145,8 @@ struct phdr { /* always 16 bytes */
 #define ERR_object_too_big   0x4c /* the requested object is too big
 				     to be transported in that way.
 				     If received after CMD_eval then
-				     the evaluation itself was successful
+				     the evaluation itself was successful.
+				     optional parameter is the size of the object
 				  */
 /* since 1.29/0.1-9 */
 #define ERR_out_of_mem       0x4d /* out of memory. the connection is usually
@@ -185,6 +191,8 @@ struct phdr { /* always 16 bytes */
 #define DT_SEXP       10 /* encoded SEXP */
 #define DT_ARRAY      11 /* array of objects (i.e. first 4 bytes specify how many
 			    subsequent objects are part of the array; 0 is legitimate) */
+#define DT_LARGE      64 /* new in 0102: if this flag is set then the length of the object
+			    is coded as 56-bit integer enlarging the header by 4 bytes */
 
 /* XpressionTypes
    REXP - R expressions are packed in the same way as command parameters
@@ -208,10 +216,12 @@ struct phdr { /* always 16 bytes */
 #define XT_ARRAY_INT     32 /* data: [n*4]int,int,.. */
 #define XT_ARRAY_DOUBLE  33 /* data: [n*8]double,double,.. */
 #define XT_ARRAY_STR     34 /* data: [?]string,string,.. */
-#define XT_ARRAY_BOOL    35 /* data: [n]byte,byte,.. */
-
+#define XT_ARRAY_BOOL_UA 35 /* data: [n]byte,byte,..  (unaligned! NOT supported anymore) */
+#define XT_ARRAY_BOOL    36 /* data: int(n),byte,byte,... */
 #define XT_UNKNOWN       48 /* data: [4]int - SEXP type (as from TYPEOF(x)) */
 
+#define XT_LARGE         64 /* new in 0102: if this flag is set then the length of the object
+			       is coded as 56-bit integer enlarging the header by 4 bytes */
 #define XT_HAS_ATTR      128 /* flag; if set, the following REXP is the
 				attribute */
 /* the use of attributes and vectors results in recursive storage of REXPs */
@@ -220,8 +230,10 @@ struct phdr { /* always 16 bytes */
 #define BOOL_FALSE 0
 #define BOOL_NA    2
 
-#define GET_XT(X) ((X)&127)
+#define GET_XT(X) ((X)&63)
+#define GET_DT(X) ((X)&63)
 #define HAS_ATTR(X) (((X)&XT_HAS_ATTR)>0)
+#define IS_LARGE(X) (((X)&XT_LARGE)>0)
 
 /* functions/macros to convert native endianess of int/double for transport
    currently ony PPC style and Intel style are supported */
