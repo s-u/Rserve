@@ -125,6 +125,15 @@ struct phdr { /* always 16 bytes */
 				     platform dependent) it's not supported.
 				     unknown commands are simply not recognized
 				     by the server at all. */
+/* The following ERR_.. exist since 1.23/0.1-6 */
+#define ERR_data_overflow    0x4b /* incoming packet is too big.
+				     currently there is a limit as of the
+				     size of an incoming packet. */
+#define ERR_object_too_big   0x4c /* the requested object is too big
+				     to be transported in that way.
+				     If received after CMD_eval then
+				     the evaluation itself was successful
+				  */
 
 /* availiable commands */
 
