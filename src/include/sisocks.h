@@ -14,7 +14,7 @@
 #ifndef __SISOCKS_H__
 #define __SISOCKS_H__
 
-#if defined __GNUC__ && !defined unix /* MacOS X hack (gcc on any platform should behave as unix) */
+#if defined __GNUC__ && !defined unix && !defined Win32 /* MacOS X hack (gcc on any platform should behave as unix - except for Win32, where we need to keep using winsock) */
 #define unix
 #endif
 
