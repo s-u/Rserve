@@ -826,6 +826,12 @@ void sigHandler(int i) {
   if (i==SIGTERM || i==SIGHUP)
     active=0;
 }
+
+void brkHandler(int i) {
+  printf("\nCaught break signal, shutting down Rserve.\n");
+  active=0;
+  /* kill(getpid(), SIGUSR1); */
+}
 #endif
 
 /* used for generating salt code (2x random from this array) */
@@ -1560,6 +1566,9 @@ void serverLoop() {
 #ifdef FORKED
   signal(SIGHUP,sigHandler);
   signal(SIGTERM,sigHandler);
+#ifdef RSERV_DEBUG
+  signal(SIGINT,brkHandler);
+#endif
 #endif
 
   initsocks();
@@ -1749,7 +1758,7 @@ int main(int argc, char **argv)
 #endif
 
 #ifdef RSERV_DEBUG
-  printf("Server treminated normally.\n");
+  printf("\nServer terminated normally.\n");
 #endif
   return 0;
 };
