@@ -412,6 +412,7 @@ decl_sbthread newConn(void *thp) {
   char sfbuf[sfbufSize];
   int fbufl;
   int Rerror;
+  char wdname[512];
   
   IoBuffer *iob;
   SEXP xp,exp;
@@ -427,9 +428,10 @@ decl_sbthread newConn(void *thp) {
 #ifdef unix
   if (chdir(workdir))
     mkdir(workdir,0777);
-  snprintf(buf,inBuf,"%s/conn%d",workdir,a->ucix&511);
-  mkdir(buf,0777);
-  chdir(buf);
+  wdname[511]=0;
+  snprintf(wdname,511,"%s/conn%d",workdir,a->ucix);
+  mkdir(wdname,0777);
+  chdir(wdname);
 #endif
 
   iob=(IoBuffer*)malloc(sizeof(*iob));
@@ -648,15 +650,24 @@ decl_sbthread newConn(void *thp) {
     if (!process)
       sendResp(s,SET_STAT(RESP_ERR,ERR_inv_cmd));
   };
+#ifdef RSERV_DEBUG
   if (n==0)
     printf("Connection closed by peer.\n");
   else
     printf("malformed packet. closing socket to prevent garbage.\n",n);
+#endif
   if (n>0)
     sendResp(s,SET_STAT(RESP_ERR,ERR_conn_broken));
   closesocket(s);
   free(sendbuf); free(iob);
+#ifdef unix
+  chdir(workdir);
+  rmdir(wdname);
+#endif
+
+#ifdef RSERV_DEBUG
   printf("done.\n");
+#endif
 #ifdef FORKED
   /* we should not return to the main loop, but terminate instead */
   exit(0);
