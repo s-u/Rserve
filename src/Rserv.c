@@ -737,6 +737,18 @@ int loadConfig(char *fn)
 	    maxSendBufSize=ns*1024;
 	}
       }
+#ifdef unix
+      if (strcmp(c,"uid") && *p) {
+	int nuid=atoi(p);
+	if (setuid(nuid))
+	  fprintf(stderr,"setuid(%d): failed. no user switch performed.",nuid);
+      }
+      if (strcmp(c,"gid") && *p) {
+	int ngid=atoi(p);
+	if (setgid(ngid))
+	  fprintf(stderr,"setgid(%d): failed. no group switch performed.",ngid);
+      }
+#endif
       if (!strcmp(c,"workdir")) {
 	if (*p) {
 	  workdir=(char*)malloc(strlen(p)+1);
