@@ -30,9 +30,6 @@
 #include "Rversion.h"
 #include "Startup.h"
 
-/* for askok and askyesnocancel */
-#include "graphapp/graphapp.h"
-
 /* for signal-handling code */
 #include "psignal.h"
 
@@ -53,6 +50,16 @@ extern void ProcessEvents(void);
 extern void end_Rmainloop(void), R_ReplDLLinit(void);
 extern int R_ReplDLLdo1();
 extern void run_Rmainloop(void);
+
+#ifndef YES
+#define YES    1
+#endif
+#ifndef NO
+#define NO    -1
+#endif
+#ifndef CANCEL
+#define CANCEL 0
+#endif
 
 /* simple input, simple output */
 /* This version blocks all events: a real one needs to call ProcessEvents
@@ -79,6 +86,31 @@ void myCallBack()
 void myBusy(int which)
 {
     /* set a busy cursor ... if which = 1, unset if which = 0 */
+}
+
+void myMessage(char *s)
+{
+    if (!s) return;
+    myWriteConsole(s, strlen(s));
+}
+
+int myYesNoCancel(char *s)
+{
+    char  ss[128];
+    unsigned char a[3];
+
+    sprintf(ss, "%s [y/n/c]: ", s);
+    myReadConsole(ss, a, 3, 0);
+    switch (a[0]) {
+    case 'y':
+    case 'Y':
+	return YES;
+    case 'n':
+    case 'N':
+	return NO;
+    default:
+	return CANCEL;
+    }
 }
 
 static void my_onintr(int sig)
@@ -137,8 +169,8 @@ int Rf_initEmbeddedR(int argc, char **argv)
     Rp->ReadConsole = myReadConsole;
     Rp->WriteConsole = myWriteConsole;
     Rp->CallBack = myCallBack;
-    Rp->message = askok;
-    Rp->yesnocancel = askyesnocancel;
+    Rp->message = myMessage;
+    Rp->yesnocancel = myYesNoCancel;
     Rp->busy = myBusy;
 
     Rp->R_Quiet = TRUE;
