@@ -25,7 +25,7 @@
               (this is inherited from Rsrv.h and sisocks.h)
 */
 
-#if defined __GNUC__ && !defined unix && !defined Win32
+#if defined __GNUC__ && !defined unix && !defined Win32 && !defined WIN32
 #define unix
 #endif
 
@@ -33,7 +33,6 @@
 
 #include <stdio.h>
 #include <sisocks.h>
-#include <sys/un.h>
 #include "Rsrv.h"
 
 typedef unsigned int Rsize_t;
