@@ -22,6 +22,8 @@
 #ifndef __RSRV_H__
 #define __RSRV_H__
 
+#include "config.h"
+
 #define default_Rsrv_port 6311
 
 /* Rserv communication is done over any reliable connection-oriented
@@ -96,14 +98,14 @@ struct phdr { /* always 16 bytes */
 
    codes <0 denote Rerror as provided by R_tryEval
  */
-#define ERR_auth_failed      0x41 /* auth.failed or auth.reqeusted but no
+#define ERR_auth_failed      0x41 /* auth.failed or auth.requested but no
 				     login came. in case of authentification
 				     failure due to name/pwd mismatch,
 				     server may send CMD_accessDenied instead
 				  */
 #define ERR_conn_broken      0x42 /* connection closed or broken packet killed it */
 #define ERR_inv_cmd          0x43 /* unsupported/invalid command */
-#define ERR_inv_par          0x44 /* some pars are invalid */
+#define ERR_inv_par          0x44 /* some parameters are invalid */
 #define ERR_Rerror           0x45 /* R-error occured, usually followed by
 				     connection shutdown */
 #define ERR_IOerror          0x46 /* I/O error */
@@ -138,7 +140,12 @@ struct phdr { /* always 16 bytes */
 				  server is free to choose any value - usually
 				  it uses the size of its static buffer */
 #define CMD_writeFile    0x014 /* data : - */
-#define CMD_removeFile   0x15  /* fn : - */
+#define CMD_removeFile   0x015 /* fn : - */
+
+/* object manipulation */
+#define CMD_setSEXP      0x020 /* string(name), REXP : - */
+#define CMD_assignSEXP   0x021 /* string(name), REXP : - ; same as setSEXP
+				  except that the name is parsed */
 
 /* data types for the transport protocol (QAP1)
    do NOT confuse with XT_.. values. */
@@ -163,19 +170,20 @@ struct phdr { /* always 16 bytes */
 #define XT_INT           1 /* data: [4]int */
 #define XT_DOUBLE        2 /* data: [8]double */
 #define XT_STR           3 /* data: [n]char null-term. strg. */
-#define XT_LANG          4 /* data: ? lang XP */
+#define XT_LANG          4 /* data: same as XT_LIST */
 #define XT_SYM           5 /* data: [n]char symbol name */
 #define XT_BOOL          6 /* data: [1]byte boolean
 			      (1=TRUE, 0=FALSE, 2=NA) */
 #define XT_VECTOR        16 /* data: [?]REXP */
-#define XT_LIST          17 /* X head, X vals */
+#define XT_LIST          17 /* X head, X vals, X tag (since 0.1-5) */
+#define XT_CLOS          18 /* X formals, X body  (closure; since 0.1-5) */
 
 #define XT_ARRAY_INT     32 /* data: [n*4]int,int,.. */
 #define XT_ARRAY_DOUBLE  33 /* data: [n*8]double,double,.. */
 #define XT_ARRAY_STR     34 /* data: [?]string,string,.. */
 #define XT_ARRAY_BOOL    35 /* data: [n]byte,byte,.. */
 
-#define XT_UNKNOWN       48 /* data: ? */
+#define XT_UNKNOWN       48 /* data: [4]int - SEXP type (as from TYPEOF(x)) */
 
 #define XT_HAS_ATTR      128 /* flag; if set, the following REXP is the
 				attribute */
@@ -205,8 +213,8 @@ double dtop(double i) { char b[8]; b[0]=((char*)&i)[7]; b[1]=((char*)&i)[6]; b[2
 
 #ifndef HAVE_CONFIG_H
 /* this tiny function can be used to make sure that the endianess
-   is correct (it is not included in the package was configured with
-   autoconf since then it should be fine anyway */
+   is correct (it is not included if the package was configured with
+   autoconf since then it should be fine anyway) */
 int isByteSexOk() {
   int i;
   i=itop(0x12345678);
