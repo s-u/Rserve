@@ -336,11 +336,16 @@ int* storeSEXP(int* buf, SEXP x) {
   };
 
   if (t==CHARSXP) {
+    int sl;
     *buf=itop(XT_STR|hasAttr);
     buf++;
     attrFixup;
     strcpy((char*)buf,(char*)STRING_PTR(x));
-    buf=(int*)(((char*)buf)+strlen((char*)buf)+1);
+    sl=strlen((char*)buf)+1;
+    while (sl&3) { /* pad by 0 to a length divisible by 4 (since 0.1-10) */
+      buf[sl]=0; sl++;
+    }
+    buf=(int*)(((char*)buf)+sl);
     goto didit;
   };
 
@@ -793,6 +798,17 @@ decl_sbthread newConn(void *thp) {
 #ifdef RSERV_DEBUG
 	  printf("PAR[%d]: %08x (PAR_LEN=%d, PAR_TYPE=%d)\n",pars,i,PAR_LEN(i),PAR_TYPE(i));
 #endif
+#ifdef sun
+	  if (PAR_LEN(i)&3) { /* on Sun machines it is deadly to process unaligned parameters,
+                                 therefore we respond with ERR_inv_par */
+#ifdef RSERV_DEBUG
+	    printf("Sun specific: parameter %d of length %d would result in unaligned stream, sending ERR_inv_par.\n",pars,PAR_LEN(i));
+#endif
+	    sendResp(s,SET_STAT(RESP_ERR,ERR_inv_par));
+	    process=1; ph.cmd=0;
+	    break;
+	  }
+#endif
 	  par[pars]=(int*)c;
 	  pars++;
 	  c+=PAR_LEN(i)+4; /* par length plus par head (4 bytes) */
@@ -815,6 +831,14 @@ decl_sbthread newConn(void *thp) {
 
     /** IMPORTANT! The pointers in par[..] point to RAW data, i.e. you have
         to use ptoi(..) in order to get the real integer value. */
+
+    /** NOTE: Rserve doesn't check for alignment of parameters. This is ok
+	for most platforms, but on Sun hardware this means that an user
+	can send a package that will cause segfault in the client thread
+	by sending unaligned parameters. This won't affect the server, only
+	the connection child process dies.
+	Since 0.1-10 we report ERR_inv_par on Sun for non-aligned parameters.
+    */
 
 #ifdef RSERV_DEBUG
     printf("CMD=%08x, pars=%d\n",ph.cmd,pars);
