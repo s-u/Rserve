@@ -82,6 +82,14 @@ char *getParseName(int n) {
   return "<unknown>";
 };
 
+#ifdef SWAPEND  /* swap endianness - for PPC and co. */
+int itop(int i) { char b[4]; b[0]=((char*)&i)[3]; b[3]=((char*)&i)[0]; b[1]=((char*)&i)[2]; b[2]=((char*)&i)[1]; return *((int*)b); };
+#define ptoi(X) itop(X) /* itop*itop=id */
+#else
+#define itop(X) (X)
+#define ptoi(X) (X)
+#endif
+
 struct tenc {
   int ptr;
   int *id[256];
@@ -102,14 +110,14 @@ int* storeSEXP(int* buf, SEXP x) {
   if (TYPEOF(ATTRIB(x))>0) hasAttr=XT_HAS_ATTR;
 
   if (t==NILSXP) {
-    *buf=XT_NULL|hasAttr;
+    *buf=itop(XT_NULL|hasAttr);
     buf++;
     attrFixup;
     goto didit;
   } 
   
   if (t==LISTSXP) {
-    *buf=XT_LIST|hasAttr;
+    *buf=itop(XT_LIST|hasAttr);
     buf++;
     attrFixup;
     buf=storeSEXP(buf,CAR(x));
@@ -118,7 +126,7 @@ int* storeSEXP(int* buf, SEXP x) {
   };
 
   if (t==LANGSXP) {
-    *buf=XT_LANG|hasAttr;
+    *buf=itop(XT_LANG|hasAttr);
     buf++;
     attrFixup;
     goto didit;
@@ -126,16 +134,17 @@ int* storeSEXP(int* buf, SEXP x) {
 
   if (t==REALSXP) {
     if (LENGTH(x)>1) {
-      *buf=XT_ARRAY_DOUBLE|hasAttr;
+      *buf=itop(XT_ARRAY_DOUBLE|hasAttr);
       buf++;
       attrFixup;
+      i=0;
       while(i<LENGTH(x)) {
 	((double*)buf)[i]=REAL(x)[i];
 	i++;
       };
       buf=(int*)(((double*)buf)+LENGTH(x));
     } else {
-      *buf=XT_DOUBLE|hasAttr;
+      *buf=itop(XT_DOUBLE|hasAttr);
       buf++;
       attrFixup;
       *((double*)buf)=*REAL(x);
@@ -145,7 +154,7 @@ int* storeSEXP(int* buf, SEXP x) {
   };
 
   if (t==EXPRSXP || t==VECSXP || t==STRSXP) {
-    *buf=XT_VECTOR|hasAttr;
+    *buf=itop(XT_VECTOR|hasAttr);
     buf++;
     attrFixup;
     i=0;
@@ -157,12 +166,12 @@ int* storeSEXP(int* buf, SEXP x) {
   };
 
   if (t==INTSXP) {
-    *buf=XT_ARRAY_INT|hasAttr;
+    *buf=itop(XT_ARRAY_INT|hasAttr);
     buf++;
     attrFixup;
     i=0;
     while(i<LENGTH(x)) {
-      *buf=INTEGER(x)[i];
+      *buf=itop(INTEGER(x)[i]);
       buf++;
       i++;
     };
@@ -170,7 +179,7 @@ int* storeSEXP(int* buf, SEXP x) {
   };
 
   if (t==CHARSXP) {
-    *buf=XT_STR|hasAttr;
+    *buf=itop(XT_STR|hasAttr);
     buf++;
     attrFixup;
     strcpy((char*)buf,(char*)STRING_PTR(x));
@@ -179,21 +188,21 @@ int* storeSEXP(int* buf, SEXP x) {
   };
 
   if (t==SYMSXP) {
-    *buf=XT_SYM|hasAttr;
+    *buf=itop(XT_SYM|hasAttr);
     buf++;
     attrFixup;
     buf=storeSEXP(buf,PRINTNAME(x));
     goto didit;
   };
 
-  *buf=XT_UNKNOWN|hasAttr;
+  *buf=itop(XT_UNKNOWN|hasAttr);
   buf++;
   attrFixup;
   *buf=TYPEOF(x);
   buf++;
   
  didit:
-  *preBuf=SET_PAR(PAR_TYPE(*preBuf),dist(preBuf,buf));
+  *preBuf=SET_PAR(PAR_TYPE(ptoi(*preBuf)),dist(preBuf,buf));
   return buf;
 };
 
