@@ -186,8 +186,9 @@ int* storeSEXP(int* buf, SEXP x) {
     goto didit;
   };
 
-  *buf=XT_UNKNOWN;
+  *buf=XT_UNKNOWN|hasAttr;
   buf++;
+  attrFixup;
   *buf=TYPEOF(x);
   buf++;
   
