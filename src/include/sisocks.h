@@ -16,6 +16,7 @@
 
 #if defined SOCK_ERRORS || defined USE_SNPRINTF
 #include <stdio.h>
+#include <string.h>
 #endif
 
 #ifdef unix
