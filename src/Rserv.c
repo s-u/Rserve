@@ -74,10 +74,10 @@
 
 #define USE_RINTERNALS
 #define SOCK_ERRORS
-#define USE_SNPRINTF
+// #define USE_SNPRINTF
 #define LISTENQ 16
 
-#if defined __GNUC__ && !defined unix /* MacOS X hack. gcc on any platform is treated as unix */
+#if defined __GNUC__ && !defined unix && !defined Win32 /* MacOS X hack. gcc on any platform is treated as unix */
 #define unix
 #endif
 
@@ -565,6 +565,12 @@ int loadConfig(char *fn)
 	allowIO=(*p=='1' || *p=='y' || *p=='e')?1:0;
     };
   fclose(f);
+#ifndef HAS_CRYPT
+  if (!usePlain) {
+    fprintf(stderr,"Warning: useplain=yes, but this Rserve has no crypt support!\nCompile with crypt support and make sure your system supports crypt.\nFalling back to plain text password.\n");
+    usePlain=1;
+  }
+#endif
 }
 
 /* size of the input buffer (default 512kB)
@@ -653,8 +659,8 @@ decl_sbthread newConn(void *thp) {
   if (authReq) {
     memcpy(buf+16,"ARuc",4);
     salt[0]='K';
-    salt[1]=code64[random()&63];
-    salt[2]=code64[random()&63];
+    salt[1]=code64[rand()&63];
+    salt[2]=code64[rand()&63];
     salt[3]=' '; salt[4]=0;
     memcpy(buf+20,salt,4);
     if (usePlain) memcpy(buf+24,"ARpt",4);
@@ -762,8 +768,10 @@ decl_sbthread newConn(void *thp) {
 		  if (usePlain && !strcmp(c1,cc))
 		    authed=1;
 		  else {
+#ifdef HAS_CRYPT
 		    c2=crypt(c1,salt+1);
 		    if (!strcmp(c2,cc)) authed=1;
+#endif
 		  };
 		};
 		if (authed) break;
@@ -1131,12 +1139,18 @@ int main(int argc, char **argv)
   SEXP env;
   char c;
 
+#ifdef RSERV_DEBUG
+  printf("Rserve (C)Copyright 2002,3 Simon Urbanek\n\n");
+#endif
   if (!isByteSexOk()) {
     printf("FATAL ERROR: This program was not correctly compiled - the endianess is wrong!\nUse -DSWAPEND when compiling on PPC or similar platforms.\n");
     return -100;
   };
 
   loadConfig(CONFIG_FILE);
+#ifdef RSERV_DEBUG
+  printf("Loaded config file %s\n",CONFIG_FILE);
+#endif
 
   top_argc=argc; top_argv=argv;
 
@@ -1153,8 +1167,8 @@ int main(int argc, char **argv)
   */
   R_IoBufferPuts("\"Rserv: INVALID INPUT\"\n",&b);
   r=R_Parse1Buffer(&b,1,&stat);r=Rf_eval(r,R_GlobalEnv);
-#ifdef RSERV_DEBUG
-  printf("Ok, ready to answer queries.\n");
+#if defined RSERV_DEBUG || defined Win32
+  printf("Rserve: Ok, ready to answer queries.\n");
 #endif      
 
 #if defined DAEMON && defined unix
