@@ -627,7 +627,7 @@ decl_sbthread newConn(void *thp) {
   // allocate input and send-file buffers
   buf=(char*) malloc(inBuf+8);
   sfbuf=(char*) malloc(sfbufSize);
-  if (!buf || !sfbuf) return 0;
+  if (!buf || !sfbuf) return;
 
   memset(buf,0,inBuf+8);
 #ifdef FORKED  
@@ -708,11 +708,6 @@ decl_sbthread newConn(void *thp) {
 	  c+=PAR_LEN(i)+4; /* par length plus par head (4 bytes) */
 	  if (pars>15) break;
 	}; /* we don't parse more than 16 parameters */
-#ifdef RSERV_DEBUG
-	i=0;
-	while(i<ph.len) printf("%02x ",buf[i++]);
-	puts("");
-#endif
       } else {
 	printf("discarding buffer because too big (awaiting %d bytes)\n",ph.len);
 	i=ph.len;
