@@ -87,10 +87,14 @@ char *getParseName(int n) {
 
 #ifdef SWAPEND  /* swap endianness - for PPC and co. */
 int itop(int i) { char b[4]; b[0]=((char*)&i)[3]; b[3]=((char*)&i)[0]; b[1]=((char*)&i)[2]; b[2]=((char*)&i)[1]; return *((int*)b); };
+double dtop(double i) { char b[8]; b[0]=((char*)&i)[7]; b[1]=((char*)&i)[6]; b[2]=((char*)&i)[5]; b[3]=((char*)&i)[4]; b[7]=((char*)&i)[0]; b[6]=((char*)&i)[1]; b[5]=((char*)&i)[2]; b[4]=((char*)&i)[3]; return *((double*)b); };
 #define ptoi(X) itop(X) /* itop*itop=id */
+#define ptod(X) dtop(X)
 #else
 #define itop(X) (X)
 #define ptoi(X) (X)
+#define dtop(X) (X)
+#define ptod(X) (X)
 #endif
 
 struct tenc {
@@ -102,6 +106,21 @@ struct tenc {
 
 #define attrFixup if (hasAttr) buf=storeSEXP(buf,ATTRIB(x));
 #define dist(A,B) (((int)(((char*)B)-((char*)A)))-4)
+
+#ifdef DEBUG
+void printDump(void *b, int len) {
+  int i=0;
+  if (len<1) { printf("DUMP FAILED (len=%d)\n",len); };
+  printf("DUMP [%d]:",len);
+  while(i<len) {
+    printf(" %02x",((unsigned char*)b)[i++]);
+#ifdef NOFULL
+    if(i>100) { printf(" ..."); break; };
+#endif
+  };
+  printf("\n");
+};
+#endif
 
 int* storeSEXP(int* buf, SEXP x) {
   int t=TYPEOF(x);
@@ -142,7 +161,7 @@ int* storeSEXP(int* buf, SEXP x) {
       attrFixup;
       i=0;
       while(i<LENGTH(x)) {
-	((double*)buf)[i]=REAL(x)[i];
+	((double*)buf)[i]=dtop(REAL(x)[i]);
 	i++;
       };
       buf=(int*)(((double*)buf)+LENGTH(x));
@@ -150,20 +169,25 @@ int* storeSEXP(int* buf, SEXP x) {
       *buf=itop(XT_DOUBLE|hasAttr);
       buf++;
       attrFixup;
-      *((double*)buf)=*REAL(x);
+      *((double*)buf)=dtop(*REAL(x));
       buf=(int*)(((double*)buf)+1);
     };
     goto didit;
   };
 
   if (t==EXPRSXP || t==VECSXP || t==STRSXP) {
-    *buf=itop(XT_VECTOR|hasAttr);
-    buf++;
-    attrFixup;
-    i=0;
-    while(i<LENGTH(x)) {
-      buf=storeSEXP(buf,VECTOR_ELT(x,i));
-      i++;
+    if (t==STRSXP && LENGTH(x)==1) {
+      buf=storeSEXP(buf,VECTOR_ELT(x,0));
+      goto skipall; /* need to skip fixup since we didn't store anything */
+    } else {
+      *buf=itop(XT_VECTOR|hasAttr);
+      buf++;
+      attrFixup;
+      i=0;
+      while(i<LENGTH(x)) {
+        buf=storeSEXP(buf,VECTOR_ELT(x,i));
+        i++;
+      };
     };
     goto didit;
   };
@@ -205,10 +229,11 @@ int* storeSEXP(int* buf, SEXP x) {
   buf++;
   
  didit:
-  *preBuf=SET_PAR(PAR_TYPE(ptoi(*preBuf)),dist(preBuf,buf));
+  *preBuf=itop(SET_PAR(PAR_TYPE(ptoi(*preBuf)),dist(preBuf,buf)));
+
+ skipall:
   return buf;
 };
-
 
 void printSEXP(SEXP e) { 
   int t=TYPEOF(e);
@@ -302,15 +327,26 @@ struct args {
 void sendResp(int s, int rsp) {
   struct phdr ph;
   memset(&ph,0,sizeof(ph));
-  ph.cmd=rsp|CMD_RESP;
+  ph.cmd=itop(rsp|CMD_RESP);
+#ifdef DEBUG
+  printf("OUT.sendResp(void data)\n");
+  printDump(&ph,sizeof(ph));
+#endif
   send(s,&ph,sizeof(ph),0);
 };
 
 void sendRespData(int s, int rsp, int len, void *buf) {
   struct phdr ph;
   memset(&ph,0,sizeof(ph));
-  ph.cmd=rsp|CMD_RESP;
-  ph.len=len;
+  ph.cmd=itop(rsp|CMD_RESP);
+  ph.len=itop(len);
+#ifdef DEBUG
+  printf("OUT.sendRespData\nHEAD ");
+  printDump(&ph,sizeof(ph));
+  printf("BODY ");
+  printDump(buf,len);
+#endif
+    
   send(s,&ph,sizeof(ph),0);
   send(s,buf,len,0);
 };
@@ -346,16 +382,27 @@ decl_sbthread newConn(void *thp) {
 
   iob=(IoBuffer*)malloc(sizeof(*iob));
   sendbuf=(char*)malloc(sndBS);
+#ifdef DEBUG
   printf("connection accepted.\n");
+#endif
   s=a->s;
   free(a);
   send(s,IDstring,32,0);
   while((n=recv(s,&ph,sizeof(ph),0))==sizeof(ph)) {
+#ifdef DEBUG
+    printf("header read result: %d\n",n);
+    if (n>0) printDump(&ph,n);
+#endif DEBUG
+    ph.len=ptoi(ph.len);
+    ph.cmd=ptoi(ph.cmd);
+    ph.dof=ptoi(ph.dof);
     process=0;
     pars=0;
     if (ph.len>0) {
       if (ph.len<inBuf) {
+#ifdef DEBUG
 	printf("loading buffer (awaiting %d bytes)\n",ph.len);
+#endif
 	i=0;
 	while(n=recv(s,buf+i,ph.len-i,0)) {
 	  if (n>0) i+=n;
@@ -364,17 +411,24 @@ decl_sbthread newConn(void *thp) {
 	if (i<ph.len) break;
 	memset(buf+ph.len,0,8);
 	
+#ifdef DEBUG
 	printf("parsing parameters\n");
+#endif
 	c=buf+ph.dof;
-	while((c<buf+ph.len) && (i=*((int*)c))) {
+	while((c<buf+ph.dof+ph.len) && (i=ptoi(*((int*)c)))) {
+#ifdef DEBUG
+	  printf("PAR[%d]: %08x (PAR_LEN=%d, PAR_TYPE=%d)\n",pars,i,PAR_LEN(i),PAR_TYPE(i));
+#endif
 	  par[pars]=(int*)c;
 	  pars++;
-	  c+=PAR_LEN(i);
+	  c+=PAR_LEN(i)+4; /* par length plut par head (4 bytes) */
 	  if (pars>15) break;
 	}; /* we don't parse more than 16 parameters */
+#ifdef DEBUG
 	i=0;
 	while(i<ph.len) printf("%02x ",buf[i++]);
 	puts("");
+#endif
       } else {
 	printf("discarding buffer because too big (awaiting %d bytes)\n",ph.len);
 	i=ph.len;
@@ -389,7 +443,12 @@ decl_sbthread newConn(void *thp) {
       };
     };
 
+    /** IMPORTANT! The pointers in par[..] point to RAW data, i.e. you have
+        to use ptoi(..) in order to get the real integer value. */
+
+#ifdef DEBUG
     printf("CMD=%08x, pars=%d\n",ph.cmd,pars);
+#endif
 
     if (ph.cmd==CMD_shutdown) {
       sendResp(s,RESP_OK);
@@ -402,11 +461,10 @@ decl_sbthread newConn(void *thp) {
 
     if (ph.cmd==CMD_voidEval || ph.cmd==CMD_eval) {
       process=1;
-      if (pars<1 || PAR_TYPE(*par[0])!=DT_STRING) 
+      if (pars<1 || PAR_TYPE(ptoi(*par[0]))!=DT_STRING) 
 	sendResp(s,SET_STAT(RESP_ERR,ERR_inv_par));
       else {
 	c=(char*)(par[0]+1);
-	//printf("eval of \"%s\" requested.\n",c);
 	i=j=0; /* count the lines to pass the right parameter to parse
 		  the string should contain a trainig \n !! */
 	while(c[i]) if(c[i++]=='\n') j++;
@@ -417,18 +475,25 @@ decl_sbthread newConn(void *thp) {
 	R_IoBufferPuts(c,iob);
 	printf("R_Parse1Buffer(iob,%d,&stat)\n",j);
 	xp=R_Parse1Buffer(iob,j,&stat);
-	printf("buffer parsed, stat=%d\nRf_eval(xp,R_GlobalEnv);\n",stat);
-	exp=Rf_eval(xp,R_GlobalEnv);
-	printf("buffer evaluated.\n");
-	printSEXP(exp);
-	if (ph.cmd==CMD_voidEval)
-	  sendResp(s,RESP_OK);
-	else {
-	  tail=(char*)storeSEXP((int*)sendbuf,exp);
-	  printf("stored SEXP; length=%d\n",tail-sendbuf);
-	  sendRespData(s,RESP_OK,tail-sendbuf,sendbuf);
+	printf("buffer parsed, stat=%d\n",stat);
+	if (stat!=1)
+	  sendResp(s,SET_STAT(RESP_ERR,stat));
+        else {	 
+          printf("Rf_eval(xp,R_GlobalEnv);\n");
+	  exp=Rf_eval(xp,R_GlobalEnv);
+	  printf("buffer evaluated.\n");
+	  printSEXP(exp);
+	  if (ph.cmd==CMD_voidEval)
+	    sendResp(s,RESP_OK);
+	  else {
+	    tail=(char*)storeSEXP((int*)sendbuf,exp);
+	    printf("stored SEXP; length=%d\n",tail-sendbuf);
+	    sendRespData(s,RESP_OK,tail-sendbuf,sendbuf);
+	  };
 	};
-	printf("\nOK sent\n");
+#ifdef DEBUG
+        printf("reply sent.\n");
+#endif
       };
     };
 
@@ -498,6 +563,8 @@ int main(int argc, char **argv)
   //printBufInfo(b);
   R_IoBufferPuts("data(iris)\n",&b);
   r=R_Parse1Buffer(&b,1,&stat);r=Rf_eval(r,R_GlobalEnv);
-  
+  R_IoBufferPuts("\"Rserv: INVALID INPUT\"\n",&b);
+  r=R_Parse1Buffer(&b,1,&stat);r=Rf_eval(r,R_GlobalEnv);
+      
   serverLoop();
 };
