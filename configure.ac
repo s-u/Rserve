@@ -1,5 +1,5 @@
 # Process this file with autoconf to produce a configure script.
-AC_INIT(Rserve, 0.1, Simon.Urbanek@math.uni-augsburg.de)
+AC_INIT(Rserve, 0.3, Simon.Urbanek@math.uni-augsburg.de)
 AC_CONFIG_SRCDIR([src/Rserv.c])
 AC_CONFIG_HEADER([src/config.h])
 
@@ -123,4 +123,5 @@ int main() { add_history(rl_library_version); return 0; }
 AC_SUBST(LINK_READLINE)
 
 AC_CONFIG_FILES([src/Makefile])
+AC_CONFIG_FILES([src/client/Makefile])
 AC_OUTPUT
