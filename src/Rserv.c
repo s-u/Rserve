@@ -112,6 +112,7 @@
 #define USE_RINTERNALS
 #define SOCK_ERRORS
 #define LISTENQ 16
+#define MAIN
 
 /* MacOS X hack. gcc on any (non-windows) platform is treated as unix */
 #if defined __GNUC__ && !defined unix && !defined Win32
