@@ -15,7 +15,6 @@ cp ../../../C/R/Rserv.c /tmp/Rserve/src
 cp ../../../C/R/Rsrv.h /tmp/Rserve/src
 cp ../../../C/R/Rcli.c /tmp/Rserve/src
 cp ../../../C/R/winembed.c /tmp/Rserve/src
-cp ../../../C/R/configure.ac /tmp/Rserve/
 cp ../../../C/portcode/sbthread.h /tmp/Rserve/src
 cp ../../../C/portcode/sisocks.h /tmp/Rserve/src
 touch /tmp/Rserve/src/dummy.so
