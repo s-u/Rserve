@@ -1,7 +1,7 @@
 /*
  *  Rserv : R-server that allows to use embedded R via TCP/IP
- *          currently based on R-1.5.1 API
- *  Copyright (C) 2002 Simon Urbanek
+ *          currently based on R-1.5.1 API (tested up to R-devel 1.7.0)
+ *  Copyright (C) 2002,3 Simon Urbanek
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -39,10 +39,11 @@
    SWAPEND     - define if the platform has byte order inverse to Intel (like PPC)
 
    RSERV_DEBUG - if defined various verbose output is produced
+      NOFULL   - dumps show first 100 bytes only
 
    DAEMON      - if defined the server daemonizes (unix only)
 
-   CONFIG_FILE - location of the config file
+   CONFIG_FILE - location of the config file (default /etc/Rserv.conf)
 */
 
 /* config file entries: [default]
@@ -113,8 +114,15 @@
 #include <Parse.h>
 #include "Rsrv.h"
 
-/* send buffer size (default 2MB) */
+/* send buffer size (default 2MB)
+   Currently Rserve stores entire responses in memory before sending it.
+   This is not really neccessary and may (hopefully will) change in the future.
+   Send buffer specifies the maximal amount of data sent from Rserve to
+   the client in one response.
+ */
+#ifndef sndBS /* configure may have defined one already */
 #define sndBS (2048*1024)
+#endif
 
 int port = default_Rsrv_port;
 int active = 1;
@@ -175,13 +183,6 @@ char *getParseName(int n) {
   return "<unknown>";
 };
 
-struct tenc {
-  int ptr;
-  int *id[256];
-  int ty[256];
-  int *buf;
-};
-
 #define attrFixup if (hasAttr) buf=storeSEXP(buf,ATTRIB(x));
 #define dist(A,B) (((int)(((char*)B)-((char*)A)))-4)
 
@@ -211,7 +212,7 @@ int* storeSEXP(int* buf, SEXP x) {
     attrFixup;
     buf=storeSEXP(buf,CAR(x));
     buf=storeSEXP(buf,CDR(x));    
-    buf=storeSEXP(buf,TAG(x));  /* since 1.22 (1.0-5) we store TAG as well */
+    buf=storeSEXP(buf,TAG(x));  /* since 1.22 (0.1-5) we store TAG as well */
     goto didit;
   };
 
@@ -219,14 +220,14 @@ int* storeSEXP(int* buf, SEXP x) {
     *buf=itop(XT_LANG|hasAttr);
     buf++;
     attrFixup;
-    /* before 1.22 (1.0-5) contents was ignored */
+    /* before 1.22 (0.1-5) contents was ignored */
     buf=storeSEXP(buf,CAR(x));
     buf=storeSEXP(buf,CDR(x));
-    buf=storeSEXP(buf,TAG(x));  /* since 1.22 (1.0-5) we store TAG as well */
+    buf=storeSEXP(buf,TAG(x));  /* since 1.22 (0.1-5) we store TAG as well */
     goto didit;
   };
 
-  if (t==CLOSXP) { /* closures */
+  if (t==CLOSXP) { /* closures (send FORMALS and BODY) */
     *buf=itop(XT_CLOS|hasAttr);
     buf++;
     attrFixup;
@@ -261,7 +262,7 @@ int* storeSEXP(int* buf, SEXP x) {
     buf++;
     attrFixup;
     i=0;
-    while(i<LENGTH(x)) {
+    while(i<LENGTH(x)) { /* logical values are stored as bytes of values 0/1/2 */
       int bv=(int)VECTOR_ELT(x,i);
       *((unsigned char*)buf)=(bv==0)?0:(bv==1)?1:2;
       buf=(int*)(((unsigned char*)buf)+1);
@@ -330,7 +331,10 @@ int* storeSEXP(int* buf, SEXP x) {
   return buf;
 };
 
-void printSEXP(SEXP e) { 
+void printSEXP(SEXP e) /* merely for debugging purposes
+						  in fact Rserve binary transport supports
+						  more types than this function. */
+{
   int t=TYPEOF(e);
   int i;
   char c;
@@ -409,7 +413,14 @@ void printBufInfo(IoBuffer *b) {
   printf("read-off: %d, write-off: %d\n",b->read_offset,b->write_offset);
 };
 
-SEXP decode_to_SEXP(int **buf, int *UPC) {
+
+/* decode_toSEXP is used to decode SEXPs from binary form and create
+   corresponding objects in R. UPC is a pointer to a counter of
+   UNPROTECT calls which will be necessary after we're done.
+   The buffer position is advanced to the point where the SEXP ends
+   (more precisely it points to the next stored SEXP). */
+SEXP decode_to_SEXP(int **buf, int *UPC)
+{
   int *b=*buf;
   char *c,*cc;
   SEXP val=0;
@@ -470,8 +481,10 @@ SEXP decode_to_SEXP(int **buf, int *UPC) {
   return val;
 }
 
+/* if set Rserve doesn't accept other than local connections. */
 int localonly=1;
 
+/* server socket */
 SOCKET ss;
 
 /* arguments structure passed to a working thread */
@@ -482,6 +495,7 @@ struct args {
   int ucix;
 };
 
+/* send a response including the data part */
 void sendRespData(int s, int rsp, int len, void *buf) {
   struct phdr ph;
   memset(&ph,0,sizeof(ph));
@@ -498,12 +512,17 @@ void sendRespData(int s, int rsp, int len, void *buf) {
   send(s,buf,len,0);
 };
 
+/* initial ID string */
 char *IDstring="Rsrv0100QAP1\r\n\r\n--------------\r\n";
 
+/* require authentication flag (default: no) */
 int authReq=0;
+/* use plain password flag (default: no) */
 int usePlain=0;
 
-int loadConfig(char *fn) {
+/* load config file */
+int loadConfig(char *fn)
+{
   FILE *f;
   char buf[512];
   char *c,*p,*c1;
@@ -548,12 +567,20 @@ int loadConfig(char *fn) {
   fclose(f);
 }
 
-#define inBuf 2048
+/* size of the input buffer (default 512kB)
+   was 2k before 1.23, but since 1.22 we support CMD_assign/set and hence
+   the incoming packets can be substantially bigger.
+*/
+#define inBuf (512*1024)
+/* static buffer size used for file transfer.
+   The user is still free to allocate its own size  */
 #define sfbufSize 32768 /* static file buffer size */
+
 #ifndef decl_sbthread
 #define decl_sbthread void
 #endif
 
+/* pid of the last child (not really used ATM) */
 int lastChild;
 
 #ifdef FORKED
@@ -563,11 +590,10 @@ void sigHandler(int i) {
 }
 #endif
 
-
-
 /* used for generating salt code (2x random from this array) */
 const char *code64="0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWYXZ01";
 
+/* working thread/function. the parameter is of the type struct args* */
 decl_sbthread newConn(void *thp) {
   SOCKET s;
   struct args *a=(struct args*)thp;
@@ -668,7 +694,7 @@ decl_sbthread newConn(void *thp) {
 #endif
 	  par[pars]=(int*)c;
 	  pars++;
-	  c+=PAR_LEN(i)+4; /* par length plut par head (4 bytes) */
+	  c+=PAR_LEN(i)+4; /* par length plus par head (4 bytes) */
 	  if (pars>15) break;
 	}; /* we don't parse more than 16 parameters */
 #ifdef RSERV_DEBUG
@@ -684,8 +710,9 @@ decl_sbthread newConn(void *thp) {
 	  if (i<1 || n<1) break;
 	};
 	if (i>0) break;
-	/* if the pars are bigger than my buffer, send inv_par response */
-	sendResp(s,SET_STAT(RESP_ERR,ERR_inv_par));
+	/* if the pars are bigger than my buffer, send data_overflow response
+	   (since 1.23/0.1-6; was inv_par before) */
+	sendResp(s,SET_STAT(RESP_ERR,ERR_data_overflow));
 	process=1; ph.cmd=0;
       };
     };
@@ -1095,6 +1122,7 @@ void serverLoop() {
   };
 };
 
+/* main function - start Rserve */
 int main(int argc, char **argv)
 {
   IoBuffer b;
