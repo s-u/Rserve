@@ -812,7 +812,7 @@ decl_sbthread newConn(void *thp) {
   int pars;
   int i,j,n;
   int process;
-  int stat;
+  ParseStatus stat;
   char *sendbuf;
   int sendBufSize;
   char *tail;
@@ -1646,12 +1646,6 @@ int main(int argc, char **argv)
   };
 
   R_IoBufferInit(&b);
-  /*
-  R_IoBufferPuts("data(iris)\n",&b);
-  r=R_Parse1Buffer(&b,1,&stat);r=Rf_eval(r,R_GlobalEnv);
-  */
-  R_IoBufferPuts("\"Rserv: INVALID INPUT\"\n",&b);
-  r=R_Parse1Buffer(&b,1,&stat);r=Rf_eval(r,R_GlobalEnv);
 #if defined RSERV_DEBUG || defined Win32
   printf("Rserve: Ok, ready to answer queries.\n");
 #endif      
