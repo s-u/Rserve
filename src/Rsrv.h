@@ -51,6 +51,27 @@ struct phdr { /* always 16 bytes */
 #define DT_ARRAY      11 /* array of objects (i.e. first 4 bytes specify how many
 			    subsequent objects are part of the array; 0 is legitimate) */
 
+#define XT_NULL          0
+#define XT_INT           1
+#define XT_DOUBLE        2
+#define XT_STR           3 /* null-term. strg. */
+#define XT_LANG          4 /* lang XP */
+#define XT_SYM           5 /* symbol */
+
+#define XT_VECTOR        16 /* of any Xs */
+#define XT_LIST          17 /* X head, X vals */
+
+#define XT_ARRAY_INT     32
+#define XT_ARRAY_DOUBLE  33
+#define XT_ARRAY_STR     34
+
+#define XT_UNKNOWN       48
+
+#define XT_HAS_ATTR      128
+
+#define GET_XT(X) ((X)&127)
+#define HAS_ATTR(X) (((X)&XT_HAS_ATTR)>0)
+
 /* ID string (sent by server on connect) must be 32 bytes long and consists of:
    "Rsrv" - R-server ID signature
    "0100" - version of the R server
@@ -63,5 +84,6 @@ struct phdr { /* always 16 bytes */
    "ARpt" - authorization required (here "pt"=plain text) connection will be closed
             if the first packet is not CMD_login
    "K***" - key if encoded authentification is challenged (*** is the key) */
+
 
 #endif

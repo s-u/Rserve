@@ -17,6 +17,9 @@
 #include <Parse.h>
 #include "Rsrv.h"
 
+/* send buffer size (default 2MB) */
+#define sndBS (2048*1024)
+
 int port = default_Rsrv_port;
 int active = 1;
 
@@ -42,7 +45,122 @@ char *getParseName(int n) {
   return "<unknown>";
 };
 
-void printSEXP(SEXP e) {
+struct tenc {
+  int ptr;
+  int *id[256];
+  int ty[256];
+  int *buf;
+};
+
+#define attrFixup if (hasAttr) buf=storeSEXP(buf,ATTRIB(x));
+#define dist(A,B) (((int)(((char*)B)-((char*)A)))-4)
+
+int* storeSEXP(int* buf, SEXP x) {
+  int t=TYPEOF(x);
+  int i;
+  char c;
+  int hasAttr=0;
+  int *preBuf=buf;
+
+  if (TYPEOF(ATTRIB(x))>0) hasAttr=XT_HAS_ATTR;
+
+  if (t==NILSXP) {
+    *buf=XT_NULL|hasAttr;
+    buf++;
+    attrFixup;
+    goto didit;
+  } 
+  
+  if (t==LISTSXP) {
+    *buf=XT_LIST|hasAttr;
+    buf++;
+    attrFixup;
+    buf=storeSEXP(buf,CAR(x));
+    buf=storeSEXP(buf,CDR(x));    
+    goto didit;
+  };
+
+  if (t==LANGSXP) {
+    *buf=XT_LANG|hasAttr;
+    buf++;
+    attrFixup;
+    goto didit;
+  };
+
+  if (t==REALSXP) {
+    if (LENGTH(x)>1) {
+      *buf=XT_ARRAY_DOUBLE|hasAttr;
+      buf++;
+      attrFixup;
+      while(i<LENGTH(x)) {
+	((double*)buf)[i]=REAL(x)[i];
+	i++;
+      };
+      buf=(int*)(((double*)buf)+LENGTH(x));
+    } else {
+      *buf=XT_DOUBLE|hasAttr;
+      buf++;
+      attrFixup;
+      *((double*)buf)=*REAL(x);
+      buf=(int*)(((double*)buf)+1);
+    };
+    goto didit;
+  };
+
+  if (t==EXPRSXP || t==VECSXP || t==STRSXP) {
+    *buf=XT_VECTOR|hasAttr;
+    buf++;
+    attrFixup;
+    i=0;
+    while(i<LENGTH(x)) {
+      buf=storeSEXP(buf,VECTOR_ELT(x,i));
+      i++;
+    };
+    goto didit;
+  };
+
+  if (t==INTSXP) {
+    *buf=XT_ARRAY_INT|hasAttr;
+    buf++;
+    attrFixup;
+    i=0;
+    while(i<LENGTH(x)) {
+      *buf=INTEGER(x)[i];
+      buf++;
+      i++;
+    };
+    goto didit;
+  };
+
+  if (t==CHARSXP) {
+    *buf=XT_STR|hasAttr;
+    buf++;
+    attrFixup;
+    strcpy((char*)buf,(char*)STRING_PTR(x));
+    buf=(int*)(((char*)buf)+strlen((char*)buf)+1);
+    goto didit;
+  };
+
+  if (t==SYMSXP) {
+    *buf=XT_SYM|hasAttr;
+    buf++;
+    attrFixup;
+    buf=storeSEXP(buf,PRINTNAME(x));
+    goto didit;
+  };
+
+  *buf=XT_UNKNOWN;
+  buf++;
+  *buf=TYPEOF(x);
+  buf++;
+  
+ didit:
+  *preBuf=SET_PAR(PAR_TYPE(*preBuf),dist(preBuf,buf));
+  return buf;
+};
+
+
+void printSEXP(SEXP e) { 
   int t=TYPEOF(e);
   int i;
   char c;
@@ -138,6 +256,15 @@ void sendResp(int s, int rsp) {
   send(s,&ph,sizeof(ph),0);
 };
 
+void sendRespData(int s, int rsp, int len, void *buf) {
+  struct phdr ph;
+  memset(&ph,0,sizeof(ph));
+  ph.cmd=rsp|CMD_RESP;
+  ph.len=len;
+  send(s,&ph,sizeof(ph),0);
+  send(s,buf,len,0);
+};
+
 char *IDstring="Rsrv0100QAP1\r\n\r\n--------------\r\n";
 
 #define inBuf 2048
@@ -156,7 +283,9 @@ decl_sbthread newConn(void *thp) {
   int i,j,k,n;
   int process;
   int stat;
-
+  char *sendbuf;
+  char *tail;
+  
   IoBuffer *iob;
   SEXP xp,exp;
     
@@ -164,6 +293,7 @@ decl_sbthread newConn(void *thp) {
 #ifdef FORKED  
   if (fork()!=0) return;
 #endif
+  sendbuf=(char*)malloc(sndBS);
   printf("connection accepted.\n");
   s=a->s;
   free(a);
@@ -214,6 +344,7 @@ decl_sbthread newConn(void *thp) {
       printf("clean shutdown.\n");
       active=0;
       closesocket(s);
+      free(sendbuf);
       return;
     };
 
@@ -238,7 +369,13 @@ decl_sbthread newConn(void *thp) {
 	exp=Rf_eval(xp,R_GlobalEnv);
 	printf("buffer evaluated.\n");
 	printSEXP(exp);
-	sendResp(s,RESP_OK);
+	if (ph.cmd==CMD_voidEval)
+	  sendResp(s,RESP_OK);
+	else {
+	  tail=(char*)storeSEXP((int*)sendbuf,exp);
+	  printf("stored SEXP; length=%d\n",tail-sendbuf);
+	  sendRespData(s,RESP_OK,tail-sendbuf,sendbuf);
+	};
 	printf("\nOK sent\n");
       };
     };
@@ -250,6 +387,7 @@ decl_sbthread newConn(void *thp) {
   if (n>0)
     sendResp(s,SET_STAT(RESP_ERR,ERR_conn_broken));
   closesocket(s);
+  free(sendbuf);
   printf("done.\n");
 };
 
