@@ -241,7 +241,8 @@ char *getParseName(int n) {
 
 /* this is the type used to calculate pointer distances
    we should re-define it to 64-bit type on 64-bit archs */
-typedef unsigned long rlen_t; 
+typedef unsigned long rlen_t;
+#define rlen_max 0xffffffff 
 
 #define attrFixup if (hasAttr) buf=storeSEXP(buf,ATTRIB(x));
 #define dist(A,B) (((rlen_t)(((char*)B)-((char*)A)))-4)
@@ -835,7 +836,7 @@ decl_sbthread newConn(void *thp) {
   char wdname[512];
   int authed=0;
   char salt[5];
-  unsigned int tempSB=0;
+  rlen_t tempSB=0;
 
   int parT[16];
   rlen_t parL[16];
@@ -846,11 +847,15 @@ decl_sbthread newConn(void *thp) {
   FILE *cf=0;
 
 #ifdef FORKED  
+  long rseed=random();
+  rseed^=time(0);
   if ((lastChild=fork())!=0) {
     /* close the connection socket - the child has it already */
     closesocket(a->s);
     return;
   }
+  srandom(rseed);
+
   parentPID=getppid();
   closesocket(a->ss); /* close server socket */
 #endif
@@ -1353,7 +1358,7 @@ decl_sbthread newConn(void *thp) {
 #endif
 		  sendRespData(s,SET_STAT(RESP_ERR,ERR_object_too_big),4,&osz);
 		} else { /* try to allocate a large, temporary send buffer */
-		  tempSB=rs+64; tempSB&=0xffffff000; tempSB+=0x1000;
+		  tempSB=rs+64; tempSB&=rlen_max<<12; tempSB+=0x1000;
 #ifdef RSERV_DEBUG
 		  printf("Trying to allocate temporary send buffer of %d bytes.\n",tempSB);
 #endif
