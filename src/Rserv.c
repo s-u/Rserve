@@ -692,7 +692,7 @@ decl_sbthread newConn(void *thp) {
 
     if (ph.cmd==CMD_openFile||ph.cmd==CMD_createFile) {
       process=1;
-      if (!allowIO) sendResp(s,SET_STAT(RESP_ERROR,ERR_accessDenied));
+      if (!allowIO) sendResp(s,SET_STAT(RESP_ERR,ERR_accessDenied));
       else {
 	if (pars<1 || PAR_TYPE(ptoi(*par[0]))!=DT_STRING) 
 	  sendResp(s,SET_STAT(RESP_ERR,ERR_inv_par));
@@ -710,7 +710,7 @@ decl_sbthread newConn(void *thp) {
 
     if (ph.cmd==CMD_closeFile) {
       process=1;
-      if (!allowIO) sendResp(s,SET_STAT(RESP_ERROR,ERR_accessDenied));
+      if (!allowIO) sendResp(s,SET_STAT(RESP_ERR,ERR_accessDenied));
       else {
 	if (cf) fclose(cf);
 	cf=0;
@@ -720,7 +720,7 @@ decl_sbthread newConn(void *thp) {
 
     if (ph.cmd==CMD_readFile) {
       process=1;
-      if (!allowIO) sendResp(s,SET_STAT(RESP_ERROR,ERR_accessDenied));
+      if (!allowIO) sendResp(s,SET_STAT(RESP_ERR,ERR_accessDenied));
       else {
 	if (!cf)
 	  sendResp(s,SET_STAT(RESP_ERR,ERR_notOpen));
@@ -748,7 +748,7 @@ decl_sbthread newConn(void *thp) {
 
     if (ph.cmd==CMD_writeFile) {
       process=1;
-      if (!allowIO) sendResp(s,SET_STAT(RESP_ERROR,ERR_accessDenied));
+      if (!allowIO) sendResp(s,SET_STAT(RESP_ERR,ERR_accessDenied));
       else {
 	if (!cf)
 	  sendResp(s,SET_STAT(RESP_ERR,ERR_notOpen));
@@ -925,7 +925,7 @@ int main(int argc, char **argv)
   char c;
 
   if (!isByteSexOk()) {
-    printf("FATAL ERROR: This program is not correctly compiled - the endianess is wrong!\nUse -DSWAPEND when compiling on PPC or similar platforms.\n");
+    printf("FATAL ERROR: This program was not correctly compiled - the endianess is wrong!\nUse -DSWAPEND when compiling on PPC or similar platforms.\n");
     return -100;
   };
 
