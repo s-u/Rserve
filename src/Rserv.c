@@ -942,7 +942,7 @@ decl_sbthread newConn(void *thp) {
       int parType=0;
       rlen_t parLen=0;
 
-      if (!maxinbuf || ph.len<maxInBuf) {
+      if (!maxInBuf || ph.len<maxInBuf) {
 	if (ph.len>=inBuf) {
 #ifdef RSERV_DEBUG
 	  printf("resizing input buffer (was %d, need %d) to %d\n",inBuf,ph.len,((ph.len|0x1fff)+1));
