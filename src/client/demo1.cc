@@ -31,6 +31,8 @@ using std::cout;
 // this is just a very silly example to show how the C++ API works ...
 
 int main(int argc, char **argv) {
+    initsocks(); // this is needed for Win32 - it does nothing on unix
+
     Rconnection *rc = new Rconnection();
     
     int i=rc->connect();

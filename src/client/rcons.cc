@@ -38,6 +38,8 @@ char c[1024];
 #endif
 
 int main(int argc, char **argv) {
+    initsocks(); // this is needed for Win32 - it does noting on unix
+
     Rconnection *rc = new Rconnection();
     
     int i=rc->connect();
