@@ -3,6 +3,9 @@ This directory contains a sample C++ client for Rserve
 You can compile this client without R. Just run "configure" in the
 Rserve directory, a corresponding Makefile will be automatically
 generated.
+Win32: There is no configure for Windows, but there is a special
+Makefile.win to build it - use "make -f Makefile.win" - it requires
+MinGW (or compatible) and GNU make.
 
 This C++ interface is experimental and does not come in form of a
 library, it is left to the user to build one or just use it in static
