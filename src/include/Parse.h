@@ -10,6 +10,5 @@ typedef enum {
 } ParseStatus;
 
 SEXP R_ParseVector(SEXP, int, ParseStatus *);
-SEXP R_Parse1Buffer(IoBuffer*, int, ParseStatus *);
 
 #endif
