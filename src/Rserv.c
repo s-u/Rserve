@@ -124,21 +124,6 @@ void sendResp(int s, int rsp) {
   send(s,&ph,sizeof(ph),0);
 };
 
-void jump_now()
-{
-  /* on error - close connection and get outa here */
-  if (csock!=-1) {
-    sendResp(csock,SET_STAT(RESP_ERR,ERR_Rerror));
-    closesocket(csock);
-  };
-  exit(0);
-  
-  //extern void Rf_resetStack(int topLevel);
-  //fprintf(stderr, "Handling R error locally\n");
-  //Rf_resetStack(1);
-  //elog(ERROR, "Error in R");
-}
-
 char *getParseName(int n) {
   switch(n) {
   case PARSE_NULL: return "null";
@@ -426,6 +411,7 @@ decl_sbthread newConn(void *thp) {
   char *fbuf;
   char sfbuf[sfbufSize];
   int fbufl;
+  int Rerror;
   
   IoBuffer *iob;
   SEXP xp,exp;
@@ -631,21 +617,26 @@ decl_sbthread newConn(void *thp) {
 	  sendResp(s,SET_STAT(RESP_ERR,stat));
         else {	 
 #ifdef RSERV_DEBUG
-          printf("Rf_eval(xp,R_GlobalEnv);\n");
+          printf("R_tryEval(xp,R_GlobalEnv,&Rerror);\n");
 #endif
-	  exp=Rf_eval(xp,R_GlobalEnv);
+	  Rerror=0;
+	  exp=R_tryEval(xp,R_GlobalEnv,&Rerror);
 #ifdef RSERV_DEBUG
-	  printf("buffer evaluated.\n");
-	  printSEXP(exp);
+	  printf("buffer evaluated (Rerror=%d).\n",Rerror);
+	  if (!Rerror) printSEXP(exp);
 #endif
-	  if (ph.cmd==CMD_voidEval)
-	    sendResp(s,RESP_OK);
-	  else {
-	    tail=(char*)storeSEXP((int*)sendbuf,exp);
+	  if (Rerror) {
+	    sendResp(s,SET_STAT(RESP_ERR,(Rerror<0)?Rerror:-Rerror));
+	  } else {
+	    if (ph.cmd==CMD_voidEval)
+	      sendResp(s,RESP_OK);
+	    else {
+	      tail=(char*)storeSEXP((int*)sendbuf,exp);
 #ifdef RSERV_DEBUG
-	    printf("stored SEXP; length=%d\n",tail-sendbuf);
+	      printf("stored SEXP; length=%d\n",tail-sendbuf);
 #endif
-	    sendRespData(s,RESP_OK,tail-sendbuf,sendbuf);
+	      sendRespData(s,RESP_OK,tail-sendbuf,sendbuf);
+	    };
 	  };
 	};
 #ifdef RSERV_DEBUG
@@ -708,7 +699,6 @@ void serverLoop() {
     selRet=select(ss+1,&readfds,0,0,&timv);
     if (selRet>0 && FD_ISSET(ss,&readfds)) {
 #endif
-      printf("ok, run accept\n");
       sa=(struct args*)malloc(sizeof(struct args));
       memset(sa,0,sizeof(struct args));
       al=sizeof(sa->sa);
@@ -730,7 +720,6 @@ void serverLoop() {
 #else
       newConn(sa);
 #endif
-      printf("leaving accept block.\n");
 #ifdef unix
     };
 #endif

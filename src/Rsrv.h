@@ -92,7 +92,10 @@ struct phdr { /* always 16 bytes */
 
 /* stat codes; 0-0x3f are reserved for program specific codes - e.g. for R
    connection they correspond to the stat of Parse command.
-   the following codes are returned by the Rserv itself */
+   the following codes are returned by the Rserv itself
+
+   codes <0 denote Rerror as provided by R_tryEval
+ */
 #define ERR_auth_failed      0x41 /* auth.failed or auth.reqeusted but no
 				     login came. in case of authentification
 				     failure due to name/pwd mismatch,
