@@ -522,14 +522,13 @@ int Rconnection::disconnect() {
         closesocket(s);
         s=-1;
     }
+    return 0;
 }
 
 /**--- low-level functions --*/
 
 int Rconnection::request(Rmessage *msg, int cmd, int len, void *par) {
     struct phdr ph;
-    int i,n,j;
-    char buf[128];
     
     if (s==-1) return -5; // not connected
     memset(&ph,0,sizeof(ph));
