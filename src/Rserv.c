@@ -45,6 +45,10 @@
 #include <stdio.h>
 #include <sisocks.h>
 #include <string.h>
+#ifdef unix
+#include <sys/time.h>
+#include <unistd.h>
+#endif
 #ifdef THREADED
 #include <sbthread.h>
 #endif
@@ -70,6 +74,8 @@ int top_argc;
 char *workdir="/tmp/Rserv";
 
 SOCKET csock=-1;
+
+int parentPID=-1;
 
 #ifdef THREADED
 int localUCIX;
@@ -352,6 +358,7 @@ SOCKET ss;
 /* arguments structure passed to a working thread */
 struct args {
   int s;
+  int ss;
   SAIN sa;
   int ucix;
 };
@@ -380,6 +387,15 @@ char *IDstring="Rsrv0100QAP1\r\n\r\n--------------\r\n";
 #define decl_sbthread void
 #endif
 
+int lastChild;
+
+#ifdef FORKED
+void sigHandler(int i) {
+  if (i==SIGTERM || i==SIGHUP)
+    active=0;
+}
+#endif
+
 decl_sbthread newConn(void *thp) {
   SOCKET s;
   struct args *a=(struct args*)thp;
@@ -402,7 +418,9 @@ decl_sbthread newConn(void *thp) {
 
   memset(buf,0,inBuf+8);
 #ifdef FORKED  
-  if (fork()!=0) return;
+  if ((lastChild=fork())!=0) return;
+  parentPID=getppid();
+  closesocket(a->ss); /* close server socket */
 #endif
 
 #ifdef unix
@@ -491,10 +509,14 @@ decl_sbthread newConn(void *thp) {
 
     if (ph.cmd==CMD_shutdown) {
       sendResp(s,RESP_OK);
-      printf("clean shutdown.\n");
+      printf("initiating clean shutdown.\n");
       active=0;
       closesocket(s);
       free(sendbuf); free(iob);
+#ifdef FORKED
+      if (parentPID>0) kill(parentPID,SIGTERM);
+      exit(0);
+#endif
       return;
     };
 
@@ -615,16 +637,31 @@ decl_sbthread newConn(void *thp) {
   closesocket(s);
   free(sendbuf); free(iob);
   printf("done.\n");
+#ifdef FORKED
+  /* we should not return to the main loop, but terminate instead */
+  exit(0);
+#endif
 };
 
 void serverLoop() {
   SAIN ssa;
   int al;
   int reuse;
+  int selRet=0;
   struct args *sa;
   struct sockaddr_in lsa;
 
+#ifdef unix
+  struct timeval timv;
+  fd_set readfds;
+#endif
+
   lsa.sin_addr.s_addr=inet_addr("127.0.0.1");
+
+#ifdef FORKED
+  signal(SIGHUP,sigHandler);
+  signal(SIGTERM,sigHandler);
+#endif
 
   initsocks();
   ss=FCF("open socket",socket(AF_INET,SOCK_STREAM,0));
@@ -636,25 +673,37 @@ void serverLoop() {
 #ifdef FORKED
     while (waitpid(-1,0,WNOHANG)>0);
 #endif
-    sa=(struct args*)malloc(sizeof(struct args));
-    memset(sa,0,sizeof(struct args));
-    al=sizeof(sa->sa);
-    sa->s=CF("accept",accept(ss,(SA*)&(sa->sa),&al));
-    sa->ucix=UCIX++;
-    if (localonly) {
-      if (sa->sa.sin_addr.s_addr==lsa.sin_addr.s_addr)
+#ifdef unix
+    timv.tv_sec=0; timv.tv_usec=10000;
+    FD_ZERO(&readfds); FD_SET(ss,&readfds);
+    selRet=select(ss+1,&readfds,0,0,&timv);
+    if (selRet>0 && FD_ISSET(ss,&readfds)) {
+#endif
+      printf("ok, run accept\n");
+      sa=(struct args*)malloc(sizeof(struct args));
+      memset(sa,0,sizeof(struct args));
+      al=sizeof(sa->sa);
+      sa->s=CF("accept",accept(ss,(SA*)&(sa->sa),&al));
+      sa->ucix=UCIX++;
+      sa->ss=ss;
+      if (localonly) {
+	if (sa->sa.sin_addr.s_addr==lsa.sin_addr.s_addr)
 #ifdef THREADED
-        sbthread_create(newConn,sa);
+	  sbthread_create(newConn,sa);
 #else
 	newConn(sa);
 #endif
       else
         closesocket(sa->s);
-    } else
+      } else
 #ifdef THREADED
-      sbthread_create(newConn,sa); 
+	sbthread_create(newConn,sa); 
 #else
       newConn(sa);
+#endif
+      printf("leaving accept block.\n");
+#ifdef unix
+    };
 #endif
   };
 };
@@ -689,4 +738,7 @@ int main(int argc, char **argv)
   printf("Ok, ready to answer queries.\n");
 #endif      
   serverLoop();
+#ifdef DEBUG
+  printf("Server treminated normally.\n");
+#endif
 };
