@@ -41,7 +41,7 @@ echo "Creating package ..."
 cd ..
 tar fcz Rserve_${VER}.tar.gz Rserve
 cd ${SWD}
-mv /tmp/Rserve_${VER}.tar.gz ..
+cp /tmp/Rserve_${VER}.tar.gz ..
 rm -rf /tmp/Rserve
 echo "Done."
 ls -l ../Rserve_${VER}.tar.gz
