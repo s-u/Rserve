@@ -28,7 +28,7 @@
 
 #include "config.h"
 
-#define RSRV_VER 0x00030E /* Rserve v0.3-14 */
+#define RSRV_VER 0x00030F /* Rserve v0.3-15 */
 
 #define default_Rsrv_port 6311
 
@@ -239,16 +239,24 @@ struct phdr { /* always 16 bytes */
 #define HAS_ATTR(X) (((X)&XT_HAS_ATTR)>0)
 #define IS_LARGE(X) (((X)&XT_LARGE)>0)
 
+#if defined sun && ! defined ALIGN_DOUBLES
+#define ALIGN_DOUBLES
+#endif
+
 /* functions/macros to convert native endianess of int/double for transport
    currently ony PPC style and Intel style are supported */
+
+/* FIXME: all the mess below needs more efficient implementation - the current one is so messy to work around alignment problems on some platforms like Sun and HP 9000 */
 
 #ifdef SWAPEND  /* swap endianness - for PPC and co. */
 #ifdef MAIN
 unsigned int itop(unsigned int i) { char b[4]; b[0]=((char*)&i)[3]; b[3]=((char*)&i)[0]; b[1]=((char*)&i)[2]; b[2]=((char*)&i)[1]; return *((unsigned int*)b); };
 double dtop(double i) { char b[8]; b[0]=((char*)&i)[7]; b[1]=((char*)&i)[6]; b[2]=((char*)&i)[5]; b[3]=((char*)&i)[4]; b[7]=((char*)&i)[0]; b[6]=((char*)&i)[1]; b[5]=((char*)&i)[2]; b[4]=((char*)&i)[3]; return *((double*)b); };
+void fixdcpy(void *t,void *s) { int i=0; while (i<8) { ((char*)t)[7-i]=((char*)s)[i]; i++; } };
 #else
 extern unsigned int itop(unsigned int i);
 extern double dtop(double i);
+extern fixdcpy(void *t,void *s);
 #endif
 #define ptoi(X) itop(X) /* itop*itop=id */
 #define ptod(X) dtop(X)
@@ -257,6 +265,7 @@ extern double dtop(double i);
 #define ptoi(X) (X)
 #define dtop(X) (X)
 #define ptod(X) (X)
+#define fixdcpy(T,S) ((double*)(T))[0]=((double*)(S))[0];
 #endif
 
 #ifndef HAVE_CONFIG_H

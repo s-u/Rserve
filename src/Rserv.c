@@ -177,16 +177,6 @@ typedef int socklen_t;
 #define AF_LOCAL AF_UNIX
 #endif
 
-#ifdef sun /* we need to be more careful on Sun when handling doubles, since we're i.g.
-	      aligned on 4 bytes, but Sun requires alibnment on 8 for doubles.
-	      Therefore we copy rather than use direct assignment. */
-void storeDouble(void *b, double d) {
-  memcpy(b,&d,sizeof(double));
-};
-#else
-#define storeDouble(B,D) ((*((double*)B))=(D))
-#endif
-
 /* send buffer size (default 2MB)
    Currently Rserve stores entire responses in memory before sending it.
    This is not really neccessary and may (hopefully will) change in the future.
@@ -396,32 +386,24 @@ unsigned int* storeSEXP(unsigned int* buf, SEXP x) {
   }
 
   if (t==REALSXP) {
-    if (LENGTH(x)>1) {
-      *buf=itop(XT_ARRAY_DOUBLE|hasAttr);
-      buf++;
-      attrFixup;
-      i=0;
-      while(i<LENGTH(x)) {
-	storeDouble(buf,dtop(REAL(x)[i]));
-	buf+=2; /* sizeof(double)=2*sizeof(int) */
-	i++;
-      };
-    } else {
-      *buf=itop(XT_DOUBLE|hasAttr);
-      buf++;
-      attrFixup;
-      storeDouble(buf,dtop(*REAL(x)));
-      buf+=2;
+    *buf=itop(XT_ARRAY_DOUBLE|hasAttr);
+    buf++;
+    attrFixup;
+    i=0;
+    while(i<LENGTH(x)) {
+      fixdcpy(buf,REAL(x)+i);
+      buf+=2; /* sizeof(double)=2*sizeof(int) */
+      i++;
     };
     goto didit;
   };
 
   if (t==LGLSXP) {
     int ll=LENGTH(x);
-    *buf=itop(((ll>1)?XT_ARRAY_BOOL:XT_BOOL)|hasAttr);
+    *buf=itop(((ll!=1)?XT_ARRAY_BOOL:XT_BOOL)|hasAttr);
     buf++;
     attrFixup;
-    if (ll>1) {
+    if (ll!=1) {
       *buf=itop(ll); buf++;
     }
     i=0;
@@ -632,7 +614,7 @@ SEXP decode_to_SEXP(unsigned int **buf, int *UPC)
     PROTECT(val=NEW_NUMERIC(l)); *UPC++;
     i=0;
     while (i<l) {
-      NUMERIC_POINTER(val)[i]=ptod(*((double*)b));
+      fixdcpy(REAL(val)+i,b);
       i++; b+=2;
     }
     *buf=b;
@@ -1040,11 +1022,11 @@ decl_sbthread newConn(void *thp) {
 #ifdef RSERV_DEBUG
 	  printf("PAR[%d]: %08x (PAR_LEN=%d, PAR_TYPE=%d, large=%s)\n",pars,i,parLen,parType,(headSize==8)?"yes":"no");
 #endif
-#ifdef sun
+#ifdef ALIGN_DOUBLES
 	  if (unaligned) { /* on Sun machines it is deadly to process unaligned parameters,
               therefore we respond with ERR_inv_par */
 #ifdef RSERV_DEBUG
-              printf("Sun specific: last parameter resulted in unaligned stream for the current one, sending ERR_inv_par.\n");
+              printf("Platform specific: last parameter resulted in unaligned stream for the current one, sending ERR_inv_par.\n");
 #endif
               sendResp(s,SET_STAT(RESP_ERR,ERR_inv_par));
               process=1; ph.cmd=0;
