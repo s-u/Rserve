@@ -33,7 +33,16 @@
 #else
 #define AF_LOCAL -1
 #endif
+#if defined HAVE_NETINET_TCP_H && defined HAVE_NETINET_IN_H
+#define CAN_TCP_NODELAY
+#include <netinet/tcp.h>
+#include <netinet/in.h>
+#endif
 #include "Rsrv.h"
+
+#ifndef AF_LOCAL
+#define AF_LOCAL AF_UNIX
+#endif
 
 static char *myID= "Rsrv0102QAP1"; /* this client supports up to protocol version 0102 */
 
@@ -472,8 +481,13 @@ int Rconnection::connect() {
     int i;
     
     s=socket(family,SOCK_STREAM,0);
-    if (family==AF_INET)
+    if (family==AF_INET) {
+#ifdef CAN_TCP_NODELAY
+        int opt=1;
+        setsockopt(s, IPPROTO_TCP, TCP_NODELAY, &opt, sizeof(opt));
+#endif
         i=::connect(s,(SA*)&sai,sizeof(sai));
+    }
 #ifdef unix
     else
         i=::connect(s,(SA*)&sau,sizeof(sau));
@@ -482,6 +496,7 @@ int Rconnection::connect() {
         closesocket(s); s=-1;
         return -1; // connect failed
     }
+        
     int n=recv(s,IDstring,32,0);
     if (n!=32) {
         closesocket(s); s=-1;

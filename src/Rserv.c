@@ -165,6 +165,12 @@ typedef int socklen_t;
 #include <crypt.h>
 #endif
 
+#if defined HAVE_NETINET_TCP_H && defined HAVE_NETINET_IN_H
+#define CAN_TCP_NODELAY
+#include <netinet/tcp.h>
+#include <netinet/in.h>
+#endif
+
 /* AF_LOCAL is the POSIX version of AF_UNIX - we need this e.g. for AIX */
 #ifndef AF_LOCAL
 #define AF_LOCAL AF_UNIX
@@ -954,6 +960,13 @@ decl_sbthread newConn(void *thp) {
   csock=s;
 #endif
 
+#ifdef CAN_TCP_NODELAY
+  {
+      int opt=1;
+      setsockopt(s, IPPROTO_TCP, TCP_NODELAY, &opt, sizeof(opt));
+  }
+#endif
+                    
   strcpy(buf,IDstring);
   if (authReq) {
     memcpy(buf+16,"ARuc",4);
