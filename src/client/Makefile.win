@@ -1,0 +1,25 @@
+# Makefile for C++ Rserve clients - Win32 version
+#
+# $Id$
+
+SRC = $(wildcard *.cc)
+OBJ = $(SRC:%.cc=%.o)
+DST = demo1 rcons
+
+CXXFLAGS+=-I../include -I../include/Win32 -I.. -I. -DWin32
+LIBS+=-lwsock32
+linkRL=
+
+all: $(DST)
+
+demo1: Rconnection.o demo1.o
+	$(CXX) $^ -o $@ $(LIBS)
+
+rcons: Rconnection.o rcons.o
+	$(CXX) $^ -o $@ $(LIBS) $(linkRL)
+
+debug:
+	CXXFLAGS=-g $(MAKE) all
+
+clean:
+	rm -rf *~ *.o \#* .\#* $(DST)
