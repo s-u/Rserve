@@ -1,3 +1,40 @@
+/*
+ *  Rserv : R-server that allows to use embedded R via TCP/IP
+ *          currently based on R-1.5.1 API
+ *  Copyright (C) 2002 Simon Urbanek
+ *
+ *  This program is free software; you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License as published by
+ *  the Free Software Foundation; either version 2 of the License, or
+ *  (at your option) any later version.
+ *
+ *  This program is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *  GNU General Public License for more details.
+ *
+ *  You should have received a copy of the GNU General Public License
+ *  along with this program; if not, write to the Free Software
+ *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *
+ *  $Id$
+ */
+
+/* external defines: (for unix platfoms: FORKED is highly recommended!)
+
+   THREADED   - results in threaded version of this server, i.e. each
+                new connection is run is a separate thread. Beware:
+		this approach is not recommended since R does not support
+		real multithreading yet
+   FORKED     - each connection is forked to a new process. This is the
+                recommended way to use this server. The advantage is (beside
+		the fact that this works ;)) that each client has a separate
+		namespace since the processes are independent
+   - if none of the above is specified then cooperative serving is used
+     (which is currently the only way available in Windows - if embedding R
+     worked in that setup)
+*/
+
 #define USE_RINTERNALS
 #define SOCK_ERRORS
 #define USE_SNPRINTF
