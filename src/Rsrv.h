@@ -24,7 +24,7 @@
 
 #include "config.h"
 
-#define RSRV_VER 0x000109 /* Rserve v0.1-9 */
+#define RSRV_VER 0x00010A /* Rserve v0.1-10 */
 
 #define default_Rsrv_port 6311
 
@@ -61,7 +61,13 @@
    all int and double entries throughout the transfer are in
    Intel-endianess format: int=0x12345678 -> char[4]=(0x78,0x56,x34,0x12)
    functions/macros for converting from native to protocol format 
-   are available below */
+   are available below
+
+   Please note also that all values muse be quad-aligned, i.e. the length
+   must be divisible by 4. This is automatically assured for int/double etc.,
+   but care must be taken when using strings and byte streams.
+
+ */
 
 struct phdr { /* always 16 bytes */
   int cmd; /* command */
@@ -116,7 +122,7 @@ struct phdr { /* always 16 bytes */
 #define ERR_accessDenied     0x48 /* this answer is also valid on
 				     CMD_login; otherwise it's sent
 				     if the server deosn;t allow the user
-				     to issue the specified commend.
+				     to issue the specified command.
 				     (e.g. some server admins may block
 				     file I/O operations for some users) */
 #define ERR_unsupportedCmd   0x49 /* unsupported command */
