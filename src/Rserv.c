@@ -44,6 +44,7 @@
 
 #include <stdio.h>
 #include <sisocks.h>
+#include <string.h>
 #ifdef THREADED
 #include <sbthread.h>
 #endif
@@ -337,11 +338,13 @@ decl_sbthread newConn(void *thp) {
   
   IoBuffer *iob;
   SEXP xp,exp;
-    
+
   memset(buf,0,inBuf+8);
 #ifdef FORKED  
   if (fork()!=0) return;
 #endif
+
+  iob=(IoBuffer*)malloc(sizeof(*iob));
   sendbuf=(char*)malloc(sndBS);
   printf("connection accepted.\n");
   s=a->s;
@@ -393,7 +396,7 @@ decl_sbthread newConn(void *thp) {
       printf("clean shutdown.\n");
       active=0;
       closesocket(s);
-      free(sendbuf);
+      free(sendbuf); free(iob);
       return;
     };
 
@@ -436,7 +439,7 @@ decl_sbthread newConn(void *thp) {
   if (n>0)
     sendResp(s,SET_STAT(RESP_ERR,ERR_conn_broken));
   closesocket(s);
-  free(sendbuf);
+  free(sendbuf); free(iob);
   printf("done.\n");
 };
 
@@ -481,7 +484,7 @@ void serverLoop() {
 
 int main(int argc, char **argv)
 {
-  IoBuffer *b;
+  IoBuffer b;
   int stat;
   SEXP r,s;
   SEXP env;
@@ -491,10 +494,10 @@ int main(int argc, char **argv)
 
   printf("Rf_initEmbedR returned %d\n",Rf_initEmbeddedR(top_argc,top_argv));
 
-  R_IoBufferInit(b);
+  R_IoBufferInit(&b);
   //printBufInfo(b);
-  R_IoBufferPuts("data(iris)\n",b);
-  r=R_Parse1Buffer(b,1,&stat);r=Rf_eval(r,R_GlobalEnv);
+  R_IoBufferPuts("data(iris)\n",&b);
+  r=R_Parse1Buffer(&b,1,&stat);r=Rf_eval(r,R_GlobalEnv);
   
   serverLoop();
 };
