@@ -1360,6 +1360,11 @@ int main(int argc, char **argv)
 #endif
 
   serverLoop();
+#ifdef unix
+  if (localSocketName)
+    remove(localSocketName);
+#endif
+
 #ifdef RSERV_DEBUG
   printf("Server treminated normally.\n");
 #endif
