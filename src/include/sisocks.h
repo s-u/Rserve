@@ -14,6 +14,10 @@
 #ifndef __SISOCKS_H__
 #define __SISOCKS_H__
 
+#if defined __GNUC__ && !defined unix /* MacOS X hack (gcc on any platform should behave as unix) */
+#define unix
+#endif
+
 #if defined SOCK_ERRORS || defined USE_SNPRINTF
 #include <stdio.h>
 #include <string.h>
