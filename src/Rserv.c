@@ -548,6 +548,8 @@ void serverLoop() {
     while (waitpid(-1,0,WNOHANG)>0);
 #endif
     sa=(struct args*)malloc(sizeof(struct args));
+    memset(sa,0,sizeof(struct args));
+    al=sizeof(sa->sa);
     sa->s=CF("accept",accept(ss,(SA*)&(sa->sa),&al));
     if (localonly) {
       if (sa->sa.sin_addr.s_addr==lsa.sin_addr.s_addr)
@@ -577,10 +579,13 @@ int main(int argc, char **argv)
 
   top_argc=argc; top_argv=argv;
 
-  printf("Rf_initEmbedR returned %d\n",Rf_initEmbeddedR(top_argc,top_argv));
+  stat=Rf_initEmbeddedR(top_argc,top_argv);
+  if (stat) {
+    printf("Failed to initialize embedded R! (stat=%d)\n",stat);
+    return -1;
+  };
 
   R_IoBufferInit(&b);
-  //printBufInfo(b);
   R_IoBufferPuts("data(iris)\n",&b);
   r=R_Parse1Buffer(&b,1,&stat);r=Rf_eval(r,R_GlobalEnv);
   R_IoBufferPuts("\"Rserv: INVALID INPUT\"\n",&b);
