@@ -256,7 +256,7 @@ void fixdcpy(void *t,void *s) { int i=0; while (i<8) { ((char*)t)[7-i]=((char*)s
 #else
 extern unsigned int itop(unsigned int i);
 extern double dtop(double i);
-extern fixdcpy(void *t,void *s);
+extern void fixdcpy(void *t,void *s);
 #endif
 #define ptoi(X) itop(X) /* itop*itop=id */
 #define ptod(X) dtop(X)
