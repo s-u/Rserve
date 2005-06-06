@@ -32,7 +32,7 @@ int main(int argc, char **argv) {
 
     Rconnection *rc = new Rconnection();
     
-    buf[1024]=0;
+    buf[1023]=0;
 
     int i=rc->connect();
     if (i) {
@@ -52,4 +52,6 @@ int main(int argc, char **argv) {
     }
     // dispose the connection object - this implicitly closes the connection
     delete rc;
+
+    return 0;
 }
