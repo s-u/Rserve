@@ -22,6 +22,12 @@ A very simple console to Rserve. It uses the os_print method to print
 the results and its attributes. It is helpful if you want to
 understand how R and Rserve stores various expressions.
 
+* rcmd.cc
+This program "sources" all files specified on the command line into
+a Rserve session and prints its output. It is something like a 'fast'
+version of R CMD BATCH. It's very simple, so look at the code if
+you want a more sophisticated behavior.
+
 The entire C++ interface handles only the most basic types such as
 lists, vectors, doubles, integers and strings. Look at the sources
 to see how to implement other types if necessary (although there
