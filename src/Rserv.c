@@ -162,7 +162,12 @@ typedef int socklen_t;
 #include <R.h>
 #include <Rinternals.h>
 #include <Rdefines.h>
-#include <Parse.h>
+#include <Rversion.h>
+#if R_VERSION < 0x2010
+#include "Parse.h"
+#else
+#include <R_ext/Parse.h>
+#endif
 #include "Rsrv.h"
 #ifdef HAVE_CRYPT_H
 #include <crypt.h>

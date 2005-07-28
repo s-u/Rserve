@@ -28,7 +28,12 @@
 #include <stdio.h>
 #include <config.h>
 #include "Rversion.h"
+
+#if R_VERSION < 0x2010
 #include "Startup.h"
+#else
+#include <R_ext/RStartup.h>
+#endif
 
 /* for signal-handling code */
 #include "psignal.h"
@@ -169,9 +174,16 @@ int Rf_initEmbeddedR(int argc, char **argv)
     Rp->ReadConsole = myReadConsole;
     Rp->WriteConsole = myWriteConsole;
     Rp->CallBack = myCallBack;
+
+#if R_VERSION < 0x2010
     Rp->message = myMessage;
     Rp->yesnocancel = myYesNoCancel;
     Rp->busy = myBusy;
+#else
+    Rp->ShowMessage = myMessage;
+    Rp->YesNoCancel = myYesNoCancel;
+    Rp->Busy = myBusy;
+#endif
 
     Rp->R_Quiet = TRUE;
     Rp->R_Interactive = FALSE;
