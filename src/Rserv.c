@@ -407,6 +407,7 @@ unsigned int* storeSEXP(unsigned int* buf, SEXP x) {
 
   if (t==LGLSXP) {
     int ll=LENGTH(x);
+    int *lgl = LOGICAL(x);
     *buf=itop(((ll!=1)?XT_ARRAY_BOOL:XT_BOOL)|hasAttr);
     buf++;
     attrFixup;
@@ -414,12 +415,12 @@ unsigned int* storeSEXP(unsigned int* buf, SEXP x) {
       *buf=itop(ll); buf++;
     }
     i=0;
-    while(i<LENGTH(x)) { /* logical values are stored as bytes of values 0/1/2 */
-      int bv=(int)VECTOR_ELT(x,i);
+    while (i<ll) { /* logical values are stored as bytes of values 0/1/2 */
+      int bv=lgl[i];
       *((unsigned char*)buf)=(bv==0)?0:(bv==1)?1:2;
       buf=(unsigned int*)(((unsigned char*)buf)+1);
       i++;
-    };
+    }
     /* pad by 0xff to a multiple of 4 */
     while (i&3) { *((unsigned char*)buf)=0xff; i++; buf=(unsigned int*)(((unsigned char*)buf)+1); };
     goto didit;
