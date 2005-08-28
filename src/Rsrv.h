@@ -74,10 +74,10 @@
  */
 
 struct phdr { /* always 16 bytes */
-  int cmd; /* command */
-  int len; /* length of the packet minus header (ergo -16) */
-  int dof; /* data offset behind header (ergo usually 0) */
-  int res; /* reserved - but must be sent so the minimal packet has 16 bytes */
+    int cmd; /* command */
+    int len; /* length of the packet minus header (ergo -16) */
+    int dof; /* data offset behind header (ergo usually 0) */
+    int res; /* reserved - but must be sent so the minimal packet has 16 bytes */
 };
 
 /* each entry in the data section (aka parameter list) is preceded by 4 bytes:
@@ -274,9 +274,9 @@ extern void fixdcpy(void *t,void *s);
    autoconf since then it should be fine anyway) */
 #ifdef MAIN
 int isByteSexOk() {
-  int i;
-  i=itop(0x12345678);
-  return (*((char*)&i)==0x78);
+    int i;
+    i=itop(0x12345678);
+    return (*((char*)&i)==0x78);
 }
 #else
 extern int isByteSexOk();
