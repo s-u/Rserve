@@ -28,16 +28,16 @@
 
 #include "config.h"
 
-#define RSRV_VER 0x000312 /* Rserve v0.3-18 */
+#define RSRV_VER 0x000400 /* Rserve v0.4-0 */
 
 #define default_Rsrv_port 6311
 
-/* Rserv communication is done over any reliable connection-oriented
-   protocol (usually TCP/IP). After connection is established, server
-   sends 32bytes of ID-string defining the capabilities of the server.
-   each attribute of the ID-string is 4 bytes long and is meant to be user-
-   readable (i.e. use no special characters), and it's a good idea to make
-   "\r\n\r\n" the last attribute
+/* Rserve communication is done over any reliable connection-oriented
+   protocol (usually TCP/IP or local sockets). After the connection is
+   established, the server sends 32 bytes of ID-string defining the
+   capabilities of the server. Each attribute of the ID-string is 4 bytes
+   long and is meant to be user-readable (i.e. don't use special characters),
+   and it's a good idea to make "\r\n\r\n" the last attribute
 
    the ID string must be of the form:
 
@@ -51,9 +51,9 @@
     "    " between attributes):
 
    "R151" - version of R (here 1.5.1)
-   "ARpt" - authorization required (here "pt"=plain text, "uc"=unix crypt)
-            connection will be closed
-            if the first packet is not CMD_login.
+   "ARpt" - authorization required (here "pt"=plain text, "uc"=unix crypt,
+            "m5"=MD5)
+            connection will be closed if the first packet is not CMD_login.
 	    if more AR.. methods are specified, then client is free to
 	    use the one he supports (usually the most secure)
    "K***" - key if encoded authentification is challenged (*** is the key)
@@ -74,10 +74,10 @@
  */
 
 struct phdr { /* always 16 bytes */
-    int cmd; /* command */
-    int len; /* length of the packet minus header (ergo -16) */
-    int dof; /* data offset behind header (ergo usually 0) */
-    int res; /* reserved - but must be sent so the minimal packet has 16 bytes */
+	int cmd; /* command */
+	int len; /* length of the packet minus header (ergo -16) */
+	int dof; /* data offset behind header (ergo usually 0) */
+	int res; /* reserved - must be 0 */
 };
 
 /* each entry in the data section (aka parameter list) is preceded by 4 bytes:
@@ -287,3 +287,11 @@ extern int isByteSexOk();
 #endif
 
 #endif
+
+/*--- The following makes the indenting behavior of emacs compatible
+      with Xcode's 4/4 setting ---*/
+/* Local Variables: */
+/* indent-tabs-mode: t */
+/* tab-width: 4 */
+/* c-basic-offset: 4 */
+/* End: */
