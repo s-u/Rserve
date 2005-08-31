@@ -1,5 +1,5 @@
 # Process this file with autoconf to produce a configure script.
-AC_INIT(Rserve, 0.3, Simon.Urbanek@math.uni-augsburg.de)
+AC_INIT(Rserve, 0.4, Simon.Urbanek@r-project.org)
 AC_CONFIG_SRCDIR([src/Rserv.c])
 AC_CONFIG_HEADER([src/config.h])
 
@@ -10,7 +10,9 @@ if test -z "${R_HOME}"; then
   exit 1
 fi
 CC=`${R_HOME}/bin/R CMD config CC`;
+CXX=`${R_HOME}/bin/R CMD config CXX`;
 CFLAGS=`${R_HOME}/bin/R CMD config CFLAGS`
+CXXFLAGS=`${R_HOME}/bin/R CMD config CXXFLAGS`
 AC_SUBST(R_HOME)
 
 # Checks for programs.
@@ -21,7 +23,7 @@ AC_PROG_CC
 # Checks for header files.
 AC_HEADER_STDC
 AC_HEADER_SYS_WAIT
-AC_CHECK_HEADERS([string.h sys/time.h unistd.h])
+AC_CHECK_HEADERS([string.h memory.h sys/time.h unistd.h])
 AC_CHECK_HEADERS([sys/stat.h sys/types.h sys/socket.h sys/un.h netinet/in.h netinet/tcp.h])
 
 # Checks for typedefs, structures, and compiler characteristics.
