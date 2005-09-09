@@ -31,7 +31,7 @@ Rserve:	Rserv.o session.o md5.o
 	$(LINK.C) $^ -o $@ $(linkR) $(Rlib) $(LIBS)
 
 Rserv_d.o: Rserv.c Rsrv.h
-	$(CC) -c Rserv.c -o $@ -DRSERV_DEBUG -g $(PKG_CFLAGS) $(CPPFLAGS) $(CFLAGS)
+	$(CC) -c Rserv.c -o $@ -DNODAEMON -DRSERV_DEBUG -g $(PKG_CFLAGS) $(CPPFLAGS) $(CFLAGS)
 
 Rserve.dbg:	Rserv_d.o session.o md5.o
 	$(LINK.C) $^ -o $@ $(linkR) $(Rlib) $(LIBS)
