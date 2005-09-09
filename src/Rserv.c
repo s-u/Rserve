@@ -117,6 +117,10 @@ the use of DT_LARGE/XT_LARGE.
 #define LISTENQ 16
 #define MAIN
 
+#if defined NODAEMON && defined DAEMON
+#undef DAEMON
+#endif
+
 /* MacOS X hack. gcc on any (non-windows) platform is treated as unix */
 #if defined __GNUC__ && !defined unix && !defined Win32
 #define unix
@@ -610,7 +614,7 @@ SEXP decode_to_SEXP(unsigned int **buf, int *UPC)
     case XT_ARRAY_INT:
 		l=ln/4;
 		PROTECT(val=NEW_INTEGER(l));
-		*UPC++;
+		(*UPC)++;
 		i=0;
 		while (i<l) {
 			INTEGER(val)[i]=ptoi(*b); i++; b++;
@@ -620,7 +624,7 @@ SEXP decode_to_SEXP(unsigned int **buf, int *UPC)
     case XT_DOUBLE:
     case XT_ARRAY_DOUBLE:
 		l=ln/8;
-		PROTECT(val=NEW_NUMERIC(l)); *UPC++;
+		PROTECT(val=NEW_NUMERIC(l)); (*UPC)++;
 		i=0;
 		while (i<l) {
 			fixdcpy(REAL(val)+i,b);
@@ -637,7 +641,7 @@ SEXP decode_to_SEXP(unsigned int **buf, int *UPC)
 			c++;
 			i++; 
 		}
-		PROTECT(val=NEW_STRING(j)); *UPC++;
+		PROTECT(val=NEW_STRING(j)); (*UPC)++;
 		i=j=0; c=(char*)b; cc=c;
 		while(i<ln) {
 			if (!*c) {
@@ -1436,9 +1440,9 @@ decl_sbthread newConn(void *thp) {
 						printSEXP(val);
 #endif
 						defineVar((sym)?sym:install(c),val,R_GlobalEnv);
-						UNPROTECT(globalUPC);
 						sendResp(s,RESP_OK);
 					}
+					if (globalUPC>0) UNPROTECT(globalUPC);
 					break;
 				default:
 					sendResp(s,SET_STAT(RESP_ERR,ERR_inv_par));
