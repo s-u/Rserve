@@ -958,6 +958,130 @@ void voidEval(char *cmd) {
     return;
 }
 
+
+struct sockaddr_in session_peer_sa;
+SOCKET session_socket;
+unsigned char session_key[32];
+
+/* detach session and setup everything such that in can be resumed at some point */
+int detach_session(SOCKET s) {
+    SAIN ssa;
+    int selRet=0;
+	int port=32768;
+    struct sockaddr_in lsa;
+	SOCKET ss=FCF("open socket",socket(AF_INET,SOCK_STREAM,0));
+    int reuse=1; /* enable socket address reusage */
+	socklen_t sl = sizeof(session_peer_sa);
+	if (getpeername(s, (SA*) &session_peer_sa, &sl)) {
+		sendResp(s,SET_STAT(RESP_ERR,ERR_detach_failed));
+		return -1;
+	}
+	struct dsresp {
+		int pt1;
+		int port;
+		int pt2;
+		unsigned char key[32];
+	} dsr;
+
+    setsockopt(ss,SOL_SOCKET,SO_REUSEADDR,&reuse,sizeof(reuse));
+
+	while ((port = (((int) random()) & 0x7fff)+32768)>65000) {};
+
+	while (bind(ss,build_sin(&ssa,0,port),sizeof(ssa))) {
+		if (errno!=EADDRINUSE) {
+#ifdef RSERV_DEBUG
+			printf("session: error in bind other than EADDRINUSE (0x%x)",  errno);
+#endif
+			closesocket(ss);
+			sendResp(s,SET_STAT(RESP_ERR,ERR_detach_failed));
+			return -1;
+		}
+		port++;
+		if (port>65530) {
+#ifdef RSERV_DEBUG
+			printf("session: can't find available prot to listed on.\n");
+#endif
+			closesocket(ss);
+			sendResp(s,SET_STAT(RESP_ERR,ERR_detach_failed));
+			return -1;
+		}
+	}
+
+    if (listen(ss,LISTENQ)) {
+#ifdef RSERV_DEBUG
+		printf("session: cannot listen.\n");
+#endif
+		closesocket(ss);
+		sendResp(s,SET_STAT(RESP_ERR,ERR_detach_failed));
+		return -1;
+	}
+
+	{
+		int i=0;
+		while (i<32) session_key[i++]=(unsigned char) rand();
+	}
+
+#ifdef RSERV_DEBUG
+	printf("session: listening on port %d\n", port);
+#endif
+
+	dsr.pt1  = itop(SET_PAR(DT_INT,sizeof(int)));
+	dsr.port = itop(port);
+	dsr.pt2  = itop(SET_PAR(DT_BYTESTREAM,32));
+	memcpy(dsr.key, session_key, 32);							
+	
+	sendRespData(s, RESP_OK, 3*sizeof(int)+32, &dsr);
+	closesocket(s);
+#ifdef RSERV_DEBUG
+	printf("session: detached, closing connection.\n");
+#endif
+	session_socket=ss;
+	return 0;
+}
+
+/* static char *sres_id = "RsS1                        \r\n\r\n"; */
+
+/* resume detached session. return the new socket after resume is complete, but don't send the response message */
+SOCKET resume_session() {
+	SOCKET s=-1;
+	SAIN lsa;
+	socklen_t al=sizeof(lsa);
+	char clk[32];
+
+#ifdef RSERV_DEBUG
+	printf("session: resuming session, waiting for connections.\n");
+#endif
+
+	while ((s=accept(session_socket, (SA*)&lsa,&al))>1) {
+		if (lsa.sin_addr.s_addr != session_peer_sa.sin_addr.s_addr) {
+#ifdef RSERV_DEBUG
+			printf("session: different IP, rejecting\n");
+#endif
+			closesocket(s);
+		} else {
+			int n=0;
+			if ((n=recv(s, clk, 32, 0)) != 32) {
+#ifdef RSERV_DEBUG
+				printf("session: expected %d, got %d = closing\n", n);
+#endif
+				closesocket(s);
+			} else if (memcmp(clk, session_key, 32)) {
+#ifdef RSERV_DEBUG
+				printf("session: wrong key, closing\n");
+#endif
+				closesocket(s);
+			} else {
+#ifdef RSERV_DEBUG
+				printf("session: accepted\n");
+#endif
+				return s;
+			}
+		}
+	}
+	return -1;
+}
+
+
 /* working thread/function. the parameter is of the type struct args* */
 decl_sbthread newConn(void *thp) {
     SOCKET s;
@@ -1054,6 +1178,9 @@ decl_sbthread newConn(void *thp) {
 		memcpy(buf+20,salt,4);
 		if (usePlain) memcpy(buf+24,"ARpt",4);
     }
+#ifdef RSERV_DEBUG
+    printf("sending ID string.\n");
+#endif
     send(s,buf,32,0);
     while((n=recv(s,&ph,sizeof(ph),0))==sizeof(ph)) {
 #ifdef RSERV_DEBUG
@@ -1450,7 +1577,15 @@ decl_sbthread newConn(void *thp) {
 			}
 		}
 	
-		if (ph.cmd==CMD_voidEval || ph.cmd==CMD_eval) {
+		if (ph.cmd==CMD_detachSession) {
+			process=1;
+			if (!detach_session(s)) {
+				s=resume_session();
+				sendResp(s,RESP_OK);
+			}
+		}
+		
+		if (ph.cmd==CMD_voidEval || ph.cmd==CMD_eval || ph.cmd==CMD_detachedVoidEval) {
 			process=1;
 			if (pars<1 || parT[0]!=DT_STRING) 
 				sendResp(s,SET_STAT(RESP_ERR,ERR_inv_par));
@@ -1468,13 +1603,17 @@ decl_sbthread newConn(void *thp) {
 					printf("result type: %d, length: %d\n",TYPEOF(xp),LENGTH(xp));
 				else
 					printf("result is <null>\n");
-#endif
-				if (stat!=1)
+#endif				
+				if (stat==1 && ph.cmd==CMD_detachedVoidEval && detach_session(s))
+					sendResp(s,SET_STAT(RESP_ERR,ERR_detach_failed));
+				else if (stat!=1)
 					sendResp(s,SET_STAT(RESP_ERR,stat));
 				else {
 #ifdef RSERV_DEBUG
 					printf("R_tryEval(xp,R_GlobalEnv,&Rerror);\n");
 #endif
+					if (ph.cmd==CMD_detachedVoidEval)
+						s=-1;
 					exp=R_NilValue;
 					if (TYPEOF(xp)==EXPRSXP && LENGTH(xp)>0) {
 						int bi=0;
@@ -1501,10 +1640,12 @@ decl_sbthread newConn(void *thp) {
 					printf("expression(s) evaluated (Rerror=%d).\n",Rerror);
 					if (!Rerror) printSEXP(exp);
 #endif
+					if (ph.cmd==CMD_detachedVoidEval && s==-1)
+						s=resume_session();
 					if (Rerror) {
 						sendResp(s,SET_STAT(RESP_ERR,(Rerror<0)?Rerror:-Rerror));
 					} else {
-						if (ph.cmd==CMD_voidEval)
+						if (ph.cmd==CMD_voidEval || ph.cmd==CMD_detachedVoidEval)
 							sendResp(s,RESP_OK);
 						else {
 							char *sendhead=0;
@@ -1609,7 +1750,9 @@ decl_sbthread newConn(void *thp) {
 			}
 		}
     respSt:
-	
+
+		if (s==-1) { n=0; break; }
+
 		if (!process)
 			sendResp(s,SET_STAT(RESP_ERR,ERR_inv_cmd));
     }
@@ -1715,6 +1858,18 @@ void serverLoop() {
 				sa->s=CF("accept",accept(ss,(SA*)&(sa->sa),&al));
 			sa->ucix=UCIX++;
 			sa->ss=ss;
+			/*
+			memset(sa->sk,0,16);
+			sa->sfd=-1;
+#if defined SESSIONS && defined FORKED
+			{
+				int pd[2];
+				if (!pipe(&pd)) {
+					
+				}
+			}
+#endif
+			*/
 			if (localonly && !localSocketName) {
 				if (sa->sa.sin_addr.s_addr==lsa.sin_addr.s_addr)
 #ifdef THREADED

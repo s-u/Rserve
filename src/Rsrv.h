@@ -154,7 +154,13 @@ struct phdr { /* always 16 bytes */
 				  */
 /* since 1.29/0.1-9 */
 #define ERR_out_of_mem       0x4d /* out of memory. the connection is usually
-				     closed after this error was sent */
+									 closed after this error was sent */
+
+/* since 0.4-0 */
+#define ERR_session_busy     0x50 /* session is still busy */
+#define ERR_detach_failed    0x51 /* unable to detach seesion (cannot determine
+									 peer IP or problems creating a listening
+									 socket for resume) */
 
 /* availiable commands */
 
@@ -175,7 +181,13 @@ struct phdr { /* always 16 bytes */
 /* object manipulation */
 #define CMD_setSEXP      0x020 /* string(name), REXP : - */
 #define CMD_assignSEXP   0x021 /* string(name), REXP : - ; same as setSEXP
-				  except that the name is parsed */
+								  except that the name is parsed */
+
+/* session management (since 0.4-0) */
+#define CMD_detachSession    0x030 /* : session key */
+#define CMD_detachedVoidEval 0x031 /* string : session key; doesn't */
+#define CMD_attachSession    0x032 /* session key : - */  
+
 /* 'internal' commands (since 0.1-9) */
 #define CMD_setBufferSize 0x081  /* [int sendBufSize] 
 				  this commad allow clients to request
