@@ -52,6 +52,7 @@ typedef unsigned int Rsize_t;
 #define CERR_send_error        -9
 #define CERR_out_of_mem       -10
 #define CERR_not_supported    -11
+#define CERR_io_error         -12
 
 //===================================== Rmessage ---- QAP1 storage
 
@@ -67,8 +68,10 @@ public:
     unsigned int *par[16];
 
     Rmessage();
-    Rmessage(int cmd);
-    Rmessage(int cmd, const char *txt);
+    Rmessage(int cmd); // 0 data
+    Rmessage(int cmd, const char *txt); // DT_STRING data
+    Rmessage(int cmd, int i); // DT_INT data (1 entry)
+    Rmessage(int cmd, const void *buf, int len, int raw_data=0); // raw data or DT_BYTESTREAM
     virtual ~Rmessage();
         
     int command() { return complete?head.cmd:-1; }
@@ -312,16 +315,24 @@ public:
     int connect();
     int disconnect();
     
-    /**--- low-level functions --*/
+    /**--- low-level functions (should not be used directly) --- */
     
     int request(Rmessage *msg, int cmd, int len=0, void *par=0);
     int request(Rmessage *targetMsg, Rmessage *contents);
     
-    /** --- high-level functions -- */
+    /** --- high-level functions --- */
     
     int assign(const char *symbol, Rexp *exp);
     int voidEval(const char *cmd);
     Rexp *eval(const char *cmd, int *status=0, int opt=0);
+
+    /*      ( I/O functions )     */
+    int openFile(const char *fn);
+    int createFile(const char *fn);
+    int readFile(char *buf, int len);
+    int writeFile(const char *buf, int len);
+    int closeFile();
+    int removeFile(const char *fn);
 };
 
 #endif

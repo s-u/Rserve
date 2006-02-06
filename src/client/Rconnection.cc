@@ -106,6 +106,29 @@ Rmessage::Rmessage(int cmd, const char *txt) {
     strcpy(data+4,txt);
     complete=1;
 }
+
+Rmessage::Rmessage(int cmd, const void *buf, int dlen, int raw_data) {
+    memset(&head,0,sizeof(head));
+    len=(raw_data)?dlen:(dlen+4);
+    head.cmd=cmd&0x3f;
+    head.len=len;
+    data=(char*)malloc(len);
+    memcpy(data, (raw_data)?buf:((char*)buf+4), dlen);
+    if (!raw_data)
+        *((int*)data)=itop(SET_PAR(DT_BYTESTREAM,dlen));  
+    complete=1;
+}  
+
+Rmessage::Rmessage(int cmd, int i) {
+    memset(&head,0,sizeof(head));
+    len=8; // DT_INT+len (4) + payload-1xINT (4)
+    head.cmd=cmd&0x3f;
+    head.len=len;
+    data=(char*)malloc(8);
+    *((int*)data)=itop(SET_PAR(DT_INT,4));
+    ((int*)data)[1]=itop(i);
+    complete=1;
+}
     
 Rmessage::~Rmessage() {
     if(data) free(data);
@@ -614,4 +637,83 @@ Rexp *Rconnection::eval(const char *cmd, int *status, int opt) {
     }
     if (status) *status=0;
     return new_parsed_Rexp_from_Msg(msg);
+}
+
+int Rconnection::openFile(const char *fn) {
+  Rmessage *msg=new Rmessage();
+  Rmessage *cmdMessage=new Rmessage(CMD_openFile, fn);
+  int res=request(msg,cmdMessage);
+  delete (cmdMessage);
+  if (!res) res=CMD_STAT(msg->command());
+  delete (msg);
+  return res;
+}
+
+int Rconnection::createFile(const char *fn) {
+  Rmessage *msg=new Rmessage();
+  Rmessage *cmdMessage=new Rmessage(CMD_createFile, fn);
+  int res=request(msg,cmdMessage);
+  delete (cmdMessage);
+  if (!res) res=CMD_STAT(msg->command());
+  delete (msg);
+  return res;
+}
+
+int Rconnection::readFile(char *buf, int len) {
+  Rmessage *msg=new Rmessage();
+  Rmessage *cmdMessage=new Rmessage(CMD_readFile, len);
+  int res=request(msg,cmdMessage);
+  delete(cmdMessage);
+  if (!res) {
+    // FIXME: Rserve up to 0.4-0 actually sends buggy response - it ommits DT_BYTESTREAM header!
+    if (msg->len > len) {
+      // we're in trouble here - techincally we should not get this
+      delete(msg);
+      return CERR_malformed_packet;
+    }
+    if (msg->len > 0) memcpy(buf, msg->data, msg->len);
+    int rl = msg->len;
+    delete(msg);
+    return rl;
+  }
+  delete(msg);
+  return CERR_io_error;
+}
+
+int Rconnection::writeFile(const char *buf, int len) {
+  Rmessage *msg=new Rmessage();
+  Rmessage *cmdMessage=new Rmessage(CMD_writeFile, buf, len);
+  int res=request(msg,cmdMessage);
+  delete(cmdMessage);
+  if (!res && msg->command()==RESP_OK) {
+    delete(msg);
+    return 0;
+  }
+  delete(msg);
+  // FIXME: this is not really true ...
+  return (res==0)?CERR_io_error:res;
+}  
+
+int Rconnection::closeFile() {
+  Rmessage *msg=new Rmessage();
+  Rmessage *cmdMessage=new Rmessage(CMD_closeFile);
+  int res=request(msg,cmdMessage);
+  delete(cmdMessage);
+  if (!res && msg->command()==RESP_OK) {
+    delete(msg);
+    return 0;
+  }
+  delete(msg);
+  // FIXME: this is not really true ...
+  return (res==0)?CERR_io_error:res;
+}
+
+int Rconnection::removeFile(const char *fn) {
+  Rmessage *msg=new Rmessage();
+  Rmessage *cmdMessage=new Rmessage(CMD_removeFile, fn);
+  int res=request(msg,cmdMessage);
+  delete (cmdMessage);
+  if (!res) res=CMD_STAT(msg->command());
+  delete (msg);
+  return res;  
 }
