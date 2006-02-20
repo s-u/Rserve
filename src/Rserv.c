@@ -221,6 +221,8 @@ int parentPID=-1;
 
 int maxSendBufSize=0; /* max. sendbuf for auto-resize. 0=no limit */
 
+static char **allowed_ips = 0;
+
 #ifdef THREADED
 int localUCIX;
 #else
@@ -799,6 +801,24 @@ int loadConfig(char *fn)
 					fprintf(stderr,"setgid(%d): failed. no group switch performed.",ngid);
 			}
 #endif
+			if (!strcmp(c,"allow")) {
+				if (*p) {
+					char **l;
+					if (!allowed_ips) {
+						allowed_ips=(char**) malloc(sizeof(char*)*128);
+						*allowed_ips=0;
+					}
+					l=allowed_ips;
+					while (*l) l++;
+					if (l-allowed_ips>=127)
+						fprintf(stderr, "Maximum of allowed IPs (127) exceeded, ignoring 'allow %s'\n", *p);
+					else {
+						*l=strdup(p);
+						l++;
+						*l=0;
+					}
+				}
+			}
 			if (!strcmp(c,"workdir")) {
 				if (*p) {
 					workdir=(char*)malloc(strlen(p)+1);
@@ -872,7 +892,7 @@ void brkHandler(int i) {
 #endif
 
 /* used for generating salt code (2x random from this array) */
-const char *code64="0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWYXZ01";
+const char *code64="./0123456789ABCDEFGHIJKLMNOPQRSTUVWYXZabcdefghijklmnopqrstuvwxyz";
 
 /** parses a string, stores the number of expressions in parts and the resulting statis in status.
     the returned SEXP may contain multiple expressions */ 
@@ -1875,7 +1895,16 @@ void serverLoop() {
 #endif
 			*/
 			if (localonly && !localSocketName) {
-				if (sa->sa.sin_addr.s_addr==lsa.sin_addr.s_addr)
+				char **laddr=allowed_ips;
+				int allowed=0;
+				if (!laddr) { 
+					allowed_ips = (char**) malloc(sizeof(char*)*2);
+					allowed_ips[0] = strdup("127.0.0.1");
+					allowed_ips[1] = 0;
+					laddr=allowed_ips;
+				}
+				while (*laddr) if (sa->sa.sin_addr.s_addr==inet_addr(*(laddr++))) { allowed=1; break; };
+				if (allowed)
 #ifdef THREADED
 					sbthread_create(newConn,sa);
 #else
