@@ -1328,6 +1328,9 @@ decl_sbthread newConn(void *thp) {
 				while(*c1) if(*c1=='\n'||*c1=='\r') *c1=0; else c1++;
 				/* c=login, cc=pwd */
 				authed=1;
+#ifdef RSERV_DEBUG
+				printf("Authentication attempt (login='%s',pwd='%s',pwdfile='%s')\n",c,cc,pwdfile);
+#endif
 				if (pwdfile) {
 					authed=0; /* if pwdfile exists, default is access denied */
 					/* TODO: opening pwd file, parsing it and responding
@@ -1351,14 +1354,26 @@ decl_sbthread newConn(void *thp) {
 								c2=c1;
 								while(*c2) if (*c2=='\r'||*c2=='\n') *c2=0; else c2++;
 								if (!strcmp(sfbuf,c)) { /* login found */
-									if (usePlain && !strcmp(c1,cc))
+#ifdef RSERV_DEBUG
+									printf("Found login '%s', checking password.\n");
+#endif
+									if (usePlain && !strcmp(c1,cc)) {
 										authed=1;
-									else {
+#ifdef RSERV_DEBUG
+										puts(" - plain pasword matches.");
+#endif
+									} else {
 #ifdef HAS_CRYPT
 										c2=crypt(c1,salt+1);
+#ifdef RSERV_DEBUG
+										printf(" - checking crypted '%s' vs '%s'\n", c2, cc);
+#endif
 										if (!strcmp(c2,cc)) authed=1;
 #endif
 									}
+#ifdef DEBUG_RSERV
+									printf(" - authentication %s\n",(authed)?"succeeded":"failed");
+#endif
 								}
 								if (authed) break;
 							} /* if fgets */
