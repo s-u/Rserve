@@ -54,10 +54,19 @@ typedef unsigned int Rsize_t;
 #define CERR_not_supported    -11
 #define CERR_io_error         -12
 
+// this one is custom - authentication method required by
+// the server is not supported in this client
+#define CERR_auth_unsupported -20
+
+
+#define A_required 0x001
+#define A_crypt    0x002
+#define A_plain    0x004
+
 //===================================== Rmessage ---- QAP1 storage
 
 class Rmessage {
-public:
+ public:
     struct phdr head;
     char *data;
     Rsize_t len;
@@ -304,6 +313,8 @@ protected:
     int  port;
     SOCKET s;
     int  family;
+    int auth;
+    char salt[2];
 
 public:
     /** host - either host name or unix socket path
@@ -325,6 +336,7 @@ public:
     int assign(const char *symbol, Rexp *exp);
     int voidEval(const char *cmd);
     Rexp *eval(const char *cmd, int *status=0, int opt=0);
+    int login(const char *user, const char *pwd);
 
     /*      ( I/O functions )     */
     int openFile(const char *fn);

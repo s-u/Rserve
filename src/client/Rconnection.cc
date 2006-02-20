@@ -30,6 +30,7 @@
 #include <sisocks.h>
 #ifdef unix
 #include <sys/un.h>
+#include <unistd.h>
 #else
 #define AF_LOCAL -1
 #endif
@@ -476,6 +477,8 @@ Rconnection::Rconnection(char *host, int port) {
     this->port=port;
     family=(port==-1)?AF_LOCAL:AF_INET;
     s=-1;
+    auth=0;
+    salt[0]='.'; salt[1]='.';
 }
     
 Rconnection::~Rconnection() {
@@ -536,6 +539,18 @@ int Rconnection::connect() {
     if (strncmp(IDstring+8,myID+8,4) || strncmp(IDstring+4,myID+4,4)>0) {
         closesocket(s); s=-1;
         return -4; // protocol not supported
+    }
+    {
+      int i=12;
+      while (i<32) {
+	if (!strncmp(IDstring+i, "ARuc", 4)) auth|=A_required|A_crypt;
+	if (!strncmp(IDstring+i, "ARpt", 4)) auth|=A_required|A_plain;
+	if (IDstring[i]=='K') {
+	  salt[0]=IDstring[i+1];
+	  salt[1]=IDstring[i+2];
+	}
+	i+=4;
+      }
     }
     return 0;
 }
@@ -716,4 +731,31 @@ int Rconnection::removeFile(const char *fn) {
   if (!res) res=CMD_STAT(msg->command());
   delete (msg);
   return res;  
+}
+
+int Rconnection::login(const char *user, const char *pwd) {
+  char *authbuf, *c;
+  if (!(auth&A_required)) return 0;
+  authbuf=(char*) malloc(strlen(user)+strlen(pwd)+22);
+  strcpy(authbuf, user); c=authbuf+strlen(user);
+  *c='\n'; c++;
+  strcpy(c,pwd);
+#ifdef unix
+  if (auth&A_crypt)
+    strcpy(c,crypt(pwd,salt));
+#else
+  if (!(auth&A_plain)) {
+    free(authbuf);
+    return CERR_auth_unsupported;
+  }
+#endif
+
+  Rmessage *msg=new Rmessage();
+  Rmessage *cmdMessage=new Rmessage(CMD_login, authbuf);
+  int res=request(msg,cmdMessage);
+  delete (cmdMessage);
+  if (!res) res=CMD_STAT(msg->command());
+  delete (msg);
+  free(authbuf);
+  return res;
 }
