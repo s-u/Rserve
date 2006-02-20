@@ -121,7 +121,7 @@ protected:
 public:
     Rexp(Rmessage *msg);
     Rexp(unsigned int *pos, Rmessage *msg=0);
-    Rexp(int type, char *data=0, int len=0, Rexp *attr=0);
+    Rexp(int type, const char *data=0, int len=0, Rexp *attr=0);
     
     virtual ~Rexp();
     
@@ -218,7 +218,7 @@ class Rstring : public Rexp {
 public:
     Rstring(Rmessage *msg) : Rexp(msg) {}
     Rstring(unsigned int *ipos, Rmessage *imsg) : Rexp(ipos, imsg) {}
-    Rstring(char *str) : Rexp(XT_STR, str, strlen(str)+1) {}
+    Rstring(const char *str) : Rexp(XT_STR, str, strlen(str)+1) {}
     
     char *string() { return (char*) data; }
 
@@ -319,7 +319,7 @@ protected:
 public:
     /** host - either host name or unix socket path
         port - either TCP port or -1 if unix sockets should be used */
-    Rconnection(char *host="127.0.0.1", int port=default_Rsrv_port);
+    Rconnection(const char *host="127.0.0.1", int port=default_Rsrv_port);
     
     virtual ~Rconnection();
     

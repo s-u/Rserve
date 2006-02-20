@@ -240,7 +240,7 @@ Rexp::Rexp(unsigned int *pos, Rmessage *msg) {
     next=parse(pos);
 }
 
-Rexp::Rexp(int type, char *data, int len, Rexp *attr) {
+Rexp::Rexp(int type, const char *data, int len, Rexp *attr) {
     this->attr=attr; master=this; rcount=0; attribs=0;
     this->type=type;
     if (len>0) {
@@ -470,7 +470,7 @@ void Rvector::fix_content() {
     }
 }
     
-Rconnection::Rconnection(char *host, int port) {
+Rconnection::Rconnection(const char *host, int port) {
     if (!host) host="127.0.0.1";
     this->host=(char*)malloc(strlen(host)+1);
     strcpy(this->host, host);
