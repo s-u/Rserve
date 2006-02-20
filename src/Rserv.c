@@ -985,7 +985,11 @@ int detach_session(SOCKET s) {
 
     setsockopt(ss,SOL_SOCKET,SO_REUSEADDR,&reuse,sizeof(reuse));
 
+#ifdef Win32
+	while ((port = (((int) rand()) & 0x7fff)+32768)>65000) {};
+#else
 	while ((port = (((int) random()) & 0x7fff)+32768)>65000) {};
+#endif
 
 	while (bind(ss,build_sin(&ssa,0,port),sizeof(ssa))) {
 		if (errno!=EADDRINUSE) {
