@@ -99,7 +99,7 @@ int initsocks(void)
   WSADATA dt;
   /* initialize WinSock 1.1 */
   return (WSAStartup(0x0101,&dt))?-1:0;
-};
+}
 #else
 extern int initsocks(void);
 #endif
@@ -144,10 +144,10 @@ int sockerrorchecks(char *buf, int blen, int res) {
 #else
     default: sprintf(buf,"unknown socket error %d",sockerrno);
 #endif
-    };
-  };
+    }
+  }
   return res;
-};
+}
 
 /* check socket error and add to log file if necessary */
 int sockerrorcheck(char *sn, int rtb, int res) {
@@ -159,7 +159,7 @@ int sockerrorcheck(char *sn, int rtb, int res) {
       if (suppmode>0) {
         fprintf(sockerrlog,"##> REP: (last error has been repeated %d times.)\n",suppmode);
         suppmode=0;
-      };
+      }
       fprintf(sockerrlog,"##> SOCK_ERROR: %s error #%d",sn,sockerrno);
       switch(sockerrno) {
       case EBADF: fprintf(sockerrlog,"(bad descriptor)"); break;
@@ -177,14 +177,14 @@ int sockerrorcheck(char *sn, int rtb, int res) {
       case EINPROGRESS: fprintf(sockerrlog,"(in progress)"); break;
       case EALREADY: fprintf(sockerrlog,"(previous connect request not completed yet)"); break;
       default: fprintf(sockerrlog,"(?)");
-      };
+      }
       fprintf(sockerrlog,"\n"); fflush(sockerrlog);
       socklasterr=sockerrno;
-    };
+    }
     if (rtb) exit(1);
-  };
+  }
   return res;
-};
+}
 #else
 extern int suppmode=0;
 extern int socklasterr;
@@ -206,7 +206,7 @@ struct sockaddr *build_sin(struct sockaddr_in *sa,char *ip,int port) {
   sa->sin_port=htons(port);
   sa->sin_addr.s_addr=(ip)?inet_addr(ip):htonl(INADDR_ANY);
   return (struct sockaddr*)sa;
-};
+}
 #else
 struct sockaddr *build_sin(struct sockaddr_in *sa,char *ip,int port);
 #endif

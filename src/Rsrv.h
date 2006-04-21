@@ -28,7 +28,7 @@
 
 #include "config.h"
 
-#define RSRV_VER 0x000402 /* Rserve v0.4-2 */
+#define RSRV_VER 0x000403 /* Rserve v0.4-3 */
 
 #define default_Rsrv_port 6311
 
@@ -262,9 +262,9 @@ struct phdr { /* always 16 bytes */
 
 #ifdef SWAPEND  /* swap endianness - for PPC and co. */
 #ifdef MAIN
-unsigned int itop(unsigned int i) { char b[4]; b[0]=((char*)&i)[3]; b[3]=((char*)&i)[0]; b[1]=((char*)&i)[2]; b[2]=((char*)&i)[1]; return *((unsigned int*)b); };
-double dtop(double i) { char b[8]; b[0]=((char*)&i)[7]; b[1]=((char*)&i)[6]; b[2]=((char*)&i)[5]; b[3]=((char*)&i)[4]; b[7]=((char*)&i)[0]; b[6]=((char*)&i)[1]; b[5]=((char*)&i)[2]; b[4]=((char*)&i)[3]; return *((double*)b); };
-void fixdcpy(void *t,void *s) { int i=0; while (i<8) { ((char*)t)[7-i]=((char*)s)[i]; i++; } };
+unsigned int itop(unsigned int i) { char b[4]; b[0]=((char*)&i)[3]; b[3]=((char*)&i)[0]; b[1]=((char*)&i)[2]; b[2]=((char*)&i)[1]; return *((unsigned int*)b); }
+double dtop(double i) { char b[8]; b[0]=((char*)&i)[7]; b[1]=((char*)&i)[6]; b[2]=((char*)&i)[5]; b[3]=((char*)&i)[4]; b[7]=((char*)&i)[0]; b[6]=((char*)&i)[1]; b[5]=((char*)&i)[2]; b[4]=((char*)&i)[3]; return *((double*)b); }
+void fixdcpy(void *t,void *s) { int i=0; while (i<8) { ((char*)t)[7-i]=((char*)s)[i]; i++; } }
 #else
 extern unsigned int itop(unsigned int i);
 extern double dtop(double i);

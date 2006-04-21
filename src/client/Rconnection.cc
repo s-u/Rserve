@@ -249,7 +249,7 @@ Rexp::Rexp(int type, const char *data, int len, Rexp *attr) {
         this->len=len;
     } else
         this->len=0;
-    next=data+this->len;
+    next=(char*)data+this->len;
 }
 
 Rexp::~Rexp() {
