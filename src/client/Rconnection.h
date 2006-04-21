@@ -158,7 +158,7 @@ public:
     Rinteger(int *array, int count) : Rexp(XT_ARRAY_INT, (char*)array, count*sizeof(int)) { fix_content(); }
     
     int *intArray() { return (int*) data; }
-    int intAt(int pos) { return (pos>=0 && pos<len/4)?((int*)data)[pos]:0; }
+    int intAt(int pos) { return (pos>=0 && (unsigned)pos<len/4)?((int*)data)[pos]:0; }
     virtual Rsize_t length() { return len/4; }
 
     virtual std::ostream& os_print (std::ostream& os) {
@@ -178,7 +178,7 @@ public:
     Rdouble(double *array, int count) : Rexp(XT_ARRAY_DOUBLE, (char*)array, count*sizeof(double)) { fix_content(); }
     
     double *doubleArray() { return (double*) data; }
-    double doubleAt(int pos) { return (pos>=0 && pos<len/8)?((double*)data)[pos]:0; }
+    double doubleAt(int pos) { return (pos>=0 && (unsigned)pos<len/8)?((double*)data)[pos]:0; }
     virtual Rsize_t length() { return len/8; }
 
     virtual std::ostream& os_print (std::ostream& os) {
@@ -341,8 +341,8 @@ public:
     /*      ( I/O functions )     */
     int openFile(const char *fn);
     int createFile(const char *fn);
-    int readFile(char *buf, int len);
-    int writeFile(const char *buf, int len);
+    int readFile(char *buf, unsigned int len);
+    int writeFile(const char *buf, unsigned int len);
     int closeFile();
     int removeFile(const char *fn);
 };

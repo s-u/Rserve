@@ -211,7 +211,7 @@ int Rmessage::send(int s) {
     head.res=itop(head.res);
     if (::send(s,(char*)&head,sizeof(head),0)!=sizeof(head))
         failed=-1;
-    if (!failed && len>0 && ::send(s,data,len,0)!=len)
+    if (!failed && len>0 && (Rsize_t)::send(s,data,len,0)!=len)
         failed=-1;
     head.cmd=ptoi(head.cmd);
     head.len=ptoi(head.len);
@@ -266,7 +266,7 @@ Rexp::~Rexp() {
     }
     if (msg) {
         if (rcount>0)
-            fprintf(stderr, "WARNING! Rexp master %x delete requested, but %d object(s) are using our memory - refusing to free, leaking...\n", this, rcount);
+            fprintf(stderr, "WARNING! Rexp master %lx delete requested, but %d object(s) are using our memory - refusing to free, leaking...\n", (long)this, rcount);
         else
             delete(msg);
     }
@@ -674,7 +674,7 @@ int Rconnection::createFile(const char *fn) {
   return res;
 }
 
-int Rconnection::readFile(char *buf, int len) {
+int Rconnection::readFile(char *buf, unsigned int len) {
   Rmessage *msg=new Rmessage();
   Rmessage *cmdMessage=new Rmessage(CMD_readFile, len);
   int res=request(msg,cmdMessage);
@@ -695,7 +695,7 @@ int Rconnection::readFile(char *buf, int len) {
   return CERR_io_error;
 }
 
-int Rconnection::writeFile(const char *buf, int len) {
+int Rconnection::writeFile(const char *buf, unsigned int len) {
   Rmessage *msg=new Rmessage();
   Rmessage *cmdMessage=new Rmessage(CMD_writeFile, buf, len);
   int res=request(msg,cmdMessage);
