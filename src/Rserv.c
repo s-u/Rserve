@@ -607,7 +607,7 @@ SEXP decode_to_SEXP(unsigned int **buf, int *UPC)
 		ln|=(ptoi(*b))<<24;
     }
 #ifdef RSERV_DEBUG
-    printf("decode: type=%x, len=%d\n",ty,ln);
+    printf("decode: type=%x, len=%ld\n", ty, (long)ln);
 #endif
     b++;
     
@@ -811,7 +811,7 @@ int loadConfig(char *fn)
 					l=allowed_ips;
 					while (*l) l++;
 					if (l-allowed_ips>=127)
-						fprintf(stderr, "Maximum of allowed IPs (127) exceeded, ignoring 'allow %s'\n", *p);
+						fprintf(stderr, "Maximum of allowed IPs (127) exceeded, ignoring 'allow %s'\n", p);
 					else {
 						*l=strdup(p);
 						l++;
@@ -899,7 +899,7 @@ const char *code64="./0123456789ABCDEFGHIJKLMNOPQRSTUVWYXZabcdefghijklmnopqrstuv
 SEXP parseString(char *s, int *parts, ParseStatus *status) {
     int maxParts=1;
     char *c=s;
-    SEXP cv, pr;
+    SEXP cv, pr = R_NilValue;
     
     while (*c) {
 		if (*c=='\n' || *c==';') maxParts++;
@@ -986,22 +986,21 @@ unsigned char session_key[32];
 /* detach session and setup everything such that in can be resumed at some point */
 int detach_session(SOCKET s) {
     SAIN ssa;
-    int selRet=0;
 	int port=32768;
-    struct sockaddr_in lsa;
 	SOCKET ss=FCF("open socket",socket(AF_INET,SOCK_STREAM,0));
     int reuse=1; /* enable socket address reusage */
 	socklen_t sl = sizeof(session_peer_sa);
-	if (getpeername(s, (SA*) &session_peer_sa, &sl)) {
-		sendResp(s,SET_STAT(RESP_ERR,ERR_detach_failed));
-		return -1;
-	}
 	struct dsresp {
 		int pt1;
 		int port;
 		int pt2;
 		unsigned char key[32];
 	} dsr;
+
+	if (getpeername(s, (SA*) &session_peer_sa, &sl)) {
+		sendResp(s,SET_STAT(RESP_ERR,ERR_detach_failed));
+		return -1;
+	}
 
     setsockopt(ss,SOL_SOCKET,SO_REUSEADDR,&reuse,sizeof(reuse));
 
@@ -1086,7 +1085,7 @@ SOCKET resume_session() {
 			int n=0;
 			if ((n=recv(s, clk, 32, 0)) != 32) {
 #ifdef RSERV_DEBUG
-				printf("session: expected %d, got %d = closing\n", n);
+				printf("session: expected 32, got %d = closing\n", n);
 #endif
 				closesocket(s);
 			} else if (memcmp(clk, session_key, 32)) {
@@ -1242,7 +1241,7 @@ decl_sbthread newConn(void *thp) {
 				printf("loading buffer (awaiting %d bytes)\n",ph.len);
 #endif
 				i=0;
-				while(n=recv(s,buf+i,ph.len-i,0)) {
+				while((n=recv(s,buf+i,ph.len-i,0))) {
 					if (n>0) i+=n;
 					if (i>=ph.len || n<1) break;
 				}
@@ -1265,7 +1264,8 @@ decl_sbthread newConn(void *thp) {
 						parType^=DT_LARGE;
 					} 
 #ifdef RSERV_DEBUG
-					printf("PAR[%d]: %08x (PAR_LEN=%d, PAR_TYPE=%d, large=%s)\n",pars,i,parLen,parType,(headSize==8)?"yes":"no");
+					printf("PAR[%d]: %08x (PAR_LEN=%ld, PAR_TYPE=%d, large=%s)\n", pars, i,
+						   (long)parLen, parType, (headSize==8)?"yes":"no");
 #endif
 #ifdef ALIGN_DOUBLES
 					if (unaligned) { /* on Sun machines it is deadly to process unaligned parameters,
@@ -1289,7 +1289,7 @@ decl_sbthread newConn(void *thp) {
 			} else {
 				printf("discarding buffer because too big (awaiting %d bytes)\n",ph.len);
 				i=ph.len;
-				while(n=recv(s,buf,i>inBuf?inBuf:i,0)) {
+				while((n=recv(s,buf,i>inBuf?inBuf:i,0))) {
 					if (n>0) i-=n;
 					if (i<1 || n<1) break;
 				}
@@ -1355,7 +1355,7 @@ decl_sbthread newConn(void *thp) {
 								while(*c2) if (*c2=='\r'||*c2=='\n') *c2=0; else c2++;
 								if (!strcmp(sfbuf,c)) { /* login found */
 #ifdef RSERV_DEBUG
-									printf("Found login '%s', checking password.\n");
+									printf("Found login '%s', checking password.\n", c);
 #endif
 									if (usePlain && !strcmp(c1,cc)) {
 										authed=1;
@@ -1417,7 +1417,7 @@ decl_sbthread newConn(void *thp) {
 			else {
 				rlen_t ns=ptoi(*(unsigned int*)parP);
 #ifdef RSERV_DEBUG
-				printf(">>CMD_setSendBuf to %d bytes.\n",ns);
+				printf(">>CMD_setSendBuf to %ld bytes.\n", (long)ns);
 #endif
 				if (ns>0) { /* 0 means don't touch the buffer size */
 					if (ns<32768) ns=32768; /* we enforce a minimum of 32kB */
@@ -1533,7 +1533,7 @@ decl_sbthread newConn(void *thp) {
 						sendResp(s,SET_STAT(RESP_ERR,ERR_inv_par));
 					else {
 #ifdef RSERV_DEBUG
-						printf(">>CMD_writeFile(%d,...)\n",parL[0]);
+						printf(">>CMD_writeFile(%ld,...)\n", (long) parL[0]);
 #endif
 						i=0;
 						c=(char*)parP[0];
@@ -1708,14 +1708,14 @@ decl_sbthread newConn(void *thp) {
 								} else { /* try to allocate a large, temporary send buffer */
 									tempSB=rs+64; tempSB&=rlen_max<<12; tempSB+=0x1000;
 #ifdef RSERV_DEBUG
-									printf("Trying to allocate temporary send buffer of %d bytes.\n",tempSB);
+									printf("Trying to allocate temporary send buffer of %ld bytes.\n", (long)tempSB);
 #endif
 									free(sendbuf);
 									sendbuf=(char*)malloc(tempSB);
 									if (!sendbuf) {
 										tempSB=0;
 #ifdef RSERV_DEBUG
-										printf("Failed to allocate temporary send buffer of %d bytes. Restoring old send buffer of %d bytes.\n",tempSB,sendBufSize);
+										printf("Failed to allocate temporary send buffer of %ld bytes. Restoring old send buffer of %ld bytes.\n", (long)tempSB, (long)sendBufSize);
 #endif
 										sendbuf=(char*)malloc(sendBufSize);
 										if (!sendbuf) { /* we couldn't re-allocate the buffer */
@@ -1938,6 +1938,8 @@ void serverLoop() {
 #endif
     }
 }
+
+extern int Rf_initEmbeddedR(int, char**);
 
 /* main function - start Rserve */
 int main(int argc, char **argv)
