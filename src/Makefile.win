@@ -14,7 +14,7 @@ else
   DEBUGFLAG=-Wall
 endif
 
-DLLLIBS=-L$(RHOME)/src/gnuwin32 -lR
+DLLLIBS=-L$(RHOME)/src/gnuwin32 -L$(RHOME)/bin -lR
 CFLAGS+=$(DEBUGFLAG) -DWin32 -I. -D_R_ -I$(TOP)/inst/include -I$(RHOME)/src/include -I$(RHOME)/include -Iinclude -Iinclude/Win32
 
 winembed.o:	winembed.c
