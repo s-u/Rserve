@@ -19,13 +19,13 @@ all:	$(XFILES)
 	# if we got that far Rserve is compiled, so install it since
 	# this is Makefile for the package version
 	# it may fail, but that won't stop the make
-	+cp $(XFILES) $(Rbin)
+	-cp $(XFILES) $(Rbin)
 	# .. and put them in inst just in case anyone cares ...
 	cp $(XFILES) ../inst
 
 install: $(XFILES)
-	+cp Rserve $(Rbin)
-	+cp Rserve.dbg $(Rbin)
+	-cp Rserve $(Rbin)
+	-cp Rserve.dbg $(Rbin)
 
 Rserve:	Rserv.o session.o md5.o
 	$(LINK.C) $^ -o $@ $(linkR) $(Rlib) $(LIBS)
