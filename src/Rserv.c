@@ -300,11 +300,13 @@ rlen_t getStorageSize(SEXP x) {
     case INTSXP:
 		len+=tl*4; break;
     case LGLSXP:
+	case RAWSXP:
 		if (tl>1)
 			len+=4+((tl+3)&0xfffffffc);
 		else
 			len+=4;	
 		break;
+		
     case CHARSXP:
 		{
 			char *ct=(char*)STRING_PTR(x);
@@ -411,7 +413,19 @@ unsigned int* storeSEXP(unsigned int* buf, SEXP x) {
 		}
 		goto didit;
     }
-	
+
+	if (t==RAWSXP) {
+		int ll=LENGTH(x);
+		*buf=itop(XT_RAW|hasAttr);
+		buf++;
+		attrFixup;
+		*buf=itop(ll); buf++;
+		if (ll) memcpy(buf, RAW(x), ll);
+		ll+=3; ll/=4;
+		buf+=ll;
+		goto didit;
+	}
+		
     if (t==LGLSXP) {
 		int ll=LENGTH(x);
 		int *lgl = LOGICAL(x);
@@ -535,6 +549,20 @@ void printSEXP(SEXP e) /* merely for debugging purposes
 			printf("Real variable %f\n",*REAL(e));
 		return;
     }
+    if (t==RAWSXP) {
+		printf("Raw vector: ");
+		i=0;
+		while(i<LENGTH(e)) {
+			printf("%02x",((unsigned int)((unsigned char*)RAW(e))[i])&0xff);
+			if (i<LENGTH(e)-1) printf(" ");
+			if (dumpLimit && i>dumpLimit) {
+				printf("..."); break;
+			}
+			i++;
+		}
+		putchar('\n');
+		return;
+    }
     if (t==EXPRSXP) {
 		printf("Vector of %d expressions:\n",LENGTH(e));
 		i=0;
@@ -653,6 +681,14 @@ SEXP decode_to_SEXP(unsigned int **buf, int *UPC)
 			c++; i++;
 		}
 		*buf=(unsigned int*)cc;
+		break;
+	case XT_RAW:
+		i=ptoi(*b);
+		b++;
+		PROTECT(val=allocVector(RAWSXP, i)); (*UPC)++;
+		memcpy(RAW(val), b, i);
+		b+=ln/4 - 1; /* ln will include the length field */
+		*buf=b;
 		break;
     }
     return val;

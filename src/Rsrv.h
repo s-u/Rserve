@@ -28,7 +28,7 @@
 
 #include "config.h"
 
-#define RSRV_VER 0x000403 /* Rserve v0.4-3 */
+#define RSRV_VER 0x000404 /* Rserve v0.4-4 */
 
 #define default_Rsrv_port 6311
 
@@ -234,6 +234,8 @@ struct phdr { /* always 16 bytes */
 #define XT_ARRAY_STR     34 /* data: [?]string,string,.. */
 #define XT_ARRAY_BOOL_UA 35 /* data: [n]byte,byte,..  (unaligned! NOT supported anymore) */
 #define XT_ARRAY_BOOL    36 /* data: int(n),byte,byte,... */
+#define XT_RAW           37 /* data: int(n),byte,byte,... */
+
 #define XT_UNKNOWN       48 /* data: [4]int - SEXP type (as from TYPEOF(x)) */
 
 #define XT_LARGE         64 /* new in 0102: if this flag is set then the length of the object
