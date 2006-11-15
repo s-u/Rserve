@@ -1,0 +1,116 @@
+RSconnect <- function(host="localhost", port=6311) {
+  c <- socketConnection(host,port,open="a+b",blocking=TRUE)
+  a <- readBin(c,"raw",32)
+  if (length(a) != 32 || !length(grep("^Rsrv01..QAP1",rawToChar(a))))
+    stop("Invalid response from Rserve")
+  return( c )
+}
+
+RSeval <- function(c, cmd) {
+  r <- paste("serialize({", cmd[1], "},NULL)")
+  l <- nchar(r[1])+1
+  writeBin(as.integer(c(3,l+4,0,0,4+l*256)), c, endian="little")
+  writeBin(as.character(r[1]), c)
+  b <- readBin(c,"int",4,signed=FALSE,endian="little")
+  ##cat("header: ",b[1],", ",b[2],"\n")
+  if (b[1]%%256 == 2 || b[2] < 12) stop("Eval failed with error: ",b[1]%/%0x1000000)
+  a <- readBin(c,"int",3,signed=FALSE,endian="little")
+  rawLen <- a[3]
+  isLarge <- (a[1]%/%0x40000000)%%1
+  prefix <- 12
+  plt <- a[1]%%256
+  sexpt <- a[2]%%256
+  if (isLarge != 0) {
+    isRawLarge <- (a[3]%/%0x40000000)%%1
+    aa <- readBin(c,"int",1+isRawLarge,signed=FALSE,endion="little")
+    rawLen <- aa[1+isRawLarge]
+    prefix <- 16+isRawLarge*4
+    sexpt <- a[3]%%256
+  }
+  if (plt != 10)
+    stop("Invalid response from eval, got return type ",plt," but expected 10 (SEXP)")
+  if (sexpt != 0x25)
+    stop("Invalid object from eval, got ",sexpt," but expected 37 (raw vector from serialization)")
+  rp <- readBin(c,"raw",rawLen)
+  ## read any padding that was there
+  if (rawLen < b[2]-prefix) readBin(c,"raw",b[2]-prefix-rawLen)
+  unserialize(rp)
+}
+
+RSdetach <- function( c ) RSevalDetach( c, "" )
+
+RSevalDetach <- function( c, cmd="" ) {
+  host <- RSeval( c, "Sys.getenv()[[\"HOST\"]]" )
+  if ( host == Sys.getenv()[["HOST"]] ) host <- "localhost"
+  cwd <- RSeval( c, "getwd()" )
+  if ( cmd != "" ) {
+    r <- paste("serialize({", cmd[1], "},NULL)")
+    l <- nchar(r[1])+1
+    writeBin(as.integer(c(0x031,l+4,0,0,4+l*256)), c, endian="little")
+    writeBin(as.character(r[1]), c)
+    b <- readBin(c,"int",4,signed=FALSE,endian="little")
+    if (b[1]%%256 == 2 || b[2] < 12) stop("Eval/detach failed with error: ",b[1]%/%0x1000000)
+    ## We don't need "isLarge" because we never get large data back
+  } else {
+    l <- 0
+    writeBin(as.integer(c(0x030,l+4,0,0,4+l*256)), c, endian="little")
+    b <- readBin(c,"int",4,signed=FALSE,endian="little")
+    if (b[1]%%256 != 1) stop("Detach failed with error: ",b[1]%/%0x1000000)
+  }
+  msgLen <- b[1]%/%256
+  a <- readBin(c,"int",2,signed=FALSE,endian="little")
+  ## a[1] is DT_INT, a[2] is the payload (port#)
+  port <- a[ 2 ]
+  readBin(c,"raw",4) ## this should be DT_BYTESTREAM
+  key <- readBin(c,"raw",msgLen-12)
+  RSclose(c)
+  list( port=port, key=key, host=host, cwd=cwd )
+}
+
+RSattach <- function(session) {
+  c <- socketConnection(session$host,session$port,open="a+b",blocking=TRUE)
+  writeBin( session$key, c )
+  b <- readBin(c,"int",4,signed=FALSE,endian="little")
+  if (b[1]%%256 != 1) stop("Attach failed with error: ",b[1]%/%0x1000000)
+  RSeval( c, paste( "setwd(\"", session$cwd, "\");", sep="" ) )
+  c
+}
+
+RSlogin <- function(c, user, pwd, silent=FALSE) {
+  r <- paste(user,pwd,sep="\n")
+  l <- nchar(r[1])+1
+  writeBin(as.integer(c(1,l+4,0,0,4+l*256)), c, endian="little")
+  writeBin(as.character(r[1]), c)
+  b <- readBin(c,"int",4,signed=FALSE,endian="little")
+  ##cat("header: ",b[1],", ",b[2],"\n")    
+  msgLen <- b[1]%/%256
+  if (msgLen > 0) a <- readBin(c,"raw",msgLen)
+  if (b[1]%%256 != 1 && !silent) stop("Login failed with error: ",b[1]%/%0x1000000)
+  invisible(b[1]%%256 == 1)
+}
+
+RSclose <- function(c) close(c)
+
+Rserve <- function(debug=FALSE, port=6311, args=NULL) {
+  if (.Platform$OS.type=="windows") {
+    cat("On Windows Rserve is a stand-alone program in the ",file.path(R.home(),"bin")," directory.\nPlease make sure you read the release notes, because the Windows version of Rserve has several limitations due to lack of features in the OS that you should be aware of.\n\n")
+    return(invisible(NULL))
+  }
+  name <- if (debug) "Rserve.dbg" else "Rserve"
+  fn <- system.file(package="Rserve", name)
+  if (!nchar(fn)) fn <- name
+  if ( port != 6311 ) fn <- paste( fn, "--RS-port", port )
+  if ( !is.null(args) ) fn <- paste(fn, paste(args, collapse=' '))
+  cmd <- paste(file.path(R.home(),"bin","R"),"CMD",fn)
+  cat("Starting Rserve on port", port, ":\n",cmd,"\n\n(Please note that you can usually start Rserve from the command line by typing `R CMD Rserve'\n")
+  system(cmd)
+}
+
+## this implementation may be quite limited, because it has to go through the parser
+## using true assign should actually work with raw streams - need to
+## implement that ... (FIXME)
+RSassign <- function( c, obj, name = deparse(substitute(name)) ) {
+  tmp <- rawToChar( serialize( obj, NULL, ascii=T ) )
+  r <- paste( "{", name, "<-unserialize(\"", tmp, "\"); TRUE}", sep="" )
+  invisible( RSeval( c, r ) )
+}
