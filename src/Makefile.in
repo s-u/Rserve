@@ -1,5 +1,5 @@
 SFILES = $(wildcard *.c)
-XFILES = Rserve Rserve.dbg
+XFILES = Rserve Rserve.dbg Rserve.so
 
 # modify these variables to match your setup
 Rhome = @R_HOME@
@@ -20,7 +20,7 @@ all:	$(XFILES)
 	# this is Makefile for the package version
 	# it may fail, but that won't stop the make
 	-cp $(XFILES) $(Rbin)
-	# .. and put them in inst just in case anyone cares ...
+	# .. and put them in inst (so we can launch it from R if necessary)
 	cp $(XFILES) ../inst
 
 install: $(XFILES)
@@ -28,13 +28,17 @@ install: $(XFILES)
 	-cp Rserve.dbg $(Rbin)
 
 Rserve:	Rserv.o session.o md5.o
-	$(LINK.C) $^ -o $@ $(linkR) $(Rlib) $(LIBS)
+	$(CC) $^ -o $@ $(linkR) $(Rlib) $(LIBS)
 
 Rserv_d.o: Rserv.c Rsrv.h
 	$(CC) -c Rserv.c -o $@ -DNODAEMON -DRSERV_DEBUG -g $(PKG_CFLAGS) $(CPPFLAGS) $(CFLAGS)
 
 Rserve.dbg:	Rserv_d.o session.o md5.o
-	$(LINK.C) $^ -o $@ $(linkR) $(Rlib) $(LIBS)
+	$(CC) $^ -o $@ $(linkR) $(Rlib) $(LIBS)
+
+# this is fake for now - we should switch to Makevars.in and compile a proper library
+Rserve.so: Rserve
+	cp $^ $@
 
 client:
 	make -C client
