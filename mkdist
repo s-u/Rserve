@@ -6,7 +6,7 @@ rm -rf /tmp/Rserve
 echo "Copying package base ..."
 cp -r ../Rserve /tmp
 
-touch /tmp/Rserve/src/dummy.so
+#touch /tmp/Rserve/src/dummy.so
 rm -f /tmp/Rserve/mkdist
 
 echo "Running autoconf ..."
