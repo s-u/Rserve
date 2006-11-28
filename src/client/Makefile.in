@@ -8,7 +8,6 @@ DST = demo1 rcons
 
 CXXFLAGS+=-I../include -I.. -I.
 LIBS+=@LIBS@
-linkRL=@LINK_READLINE@
 
 all: $(DST)
 
@@ -16,10 +15,10 @@ demo1: Rconnection.o demo1.o
 	$(CXX) $^ -o $@ $(LIBS)
 
 rcons: Rconnection.o rcons.o
-	$(CXX) $^ -o $@ $(LIBS) $(linkRL)
+	$(CXX) $^ -o $@ $(LIBS)
 
 rcmd: Rconnection.o rcmd.o
-	$(CXX) $^ -o $@ $(LIBS) $(linkRL)
+	$(CXX) $^ -o $@ $(LIBS)
 
 debug:
 	CXXFLAGS=-g $(MAKE) all
