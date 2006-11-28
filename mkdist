@@ -9,16 +9,19 @@ cp -r ../Rserve /tmp
 #touch /tmp/Rserve/src/dummy.so
 rm -f /tmp/Rserve/mkdist
 
-echo "Running autoconf ..."
 cd /tmp/Rserve
 mkdir inst
-autoheader
-autoconf
-rm -rf autom4te*
+if [ -e configure ]; then
+  echo "Note: configure exists, no attempt to reconfigure will be made."
+else
+  echo "Running autoconf ..."
+  autoheader
+  autoconf
+  rm -rf autom4te* aclocal*
+fi
 
-echo "Removing CVS and backup stuff ..."
-rm -rf `find . -name CVS`
-rm -f `find . -name \*~`
+echo "Removing CVS/SVN and backup stuff ..."
+find . -name CVS -o -name \*~ -o -name .svn|xargs rm -rf
 
 # no INDEX since 1.8
 #echo "Updating INDEX ..."
