@@ -6,41 +6,41 @@ TOP=..
 
 PKG_NAME=Rserve
 
-ifdef DEBUG
-  DLLFLAGS=
-  DEBUGFLAG=-DRSERV_DEBUG -g -Wall
-else
-  DLLFLAGS=-s
-  DEBUGFLAG=-Wall
-endif
-
 DLLLIBS=-L$(RHOME)/src/gnuwin32 -L$(RHOME)/bin -lR
 CFLAGS+=$(DEBUGFLAG) -DWin32 -I. -D_R_ -I$(TOP)/inst/include -I$(RHOME)/src/include -I$(RHOME)/include -Iinclude -Iinclude/Win32
 
 winembed.o:	winembed.c
-	$(CC) $(CFLAGS) $($*-CFLAGS) -c winembed.c -o winembed.o
+	$(CC) $(CFLAGS) $($*-CFLAGS) -c $^ -o $@
 
 Rserv.o:	Rserv.c
-	$(CC) $(CFLAGS) $($*-CFLAGS) -c Rserv.c -o Rserv.o
+	$(CC) $(CFLAGS) $($*-CFLAGS) -c $^ -o $@
+
+Rserv_d.o:	Rserv.c
+	$(CC) $(CFLAGS) $($*-CFLAGS) -DRSERV_DEBUG -g -c $^ -o $@
 
 Rserve.exe:	Rserv.o winembed.o
-	$(LINKER) $(DLLFLAGS) $(LINKFLAGS) $($*-LINKFLAGS) -o Rserve.exe winembed.o Rserv.o $($*-LIBS) $(LIBS) -lwsock32 $(DLLLIBS)
-	-cp Rserve.exe $(TOP)/inst/Rserve.exe
+	$(LINKER) -s $(DLLFLAGS) $(LINKFLAGS) $($*-LINKFLAGS) -o $@ $^ $($*-LIBS) $(LIBS) -lwsock32 $(DLLLIBS)
+	-cp $@ $(TOP)/inst/$@
+
+Rserve_d.exe:	Rserv_d.o winembed.o
+	$(LINKER) $(DLLFLAGS) $(LINKFLAGS) $($*-LINKFLAGS) -o $@ $^ $($*-LIBS) $(LIBS) -lwsock32 $(DLLLIBS)
+	-cp $@ $(TOP)/inst/$@
 
 # there's not really a DLL - all we want is the EXE,
 # so we need to fake the DLL and copy the EXE manually.
-Rserve.dll:	Rserve.exe
+Rserve.dll:	Rserve.exe Rserve_d.exe
 	touch Rserve.dll
-	cp Rserve.exe $(RHOME)/bin
+	-cp Rserve.exe $(RHOME)/bin
+	-cp Rserve_d.exe $(RHOME)/bin
 
 include $(RHOME)/src/gnuwin32/MkRules
 
-install: Rserve.exe
-	cp Rserve.exe $(RHOME)/bin
+install: Rserve.exe Rserve_d.exe
+	cp $^ $(RHOME)/bin
 
 clean: 
-	-rm *.o Rserve.exe
+	-rm *.o Rserve.exe Rserve_d.exe
 
 distclean: clean
-	-rm Rserve.exe
-	-rm $(TOP)/inst/Rserve.exe
+	-rm Rserve.exe Rserve_d.exe
+	-rm $(TOP)/inst/Rserve.exe $(TOP)/inst/Rserve_d.exe
