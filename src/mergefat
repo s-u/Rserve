@@ -1,0 +1,22 @@
+#!/bin/sh
+
+# Usage: mergefat <me> <them>
+#
+# Merges <me> into possibly fat file <them> and places the result in <me>.
+# <me> is assumed to be single-arch only.
+# Checks whether /usr/bin/lipo exists and does nothing if it doesn't.
+#
+# (C)2006 Simon Urbanek
+
+LIPO=/usr/bin/lipo
+
+if test -e "${LIPO}" -a -e "$2"; then
+    myarch=`${LIPO} -detailed_info "$1"| sed -n -e 's|.\{0,\}architecture:\{0,1\} ||p'`
+    binarch=`${LIPO} -detailed_info "$2"| sed -n -e 's|.\{0,\}architecture:\{0,1\} ||p'`
+    if test "$myarch" != "$binarch"; then
+	cp "$2" liposuction
+	${LIPO} liposuction -remove "$myarch" -o liposuction 2> /dev/null
+	${LIPO} -create liposuction "$1" -o "$1"
+	rm -f liposuction
+    fi
+fi
