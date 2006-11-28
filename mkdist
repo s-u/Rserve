@@ -15,6 +15,7 @@ if [ -e configure ]; then
   echo "Note: configure exists, no attempt to reconfigure will be made."
 else
   echo "Running autoconf ..."
+  aclocal
   autoheader
   autoconf
   rm -rf autom4te* aclocal*
