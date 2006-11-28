@@ -25,6 +25,7 @@ Rserv.o:	Rserv.c
 
 Rserve.exe:	Rserv.o winembed.o
 	$(LINKER) $(DLLFLAGS) $(LINKFLAGS) $($*-LINKFLAGS) -o Rserve.exe winembed.o Rserv.o $($*-LIBS) $(LIBS) -lwsock32 $(DLLLIBS)
+	-cp Rserve.exe $(TOP)/inst/Rserve.exe
 
 # there's not really a DLL - all we want is the EXE,
 # so we need to fake the DLL and copy the EXE manually.
@@ -38,7 +39,8 @@ install: Rserve.exe
 	cp Rserve.exe $(RHOME)/bin
 
 clean: 
-	-rm *.o
+	-rm *.o Rserve.exe
 
 distclean: clean
 	-rm Rserve.exe
+	-rm $(TOP)/inst/Rserve.exe
