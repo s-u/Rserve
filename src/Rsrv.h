@@ -1,11 +1,10 @@
 /*
- *  Rsrv.h : constants and macros for Rsrv client/server architecture
- *  Copyright (C) 2002-5 Simon Urbanek
+ *  Rsrv.h : constants and macros for Rserve client/server architecture
+ *  Copyright (C) 2002-6 Simon Urbanek
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2 of the License, or
- *  (at your option) any later version.
+ *  the Free Software Foundation; version 2 of the License
  *
  *  This program is distributed in the hope that it will be useful,
  *  but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -28,7 +27,7 @@
 
 #include "config.h"
 
-#define RSRV_VER 0x000404 /* Rserve v0.4-4 */
+#define RSRV_VER 0x000405 /* Rserve v0.4-5 */
 
 #define default_Rsrv_port 6311
 
@@ -259,6 +258,22 @@ struct phdr { /* always 16 bytes */
 
 /* functions/macros to convert native endianess of int/double for transport
    currently ony PPC style and Intel style are supported */
+
+/* Since 0.4-5 we no longer use configure-time endianness tests to allow cross-compilation.
+   Either BS_xx_ENDIAN constant is defined by configure and thus should be relied upon only if
+   the compiler contants don't work */
+#if defined __BIG_ENDIAN__ || defined _BIG_ENDIAN_
+#define SWAPEND 1
+#else
+#if defined __LITTLE_ENDIAN__ || defined _LITTLE_ENDIAN_ || defined BS_LITTLE_ENDIAN
+#else
+#if defined BS_BIG_ENDIAN
+#define SWAPEND 1
+#else
+#error "Cannot determine endianness. Make sure config.h is included or __{BIG|LITTLE}_ENDIAN__ is defined ."
+#endif
+#endif
+#endif
 
 /* FIXME: all the mess below needs more efficient implementation - the current one is so messy to work around alignment problems on some platforms like Sun and HP 9000 */
 

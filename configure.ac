@@ -1,5 +1,5 @@
 # Process this file with autoconf to produce a configure script.
-AC_INIT(Rserve, 0.4, Simon.Urbanek@r-project.org)
+AC_INIT([Rserve],[0.4],[Simon.Urbanek@r-project.org])
 AC_CONFIG_SRCDIR([src/Rserv.c])
 AC_CONFIG_HEADER([src/config.h])
 
@@ -9,8 +9,51 @@ if test -z "${R_HOME}"; then
   echo "could not determine R_HOME"
   exit 1
 fi
+
+AC_ARG_WITH([server],
+	AS_HELP_STRING(--with-server,compile Rserve server (default is @<:@yes@:>@). Given that this is the main functionality of Rserve, the only reason to disable the server is to configure R or C++ client separately.),
+	[with_server=$withval], [with_server=yes])
+
+AC_ARG_WITH([client],
+	AS_HELP_STRING(--with-client,compile additional C/C++ Rserve client (default is @<:@no@:>@). The client can be always compiled manually regardless of this setting.),
+	[with_client=$withval], [with_client=no])
+
+RLD=`${R_HOME}/bin/R CMD config --ldflags 2>/dev/null`
+has_R_shlib=no
+if test -n "$RLD"; then
+   has_R_shlib=yes
+fi
+
+AC_MSG_CHECKING([whether to compile the server])
+if test "${with_server}" = yes; then
+   AC_MSG_RESULT(yes)
+   if test "${has_R_shlib}" = no; then
+      AC_MSG_ERROR([R was configured without --enable-R-shlib
+
+*** Rserve requires R shared library.                                  ***
+*** Please install libR.so or compile R with --enable-R-shlib support  ***
+
+ Alternatively use --without-server if you wish to build only Rserve client.
+
+])
+   fi
+else
+   AC_MSG_RESULT(no)
+fi
+
+AC_MSG_CHECKING([whether to compile the client])
+if test "${with_client}" = yes; then
+   AC_MSG_RESULT(yes)
+else
+   AC_MSG_RESULT(no)
+fi
+
+AM_CONDITIONAL(WITH_SERVER, [test "x${with_server}" = xyes])
+AM_CONDITIONAL(WITH_CLIENT, [test "x${with_client}" = xyes])
+
 CC=`${R_HOME}/bin/R CMD config CC`;
 CXX=`${R_HOME}/bin/R CMD config CXX`;
+CPPFLAGS="${CPPFLAGS} ${PKG_CPPFLAGS}"
 CFLAGS=`${R_HOME}/bin/R CMD config CFLAGS`
 CXXFLAGS=`${R_HOME}/bin/R CMD config CXXFLAGS`
 AC_SUBST(R_HOME)
@@ -28,11 +71,27 @@ AC_CHECK_HEADERS([sys/stat.h sys/types.h sys/socket.h sys/un.h netinet/in.h neti
 
 # Checks for typedefs, structures, and compiler characteristics.
 AC_C_CONST
+AC_C_BIGENDIAN(AC_DEFINE(BS_BIG_ENDIAN, 1, [Defined if the platform is big-endian]),
+	       AC_DEFINE(BS_LITTLE_ENDIAN, 1, [Defined if the platform is little-endian]),
+	       [	        
+AC_MSG_RESULT(endianness unknown - will rely solely on compiler macros)
+AC_MSG_CHECKING([whether compiler sets endianness macros])
+AC_COMPILE_IFELSE([
+#if defined __LITTLE_ENDIAN__ || defined _LITTLE_ENDIAN_ || defined __BIG_ENDIAN__ || defined _BIG_ENDIAN_
+#define BS_OK 1
+#else
+cannot determine compiler's endianness
+#endif
+],[AC_MSG_RESULT(yes)],[
+AC_MSG_RESULT(no)
+AC_MSG_ERROR([Cannot determine endianness neither from the compiler nor using a test.
+Try adding -D_BIG_ENDIAN_ or -D_LITTLE_ENDIAN_ to PKG_CPPFLAGS.
+])])
+])
 AC_HEADER_TIME
 
 # Checks for library functions.
 AC_FUNC_FORK
-AC_FUNC_MALLOC
 AC_TYPE_SIGNAL
 AC_CHECK_FUNCS([memset mkdir rmdir select socket])
 
@@ -82,47 +141,6 @@ fi
 
 # on some platforms libR expects dl code in the binary
 AC_CHECK_LIB(dl, dlopen)
-
-AC_MSG_CHECKING([endianess])
-AC_TRY_RUN(
-	[
-int main(void) { int i=0x12345678; return (*((char*)&i)==0x78)?0:1; }
-	],
-	[AC_MSG_RESULT(intel-like)],
-	[
-		AC_MSG_RESULT(PPC-like)
-		AC_DEFINE(SWAPEND, 1, [Must be defined for platforms with bytesex inverse to intel style])
-	]
-)
-
-AC_MSG_CHECKING([for readline support])
-AC_CHECK_HEADERS(readline/readline.h readline/history.h,
-	[
-		AC_MSG_CHECKING([for readline libraries])
-		LINK_READLINE="-lreadline"
-		AC_CHECK_LIB(ncurses, tputs, SFTPLIB="-lncurses $LINK_READLINE" ,
-			[AC_CHECK_LIB(curses, tputs, LINK_READLINE="-lcurses $LINK_READLINE" ,
-				[AC_CHECK_LIB(termcap, tputs, LINK_READLINE="-ltermcap $LINK_READLINE")
-				])
-			])
-
-		PRESERVE_LIBS="$LIBS"
-		LIBS="$LIBS $LINK_READLINE"
-		AC_TRY_RUN(
-			[  
-#include <stdio.h>
-#include <readline/readline.h>
-#include <readline/history.h>
-int main() { add_history(rl_library_version); return 0; }
-			],
-			[
-				AC_MSG_RESULT(yes)
-				AC_DEFINE(READLINE, 1, [Defined if readline is supported])
-			],AC_MSG_RESULT(no))
-		LIBS="$PRESERVE_LIBS"
-	])
-
-AC_SUBST(LINK_READLINE)
 
 AC_CONFIG_FILES([src/Makefile])
 AC_CONFIG_FILES([src/client/Makefile])

@@ -1,5 +1,5 @@
 SFILES = $(wildcard *.c)
-XFILES = Rserve Rserve.dbg Rserve.so
+XFILES = Rserve Rserve.dbg
 
 # modify these variables to match your setup
 Rhome = @R_HOME@
@@ -11,21 +11,32 @@ Rincludes = $(Rhome)/include
 Rlib      = -L$(Rhome)/bin -L$(Rhome)/lib
 Rbin      = $(Rhome)/bin
 linkR     = -lR
-linkRln   = @LINK_READLINE@
 
 PKG_CFLAGS += -DDAEMON -Iinclude -I$(Rincludes) -I$(port)
 
-all:	$(XFILES)
-	# if we got that far Rserve is compiled, so install it since
-	# this is Makefile for the package version
-	# it may fail, but that won't stop the make
-	-cp $(XFILES) $(Rbin)
-	# .. and put them in inst (so we can launch it from R if necessary)
-	cp $(XFILES) ../inst
+all: Rserve.so @WITH_SERVER_TRUE@ server
+@WITH_CLIENT_TRUE@	$(MAKE) client
 
-install: $(XFILES)
-	-cp Rserve $(Rbin)
-	-cp Rserve.dbg $(Rbin)
+server:	$(XFILES)
+# when installing multiple archs we have no way to put the binaries in the correct directory
+# because only *.so get copied. Therefore we need to fake the bin files as ".so"s to get
+# copied. Not a nice hack, but it works...
+	-cp Rserve Rserve-bin.so
+	-cp Rserve.dbg Rserve-dbg.so
+# merging to bin/Rserve works only if installed from sources, won't work for binary
+	-./mergefat Rserve "$(Rbin)/Rserve"
+	-./mergefat Rserve.dbg "$(Rbin)/Rserve.dbg"
+# installing the bin files is disabled for now because additional archs won't work anyway
+#	-cp $(XFILES) $(Rbin)
+#	-mkdir -p ../inst/bin$(R_ARCH) 2>/dev/null
+#	-cp $(XFILES) ../inst/bin$(R_ARCH)/
+
+# we copy the binary only in single-arch case to avoid confusion
+	-if test "x$(R_ARCH)" = x; then cp $(XFILES) ../inst/; else echo "Rserve binary was installed in libs because multi-arch support is enabled." > ../inst/Rserve-bin.txt; fi
+
+install: @WITH_SERVER_TRUE@ $(XFILES)
+@WITH_SERVER_TRUE@	-cp Rserve $(Rbin)
+@WITH_SERVER_TRUE@	-cp Rserve.dbg $(Rbin)
 
 Rserve:	Rserv.o session.o md5.o
 	$(CC) $^ -o $@ $(linkR) $(Rlib) $(LIBS)
@@ -37,13 +48,17 @@ Rserve.dbg:	Rserv_d.o session.o md5.o
 	$(CC) $^ -o $@ $(linkR) $(Rlib) $(LIBS)
 
 # this is fake for now - we should switch to Makevars.in and compile a proper library
-Rserve.so: Rserve
-	cp $^ $@
+Rserve.so: @WITH_SERVER_TRUE@ Rserve
+@WITH_SERVER_TRUE@	cp $^ $@
+@WITH_SERVER_FALSE@	@( touch $@ && echo "Server was not compiled." > ../inst/Rserve.txt )
 
 client:
 	make -C client
+	-rm -rf ../inst/client
+	-cp -r client ../inst/
+	cp Rsrv.h config.h include/sisocks.h ../inst/client
 
 clean:
 	rm -f *~ *.o *.lo *.so \#* $(XFILES)
 
-.PHONY: client clean
+.PHONY: client clean server install

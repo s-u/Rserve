@@ -92,17 +92,33 @@ RSlogin <- function(c, user, pwd, silent=FALSE) {
 RSclose <- function(c) close(c)
 
 Rserve <- function(debug=FALSE, port=6311, args=NULL) {
-  if (.Platform$OS.type=="windows") {
-    cat("On Windows Rserve is a stand-alone program in the ",file.path(R.home(),"bin")," directory.\nPlease make sure you read the release notes, because the Windows version of Rserve has several limitations due to lack of features in the OS that you should be aware of.\n\n")
-    return(invisible(NULL))
+  if (.Platform$OS.type == "windows") {
+    ffn <- if (debug) "Rserve_d.exe" else "Rserve.exe"
+    fn <- system.file(package="Rserve", ffn)
+    if (!nchar(fn) || !file.exists(fn))
+      stop("Cannot find ", ffn)
+    else {
+      if ( port != 6311 ) fn <- paste( fn, "--RS-port", port )
+      if ( !is.null(args) ) fn <- paste(fn, paste(args, collapse=' '))
+
+      pad <- paste(R.home(),"\\bin;",sep='')
+      if (charmatch(pad, Sys.getenv("PATH"), nomatch=0) == 0)
+        Sys.putenv(PATH=paste(pad, Sys.getenv("PATH"), sep=''))
+      
+      cat("Stating Rserve...\n", fn)
+      system(fn, wait=FALSE)
+      return(invisible(NULL))
+    }
   }
-  name <- if (debug) "Rserve.dbg" else "Rserve"
-  fn <- system.file(package="Rserve", name)
-  if (!nchar(fn)) fn <- name
+  name <- if (!debug) "Rserve-bin.so" else "Rserve-dbg.so"
+  fn <- system.file(package="Rserve", "libs", .Platform$r_arch, name)
+  if (!nchar(fn)) fn <- if (!debug) "Rserve" else "Rserve.dbg"
   if ( port != 6311 ) fn <- paste( fn, "--RS-port", port )
   if ( !is.null(args) ) fn <- paste(fn, paste(args, collapse=' '))
   cmd <- paste(file.path(R.home(),"bin","R"),"CMD",fn)
-  cat("Starting Rserve on port", port, ":\n",cmd,"\n\n(Please note that you can usually start Rserve from the command line by typing `R CMD Rserve'\n")
+  cat("Starting Rserve on port", port, ":\n",cmd,"\n\n")
+  if (debug)
+    cat("Note: debug version of Rserve doesn't daemonize so your R session will be blocked until you shut down Rserve.\n")
   system(cmd)
 }
 
