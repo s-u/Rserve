@@ -1,6 +1,32 @@
  NEWS/Changelog for Rserve
 ---------------------------
 
+0.4-5	2006-11-28
+    o	added --with-server option (by default enabled). When disabled,
+	the server itself is not built. When enabled, R must provide R
+	shared library, i.e. it must have been compiled with
+	--enable-R-shlib.
+
+    o	added --with-client option (by default disabled). When
+	enabled, the C/C++ client is built and installed in the
+	package. It will be copied in the "client" directory of the
+	package and contains all files necessary for building a
+	client application.
+
+	This option has no effect on the R client which is always
+	built and installed.
+
+    o	Windows version of Rserve now builds and installs both debug
+	(Rserve_d.exe) and regular (Rserve.exe) version of Rserve. In
+	addition, the Rserve function can now be used to launch Rserve
+	even on Windows.
+
+    o	endianness detection now prefers information from the compiler
+	macros thus allowing cross-compilation.
+
+    o	allows universal build on Mac OS X
+
+
 0.4-4	2006-11-15
     o	first release on CRAN
 
