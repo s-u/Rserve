@@ -1,7 +1,7 @@
  NEWS/Changelog for Rserve
 ---------------------------
 
-0.4-5	2006-11-28
+0.4-5	2006-11-29
     o	added --with-server option (by default enabled). When disabled,
 	the server itself is not built. When enabled, R must provide R
 	shared library, i.e. it must have been compiled with
@@ -22,9 +22,12 @@
 	even on Windows.
 
     o	endianness detection now prefers information from the compiler
-	macros thus allowing cross-compilation.
+	macros thus allowing cross-compilation. Use -D_BIG_ENDIAN_ or
+	-D_LITTLE_ENDIAN_ to override it if necessary.
 
     o	allows universal build on Mac OS X
+
+    o	adapt to R_ParseVector interface change in R-devel
 
 
 0.4-4	2006-11-15

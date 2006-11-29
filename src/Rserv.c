@@ -208,6 +208,13 @@ typedef int socklen_t;
 #define sndBS (2048*1024)
 #endif
 
+/* the # of arguments to R_ParseVector changed since R 2.5.0 */
+#if R_VERSION < R_Version(2,5,0)
+#define RS_ParseVector R_ParseVector
+#else
+#define RS_ParseVector(A,B,C) R_ParseVector(A,B,C,R_NilValue)
+#endif
+
 int dumpLimit=128;
 
 int port = default_Rsrv_port;
@@ -955,7 +962,7 @@ SEXP parseString(char *s, int *parts, ParseStatus *status) {
     SET_VECTOR_ELT(cv, 0, mkChar(s));  
     
     while (maxParts>0) {
-		pr=R_ParseVector(cv, maxParts, status);
+		pr=RS_ParseVector(cv, maxParts, status);
 		if (*status!=PARSE_INCOMPLETE && *status!=PARSE_EOF) break;
 		maxParts--;
     }
@@ -971,7 +978,7 @@ SEXP parseExps(char *s, int exps, ParseStatus *status) {
     
     PROTECT(cv=allocVector(STRSXP, 1));
     SET_VECTOR_ELT(cv, 0, mkChar(s));  
-    pr=R_ParseVector(cv, 1, status);
+    pr=RS_ParseVector(cv, 1, status);
     UNPROTECT(1);
     return pr;
 }
