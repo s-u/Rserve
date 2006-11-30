@@ -1,6 +1,15 @@
  NEWS/Changelog for Rserve
 ---------------------------
 
+0.4-6	2006-11-30
+    o	fixed bug in RSeval when handling large objects
+
+    o	minor fix in RSassign
+
+    o	add an endianness hack for Windows in case config.h is not
+	included properly
+
+
 0.4-5	2006-11-29
     o	added --with-server option (by default enabled). When disabled,
 	the server itself is not built. When enabled, R must provide R
