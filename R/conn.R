@@ -22,7 +22,7 @@ RSeval <- function(c, cmd) {
   sexpt <- a[2]%%256
   if (isLarge != 0) {
     isRawLarge <- (a[3]%/%0x40000000)%%1
-    aa <- readBin(c,"int",1+isRawLarge,signed=FALSE,endion="little")
+    aa <- readBin(c, "int", 1+isRawLarge, signed=FALSE, endian="little")
     rawLen <- aa[1+isRawLarge]
     prefix <- 16+isRawLarge*4
     sexpt <- a[3]%%256
@@ -126,7 +126,7 @@ Rserve <- function(debug=FALSE, port=6311, args=NULL) {
 ## using true assign should actually work with raw streams - need to
 ## implement that ... (FIXME)
 RSassign <- function( c, obj, name = deparse(substitute(name)) ) {
-  tmp <- rawToChar( serialize( obj, NULL, ascii=T ) )
+  tmp <- rawToChar( serialize( obj, NULL, ascii=TRUE ) )
   r <- paste( "{", name, "<-unserialize(\"", tmp, "\"); TRUE}", sep="" )
   invisible( RSeval( c, r ) )
 }
