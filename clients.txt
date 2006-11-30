@@ -1,0 +1,51 @@
+Rserve is a binary R server that listens to clients and processes
+their requests. The Rserve package primarity builds the server which
+can be the started using R CMD Rserve or via the Rserve() function in
+R.
+
+Clients programs that connect to a running Rserve and submit requests
+for computation. The Rserve protocol is open source, so anyone is free
+to write a client, but Rserve package comes with three clients:
+
+- Java client	       in src/client/java
+- C++ client	       in src/client
+- simple R client      part of the Rserve R package
+
+
+ Java client
+=============
+
+The most sophisticated client is the Java client which allows any Java
+application to use R facilities without linking directly to R. It
+supports the full range of Rserve functionality and is located in
+
+src/client/java
+
+It can be compiled into a JAR file by typing "make" in the
+src/client/java directory. The resulting file JRcleint.jar is all that
+is needed. JavaDoc documentation can be generated using "make doc".
+
+
+ C++ client
+============
+
+The C++ client is located in the src/client directory and will be
+compiled if --with-client is specified upon installation.
+Alternatively it can be compiled manually by typing "make" in
+src/client after configure script was run. See ReadMe.txt in
+src/client for details.
+
+
+ R client
+==========
+
+The Rserve package also includes a simple R client, i.e. it allows you
+to connect to Rserve from R itself. It is very simple and limited,
+because Rserve was not primarily meant for R-to-R communication (there
+are better ways to do that), but it is useful for quick interactive
+connection to an Rserve farm. See ?RSconnect in R after loading the
+Rserve package.
+
+
+---
+Simon Urbanek, 2006-11-30
