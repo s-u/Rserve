@@ -1,6 +1,14 @@
  NEWS/Changelog for Rserve
 ---------------------------
 
+0.4-7	(under development)
+    o	JRclient is now part of the Rserve package.
+	See clients.txt for details.
+	It is not compiled by default (but installed when
+	--with-client is specified), because we cannot assume the
+	existence of a Java compiler.
+
+
 0.4-6	2006-11-30
     o	fixed bug in RSeval when handling large objects
 
