@@ -7,12 +7,13 @@ port  = .
 LIBS  = @LIBS@
 
 # if you have some non-standard setup you might want to modify those as well
-Rincludes = $(Rhome)/include
-Rlib      = -L$(Rhome)/bin -L$(Rhome)/lib
+Rincludes = @RINC@
+Rlib      = $(Rhome)/lib
 Rbin      = $(Rhome)/bin
-linkR     = -lR
+linkR     = @RLD@
 
-PKG_CFLAGS += -DDAEMON -Iinclude -I$(Rincludes) -I$(port)
+MYINC = -Iinclude -I$(port)
+PKG_CFLAGS = $(PKG_CFLAGS) -DDAEMON $(MYINC) $(Rincludes)
 
 all: Rserve.so @WITH_SERVER_TRUE@ server
 @WITH_CLIENT_TRUE@	$(MAKE) client
@@ -39,13 +40,13 @@ install: @WITH_SERVER_TRUE@ $(XFILES)
 @WITH_SERVER_TRUE@	-cp Rserve.dbg $(Rbin)
 
 Rserve:	Rserv.o session.o md5.o
-	$(CC) $^ -o $@ $(linkR) $(Rlib) $(LIBS)
+	$(CC) $^ -o $@ $(linkR) $(LIBS)
 
 Rserv_d.o: Rserv.c Rsrv.h
-	$(CC) -c Rserv.c -o $@ -DNODAEMON -DRSERV_DEBUG -g $(PKG_CFLAGS) $(CPPFLAGS) $(CFLAGS)
+	$(CC) $(MYINC) $(Rincludes) -c Rserv.c -o $@ -DNODAEMON -DRSERV_DEBUG -g $(PKG_CPPFLAGS) $(CPPFLAGS) $(CFLAGS)
 
 Rserve.dbg:	Rserv_d.o session.o md5.o
-	$(CC) $^ -o $@ $(linkR) $(Rlib) $(LIBS)
+	$(CC) $^ -o $@ $(linkR) $(LIBS) $(PKG_LIBS)
 
 # this is fake for now - we should switch to Makevars.in and compile a proper library
 Rserve.so: @WITH_SERVER_TRUE@ Rserve

@@ -2,6 +2,9 @@
 ---------------------------
 
 0.4-7	(under development)
+    o	fixed compilation on systems with custom include dir
+	(such as Debian)
+
     o	JRclient is now part of the Rserve package.
 	See clients.txt for details.
 	It is not compiled by default (but installed when

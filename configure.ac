@@ -56,7 +56,10 @@ CXX=`${R_HOME}/bin/R CMD config CXX`;
 CPPFLAGS="${CPPFLAGS} ${PKG_CPPFLAGS}"
 CFLAGS=`${R_HOME}/bin/R CMD config CFLAGS`
 CXXFLAGS=`${R_HOME}/bin/R CMD config CXXFLAGS`
+RINC=`${R_HOME}/bin/R CMD config --cppflags`
 AC_SUBST(R_HOME)
+AC_SUBST(RINC)
+AC_SUBST(RLD)
 
 # Checks for programs.
 AC_PROG_CC
