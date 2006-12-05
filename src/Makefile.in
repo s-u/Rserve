@@ -13,7 +13,7 @@ Rbin      = $(Rhome)/bin
 linkR     = @RLD@
 
 MYINC = -Iinclude -I$(port)
-PKG_CFLAGS = $(PKG_CFLAGS) -DDAEMON $(MYINC) $(Rincludes)
+PKG_CFLAGS += -DDAEMON $(MYINC) $(Rincludes)
 
 all: Rserve.so @WITH_SERVER_TRUE@ server
 @WITH_CLIENT_TRUE@	$(MAKE) client
