@@ -2,6 +2,13 @@
 ---------------------------
 
 0.4-7	(under development)
+    o	added more sophisticated implementation of RSassign
+	in R client to support larger data. Nevertheless, due to
+	limitations in R, objects must be serializable to
+	less than 8MB to be assignable via RSassign.
+
+    o	added more robust error handling in the R client
+
     o	fixed compilation on systems with custom include dir
 	(such as Debian)
 
