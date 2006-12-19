@@ -16,7 +16,7 @@ RSclose(c)
 RSdetach(c)
 RSevalDetach(c, cmd = "")
 RSattach(session)
-RSassign(c, obj, name = deparse(substitute(name)) )
+RSassign(c, obj, name = deparse(substitute(obj)) )
 }
 \description{
   Rserve is a server providing R functionality via sockets. The

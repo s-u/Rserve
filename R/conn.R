@@ -59,7 +59,7 @@ RSeval <- function(c, cmd) {
   r
 }
 
-RSassign <- function ( c, name, obj) {
+RSassign <- function ( c, obj, name = deparse(substitute(obj)) ) {
   so <- serialize(list(name=name, obj=obj), NULL)
   large <- (length(so) > 0x800000)
   if (large) stop("Cannot assign objects larger than 8MB.")
