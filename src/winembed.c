@@ -135,11 +135,14 @@ int Rf_initEmbeddedR(int argc, char **argv)
    DWORD t,s=MAX_PATH;
    HKEY k;
 
-    sprintf(Rversion, "%s.%s", R_MAJOR, R_MINOR);
-    if(strcmp(getDLLVersion(), Rversion) != 0) {
-	fprintf(stderr, "Error: R.DLL version does not match\n");
-	return -1;
-    }
+   sprintf(Rversion, "%s.%s", R_MAJOR, R_MINOR);
+   { char *c = Rversion, *d = Rversion; while (*c) { if (*c=='.') d=c; c++; }; *d=0; }
+
+   if(strncmp(Rversion, getDLLVersion(), strlen(Rversion)) != 0) {
+     fprintf(stderr, "Error: R.DLL version (%s) does not match (%s.%s)\n",  getDLLVersion(),
+	     R_MAJOR, R_MINOR);
+     return -1;
+   }
 
     R_DefParams(Rp);
     if(getenv("R_HOME")) {
