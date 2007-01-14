@@ -1,7 +1,9 @@
  NEWS/Changelog for Rserve
 ---------------------------
 
-0.4-7	(under development)
+0.4-7	2007-01-14
+    o	relax DLL versions checking on Windows
+
     o	added more sophisticated implementation of RSassign
 	in R client to support larger data. Nevertheless, due to
 	limitations in R, objects must be serializable to
