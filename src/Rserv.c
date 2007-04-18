@@ -67,6 +67,9 @@
  0102 - Rserve 0.3
         added support for large parameters/expressions
 
+ 0103 - Rserve 0.5
+        discard the notion of scalar types
+
 The current implementation uses DT_LARGE/XT_LARGE only for SEXPs larger than 0xfffff0.
 No commands except for CMD_set/assignREXP with DT_REXP accept large input,
 in particular all file operations. All objects smaller 8MB should be encoded without
@@ -339,8 +342,6 @@ rlen_t getStorageSize(SEXP x) {
 		len+=getStorageSize(PRINTNAME(x));
 		break;
     case STRSXP:
-		if (tl==1)
-			return getStorageSize(VECTOR_ELT(x,0));
     case EXPRSXP:
     case VECSXP:
 		{
@@ -464,18 +465,13 @@ unsigned int* storeSEXP(unsigned int* buf, SEXP x) {
     }
     
     if (t==EXPRSXP || t==VECSXP || t==STRSXP) {
-		if (t==STRSXP && LENGTH(x)==1) {
-			buf=storeSEXP(buf,VECTOR_ELT(x,0));
-			goto skipall; /* need to skip fixup since we didn't store anything */
-		} else {
-			*buf=itop(XT_VECTOR|hasAttr);
-			buf++;
-			attrFixup;
-			i=0;
-			while(i<LENGTH(x)) {
-				buf=storeSEXP(buf,VECTOR_ELT(x,i));
-				i++;
-			}
+		*buf=itop(((t==STRSXP)?XT_ARRAY_STR:XT_VECTOR)|hasAttr);
+		buf++;
+		attrFixup;
+		i=0;
+		while(i<LENGTH(x)) {
+			buf=storeSEXP(buf,VECTOR_ELT(x,i));
+			i++;
 		}
 		goto didit;
     }
@@ -748,7 +744,7 @@ void sendRespData(int s, int rsp, int len, void *buf) {
 #ifdef FORCE_V0100
 char *IDstring="Rsrv0100QAP1\r\n\r\n--------------\r\n";
 #else
-char *IDstring="Rsrv0102QAP1\r\n\r\n--------------\r\n";
+char *IDstring="Rsrv0103QAP1\r\n\r\n--------------\r\n";
 #endif
 
 /* require authentication flag (default: no) */

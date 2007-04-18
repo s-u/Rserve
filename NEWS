@@ -1,6 +1,9 @@
  NEWS/Changelog for Rserve
 ---------------------------
 
+0.5-0	(under development)
+    o	remove scalar types from the protocol
+
 0.4-7	2007-01-14
     o	relax DLL versions checking on Windows
 
