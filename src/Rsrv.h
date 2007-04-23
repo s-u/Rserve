@@ -223,10 +223,15 @@ struct phdr { /* always 16 bytes */
 #define XT_LANG          4 /* data: same as XT_LIST */
 #define XT_SYM           5 /* data: [n]char symbol name */
 #define XT_BOOL          6 /* data: [1]byte boolean
-			      (1=TRUE, 0=FALSE, 2=NA) */
+							  (1=TRUE, 0=FALSE, 2=NA) */
+#define XT_S4            7 /* data: [0] */
+
 #define XT_VECTOR        16 /* data: [?]REXP */
 #define XT_LIST          17 /* X head, X vals, X tag (since 0.1-5) */
 #define XT_CLOS          18 /* X formals, X body  (closure; since 0.1-5) */
+#define XT_SYMNAME       19 /* same as XT_STR (since 0.5) */
+#define XT_LIST_NOTAG    20 /* same as XT_VECTOR (since 0.5) */
+#define XT_LIST_TAG      21 /* X tag, X val, Y tag, Y val, ... (since 0.5) */
 
 #define XT_ARRAY_INT     32 /* data: [n*4]int,int,.. */
 #define XT_ARRAY_DOUBLE  33 /* data: [n*8]double,double,.. */
@@ -234,6 +239,7 @@ struct phdr { /* always 16 bytes */
 #define XT_ARRAY_BOOL_UA 35 /* data: [n]byte,byte,..  (unaligned! NOT supported anymore) */
 #define XT_ARRAY_BOOL    36 /* data: int(n),byte,byte,... */
 #define XT_RAW           37 /* data: int(n),byte,byte,... */
+#define XT_ARRAY_CPLX    38 /* data: [n*16]double,double,... (Re,Im,Re,Im,...) */
 
 #define XT_UNKNOWN       48 /* data: [4]int - SEXP type (as from TYPEOF(x)) */
 

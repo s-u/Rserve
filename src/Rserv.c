@@ -306,14 +306,22 @@ rlen_t getStorageSize(SEXP x) {
     switch (t) {
     case LISTSXP:
     case LANGSXP:
-		len+=getStorageSize(CAR(x));
-		len+=getStorageSize(CDR(x));
-		len+=getStorageSize(TAG(x));
+		{
+			SEXP l = x;
+			int tags = 0, n = 0;
+			while (l != R_NilValue) {
+				len+=getStorageSize(CAR(x)); tags+=getStorageSize(TAG(x)); n++;
+				l = CDR(l);
+			}
+			if (tags>4*n) len+=tags; /* use tagged list */
+		}
 		break;
     case CLOSXP:
 		len+=getStorageSize(FORMALS(x));
 		len+=getStorageSize(BODY(x));
 		break;
+	case CPLXSXP:
+		len+=tl*16; break;
     case REALSXP:
 		len+=tl*8; break;
     case INTSXP:
@@ -326,9 +334,10 @@ rlen_t getStorageSize(SEXP x) {
 			len+=4;	
 		break;
 		
+    case SYMSXP:
     case CHARSXP:
 		{
-			char *ct=(char*)STRING_PTR(x);
+			char *ct=(char*) ((t==CHARSXP)?STRING_PTR(x):STRING_PTR(PRINTNAME(x)));
 			if (!ct)
 				len+=4;
 			else {
@@ -337,9 +346,6 @@ rlen_t getStorageSize(SEXP x) {
 				len+=sl;
 			}
 		}
-		break;
-    case SYMSXP:
-		len+=getStorageSize(PRINTNAME(x));
 		break;
     case STRSXP:
     case EXPRSXP:
@@ -351,6 +357,9 @@ rlen_t getStorageSize(SEXP x) {
 				i++;
 			}
 		}
+		break;
+	case S4SXP:
+		/* S4 really has the payload in attributes, so it doesn't occupy anything */
 		break;
     default:
 		len+=4; /* unknown types are simply stored as int */
@@ -388,27 +397,27 @@ unsigned int* storeSEXP(unsigned int* buf, SEXP x) {
 		buf++;
     }
     
-    if (t==LISTSXP) {
-		*buf=itop(XT_LIST|hasAttr);
+    if (t==LISTSXP || t==LANGSXP) {
+		SEXP l = x;
+		int tags = 0;
+		while (l != R_NilValue) {
+			if (TAG(l) != R_NilValue) tags++;
+			l = CDR(l);
+		}
+		/* FIXME: we now store LANGs as LISTs .. we may want to flag them */
+		*buf=itop((tags?XT_LIST_TAG:XT_LIST_NOTAG)|hasAttr);
 		buf++;
 		attrFixup;
-		buf=storeSEXP(buf,CAR(x));
-		buf=storeSEXP(buf,CDR(x));    
-		buf=storeSEXP(buf,TAG(x));  /* since 1.22 (0.1-5) we store TAG as well */
+		l=x;
+		while (l != R_NilValue) {			
+			buf = storeSEXP(buf, CAR(x));
+			if (tags)
+				buf = storeSEXP(buf, TAG(x));
+			l = CDR(l);
+		}
 		goto didit;
     }
     
-    if (t==LANGSXP) { /* LANG are simply special lists */
-		*buf=itop(XT_LANG|hasAttr);
-		buf++;
-		attrFixup;
-		/* before 1.22 (0.1-5) contents was ignored */
-		buf=storeSEXP(buf,CAR(x));
-		buf=storeSEXP(buf,CDR(x));
-		buf=storeSEXP(buf,TAG(x));  /* since 1.22 (0.1-5) we store TAG as well */
-		goto didit;
-    }
-	
     if (t==CLOSXP) { /* closures (send FORMALS and BODY) */
 		*buf=itop(XT_CLOS|hasAttr);
 		buf++;
@@ -425,6 +434,21 @@ unsigned int* storeSEXP(unsigned int* buf, SEXP x) {
 		i=0;
 		while(i<LENGTH(x)) {
 			fixdcpy(buf,REAL(x)+i);
+			buf+=2; /* sizeof(double)=2*sizeof(int) */
+			i++;
+		}
+		goto didit;
+    }
+
+    if (t==CPLXSXP) {
+		*buf=itop(XT_ARRAY_CPLX|hasAttr);
+		buf++;
+		attrFixup;
+		i=0;
+		while(i<LENGTH(x)) {
+			fixdcpy(buf,&(COMPLEX(x)[i].r));
+			buf+=2; /* sizeof(double)=2*sizeof(int) */
+			fixdcpy(buf,&(COMPLEX(x)[i].i));
 			buf+=2; /* sizeof(double)=2*sizeof(int) */
 			i++;
 		}
@@ -488,26 +512,32 @@ unsigned int* storeSEXP(unsigned int* buf, SEXP x) {
 		}
 		goto didit;
     }
-	
-    if (t==CHARSXP) {
-		int sl;
-		*buf=itop(XT_STR|hasAttr);
+
+    if (t==S4SXP) {
+		*buf=itop(XT_S4|hasAttr);
 		buf++;
 		attrFixup;
-		strcpy((char*)buf,(char*)STRING_PTR(x));
+		goto didit;		
+	}
+	
+    if (t==CHARSXP||t==SYMSXP) {
+		int sl;
+		char *val;
+		if (t==CHARSXP) {
+			*buf=itop(XT_STR|hasAttr);
+			val=(char*)STRING_PTR(x);
+		} else {
+			*buf=itop(XT_SYMNAME|hasAttr);
+			val=(char*)STRING_PTR(PRINTNAME(x));
+		}
+		buf++;
+		attrFixup;
+		strcpy((char*)buf,val);
 		sl=strlen((char*)buf)+1;
 		while (sl&3) { /* pad by 0 to a length divisible by 4 (since 0.1-10) */
 			buf[sl]=0; sl++;
 		}
 		buf=(unsigned int*)(((char*)buf)+sl);
-		goto didit;
-    }
-	
-    if (t==SYMSXP) {
-		*buf=itop(XT_SYM|hasAttr);
-		buf++;
-		attrFixup;
-		buf=storeSEXP(buf,PRINTNAME(x));
 		goto didit;
     }
 	
@@ -535,6 +565,9 @@ void printSEXP(SEXP e) /* merely for debugging purposes
 {
     int t=TYPEOF(e);
     int i;
+
+	if (ATTRIB(e) != R_NilValue)
+		printf("[*has attr*] ");
     
     if (t==NILSXP) {
 		printf("NULL value\n");
@@ -542,6 +575,19 @@ void printSEXP(SEXP e) /* merely for debugging purposes
     }
     if (t==LANGSXP) {
 		printf("language construct\n");
+		return;
+    }
+    if (t==LISTSXP) {
+		SEXP l=e;
+		printf("dotted-pair list:\n");
+		while (l != R_NilValue) {
+			if (dumpLimit && i>dumpLimit) { printf("..."); break; };
+			if (TAG(l) != R_NilValue) {
+				printf("(TAG:"); printSEXP(TAG(l)); printf(") ");
+			}
+			printSEXP(CAR(l));
+			l=CDR(l);
+		}
 		return;
     }
     if (t==REALSXP) {
@@ -559,6 +605,23 @@ void printSEXP(SEXP e) /* merely for debugging purposes
 			putchar('\n');
 		} else
 			printf("Real variable %f\n",*REAL(e));
+		return;
+    }
+    if (t==CPLXSXP) {
+		if (LENGTH(e)>1) {
+			printf("Vector of complex variables: ");
+			i=0;
+			while(i<LENGTH(e)) {
+				printf("%f+%fi",COMPLEX(e)[i].r,COMPLEX(e)[i].i);
+				if (i<LENGTH(e)-1) printf(", ");
+				if (dumpLimit && i>dumpLimit) {
+					printf("..."); break;
+				}
+				i++;
+			}
+			putchar('\n');
+		} else
+			printf("Complex variable %f+%fi\n",COMPLEX(e)[0].r,COMPLEX(e)[0].i);
 		return;
     }
     if (t==RAWSXP) {
@@ -624,6 +687,10 @@ void printSEXP(SEXP e) /* merely for debugging purposes
 		printf("Symbol, name: "); printSEXP(PRINTNAME(e));
 		return;
     }
+    if (t==S4SXP) {
+		printf("S4 object\n");
+		return;
+    }
     printf("Unknown type: %d\n",t);
 }
 
@@ -671,6 +738,17 @@ SEXP decode_to_SEXP(unsigned int **buf, int *UPC)
 		while (i<l) {
 			fixdcpy(REAL(val)+i,b);
 			i++; b+=2;
+		}
+		*buf=b;
+		break;
+    case XT_ARRAY_CPLX:
+		l=ln/16;
+		PROTECT(val=allocVector(CPLXSXP,l)); (*UPC)++;
+		i=0;
+		while (i<l) {
+			fixdcpy(&(COMPLEX(val)[i].r),b); b+=2;
+			fixdcpy(&(COMPLEX(val)[i].i),b); b+=2;
+			i++;
 		}
 		*buf=b;
 		break;
