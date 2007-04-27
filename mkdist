@@ -32,7 +32,7 @@ find . -name CVS -o -name \*~ -o -name .svn|xargs rm -rf
 #cd Rserve
 
 echo "Updating version ..."
-VER=`awk -v ORS= '/Rserve v/ { print substr($6,2) }' src/Rsrv.h`
+VER=`./version`
 echo "Rserve version ${VER}"
 cat DESCRIPTION| sed "s/Version:.*/Version: ${VER}/" > d
 mv d DESCRIPTION

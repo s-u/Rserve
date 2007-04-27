@@ -404,15 +404,15 @@ unsigned int* storeSEXP(unsigned int* buf, SEXP x) {
 			if (TAG(l) != R_NilValue) tags++;
 			l = CDR(l);
 		}
-		/* FIXME: we now store LANGs as LISTs .. we may want to flag them */
-		*buf=itop((tags?XT_LIST_TAG:XT_LIST_NOTAG)|hasAttr);
+		/* note that we are using the fact that XT_LANG_xx=XT_LIST_xx+2 */
+		*buf=itop(((t==LISTSXP)?0:2)+(tags?XT_LIST_TAG:XT_LIST_NOTAG)|hasAttr);
 		buf++;
 		attrFixup;
 		l=x;
 		while (l != R_NilValue) {			
-			buf = storeSEXP(buf, CAR(x));
+			buf = storeSEXP(buf, CAR(l));
 			if (tags)
-				buf = storeSEXP(buf, TAG(x));
+				buf = storeSEXP(buf, TAG(l));
 			l = CDR(l);
 		}
 		goto didit;
@@ -489,7 +489,7 @@ unsigned int* storeSEXP(unsigned int* buf, SEXP x) {
     }
     
     if (t==EXPRSXP || t==VECSXP || t==STRSXP) {
-		*buf=itop(((t==STRSXP)?XT_ARRAY_STR:XT_VECTOR)|hasAttr);
+		*buf=itop(((t==STRSXP)?XT_VECTOR_STR:XT_VECTOR)|hasAttr);
 		buf++;
 		attrFixup;
 		i=0;
@@ -701,23 +701,37 @@ void printSEXP(SEXP e) /* merely for debugging purposes
    (more precisely it points to the next stored SEXP). */
 SEXP decode_to_SEXP(unsigned int **buf, int *UPC)
 {
-    unsigned int *b=*buf;
+    unsigned int *b=*buf, *pab=*buf;
     char *c,*cc;
-    SEXP val=0;
+    SEXP val=0, vatt=0;
     int ty=PAR_TYPE(ptoi(*b));
     rlen_t ln=PAR_LEN(ptoi(*b));
     int i,j,l;
     
     if (IS_LARGE(ty)) {
-		ty&=0xbf;
+		ty^=XT_LARGE;
 		b++;
 		ln|=(ptoi(*b))<<24;
     }
 #ifdef RSERV_DEBUG
-    printf("decode: type=%x, len=%ld\n", ty, (long)ln);
+    printf("decode: type=%d, len=%ld\n", ty, (long)ln);
 #endif
     b++;
-    
+    pab=b; /* pre-attr b */
+
+	if (ty&XT_HAS_ATTR) {
+#ifdef RSERV_DEBUG
+		printf(" - has attributes\n");
+#endif
+		*buf=b;
+		vatt=decode_to_SEXP(buf, UPC);
+		b=*buf;
+		ty=ty^XT_HAS_ATTR;
+#ifdef RSERV_DEBUG
+		printf(" - returned from attributes(@%x)\n", (int)&buf);
+#endif
+	}
+
     switch(ty) {
     case XT_INT:
     case XT_ARRAY_INT:
@@ -752,7 +766,6 @@ SEXP decode_to_SEXP(unsigned int **buf, int *UPC)
 		}
 		*buf=b;
 		break;
-    case XT_STR:
     case XT_ARRAY_STR:
 		i=j=0;
 		c=(char*)(b);
@@ -777,10 +790,80 @@ SEXP decode_to_SEXP(unsigned int **buf, int *UPC)
 		b++;
 		PROTECT(val=allocVector(RAWSXP, i)); (*UPC)++;
 		memcpy(RAW(val), b, i);
-		b+=ln/4 - 1; /* ln will include the length field */
-		*buf=b;
+		*buf=(unsigned int*)((char*)pab + ln);
 		break;
+	case XT_VECTOR:
+	case XT_VECTOR_STR:
+		{
+			unsigned char *ie = (unsigned char*) pab + ln;
+			int n=0;
+			SEXP lh = R_NilValue;
+			*buf=b;
+			while ((unsigned char*)*buf < ie) {
+				SEXP v = decode_to_SEXP(buf, UPC);
+				lh = CONS(v, lh);
+				n++;
+			}
+			printf(" vector, %d elements\n", n);
+			val = allocVector((ty==XT_VECTOR)?VECSXP:STRSXP, n);
+			while (n>0) {
+				n--;
+				SET_ELEMENT(val, n, CAR(lh));
+				lh=CDR(lh);
+			}
+			printf(" end of vector %x/%x\n", (int) *buf, (int) ie);
+			break;
+		}
+
+	case XT_STR:
+	case XT_SYMNAME:
+		/* i=ptoi(*b);
+		   b++; */
+		printf(" string/symbol(%d) '%s'\n", ty, (char*)b);
+		{
+			char *c = (char*) b;
+			if (ty==XT_STR)
+				val=mkChar(c);
+			else
+				val=install(c);
+		}
+		*buf=(unsigned int*)((char*)pab + ln);
+		break;
+	case XT_LIST_NOTAG:
+	case XT_LIST_TAG:
+	case XT_LANG_NOTAG:
+	case XT_LANG_TAG:
+		{
+			SEXP vnext = R_NilValue, vtail = 0;
+			unsigned char *ie = (unsigned char*) pab + ln;
+			val = R_NilValue;
+			*buf=b;
+			while ((unsigned char*)*buf < ie) {
+				printf(" el %08x of %08x\n", (unsigned int)*buf, (unsigned int) ie);
+				SEXP el = decode_to_SEXP(buf, UPC);
+				SEXP ea = 0;
+				if (ty==XT_LANG_TAG || ty==XT_LIST_TAG) {
+					printf(" tag %08x of %08x\n", (unsigned int)*buf, (unsigned int) ie);
+					ea = decode_to_SEXP(buf, UPC);
+				}
+				if (ty==XT_LANG_TAG || ty==XT_LANG_NOTAG)
+					vnext = LCONS(el, R_NilValue);
+				else
+					vnext = CONS(el, R_NilValue);
+				if (ea) SET_TAG(vnext, ea);
+				if (vtail)
+					SETCDR(vtail, vnext);
+				else
+					val = vnext;
+				vtail = vnext;				   
+			}
+			break;
+		}
+	default:
+		error("unsupported type %d\n", ty);
+		*buf=(unsigned int*)((char*)pab + ln);
     }
+	if (vatt) SET_ATTRIB(val, vatt);
     return val;
 }
 

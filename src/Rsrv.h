@@ -216,32 +216,47 @@ struct phdr { /* always 16 bytes */
    [4] REXP attr (if bit 8 in type is set)
    [4/8] data .. */
 
-#define XT_NULL          0 /* data: [0] */
-#define XT_INT           1 /* data: [4]int */
-#define XT_DOUBLE        2 /* data: [8]double */
-#define XT_STR           3 /* data: [n]char null-term. strg. */
-#define XT_LANG          4 /* data: same as XT_LIST */
-#define XT_SYM           5 /* data: [n]char symbol name */
-#define XT_BOOL          6 /* data: [1]byte boolean
-							  (1=TRUE, 0=FALSE, 2=NA) */
-#define XT_S4            7 /* data: [0] */
+#define XT_NULL          0  /* P  data: [0] */
+#define XT_INT           1  /* -  data: [4]int */
+#define XT_DOUBLE        2  /* -  data: [8]double */
+#define XT_STR           3  /* P  data: [n]char null-term. strg. */
+#define XT_LANG          4  /* -  data: same as XT_LIST */
+#define XT_SYM           5  /* -  data: [n]char symbol name */
+#define XT_BOOL          6  /* -  data: [1]byte boolean
+							     (1=TRUE, 0=FALSE, 2=NA) */
+#define XT_S4            7  /* P  data: [0] */
 
-#define XT_VECTOR        16 /* data: [?]REXP */
-#define XT_LIST          17 /* X head, X vals, X tag (since 0.1-5) */
-#define XT_CLOS          18 /* X formals, X body  (closure; since 0.1-5) */
-#define XT_SYMNAME       19 /* same as XT_STR (since 0.5) */
-#define XT_LIST_NOTAG    20 /* same as XT_VECTOR (since 0.5) */
-#define XT_LIST_TAG      21 /* X tag, X val, Y tag, Y val, ... (since 0.5) */
+#define XT_VECTOR        16 /* P  data: [?]REXP */
+#define XT_LIST          17 /* -  X head, X vals, X tag (since 0.1-5) */
+#define XT_CLOS          18 /* P  X formals, X body  (closure; since 0.1-5) */
+#define XT_SYMNAME       19 /* s  same as XT_STR (since 0.5) */
+#define XT_LIST_NOTAG    20 /* s  same as XT_VECTOR (since 0.5) */
+#define XT_LIST_TAG      21 /* P  X tag, X val, Y tag, Y val, ... (since 0.5) */
+#define XT_LANG_NOTAG    22 /* s  same as XT_LIST_NOTAG (since 0.5) */
+#define XT_LANG_TAG      23 /* s  same as XT_LIST_TAG (since 0.5) */
+#define XT_VECTOR_EXP    26 /* s  same as XT_VECTOR (since 0.5) */
+#define XT_VECTOR_STR    27 /* s  same as XT_VECTOR (since 0.5) */
 
-#define XT_ARRAY_INT     32 /* data: [n*4]int,int,.. */
-#define XT_ARRAY_DOUBLE  33 /* data: [n*8]double,double,.. */
-#define XT_ARRAY_STR     34 /* data: [?]string,string,.. */
-#define XT_ARRAY_BOOL_UA 35 /* data: [n]byte,byte,..  (unaligned! NOT supported anymore) */
-#define XT_ARRAY_BOOL    36 /* data: int(n),byte,byte,... */
-#define XT_RAW           37 /* data: int(n),byte,byte,... */
-#define XT_ARRAY_CPLX    38 /* data: [n*16]double,double,... (Re,Im,Re,Im,...) */
+#define XT_ARRAY_INT     32 /* P  data: [n*4]int,int,.. */
+#define XT_ARRAY_DOUBLE  33 /* P  data: [n*8]double,double,.. */
+#define XT_ARRAY_STR     34 /* P  data: [?]string,string,.. */
+#define XT_ARRAY_BOOL_UA 35 /* -  data: [n]byte,byte,..  (unaligned! NOT supported anymore) */
+#define XT_ARRAY_BOOL    36 /* P  data: int(n),byte,byte,... */
+#define XT_RAW           37 /* P  data: int(n),byte,byte,... */
+#define XT_ARRAY_CPLX    38 /* P  data: [n*16]double,double,... (Re,Im,Re,Im,...) */
 
-#define XT_UNKNOWN       48 /* data: [4]int - SEXP type (as from TYPEOF(x)) */
+#define XT_UNKNOWN       48 /* P  data: [4]int - SEXP type (as from TYPEOF(x)) */
+/*                             |
+                               +--- interesting flags for client implementations:
+                                    P = primary type
+                                    s = secondary type - its decoding is identical to
+									    a primary type and thus the client doesn't need to
+										decode it separately.
+									- = deprecated/removed. if a client doesn't need to
+									    support old Rserve versions, those can be safely
+										skipped. 
+  Total primary: 4 trivial types (NULL, STR, S4, UNKNOWN) + 6 array types + 3 recursive types
+*/
 
 #define XT_LARGE         64 /* new in 0102: if this flag is set then the length of the object
 			       is coded as 56-bit integer enlarging the header by 4 bytes */
