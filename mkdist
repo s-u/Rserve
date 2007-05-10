@@ -24,6 +24,24 @@ fi
 echo "Removing CVS/SVN and backup stuff ..."
 find . -name CVS -o -name \*~ -o -name .svn|xargs rm -rf
 
+# copy header files so they are available to the client
+cp src/Rsrv.h src/include/sisocks.h src/client/cxx/
+
+if [ -e src/client/cxx/configure.ac ]; then
+    if [ ! -e src/client/cxx/configure ]; then
+	cd src/client/cxx
+	echo "Running autoconf in cxx..."
+	aclocal
+	autoheader
+	autoconf
+	rm -rf autom4te* aclocal*
+	cd /tmp/Rserve
+    fi
+fi
+
+rm -rf clients
+ln -s src/client clients
+
 # no INDEX since 1.8
 #echo "Updating INDEX ..."
 #cd ..

@@ -6,8 +6,8 @@ SRC = $(wildcard *.cc)
 OBJ = $(SRC:%.cc=%.o)
 DST = demo1 rcons
 
-CXXFLAGS+=-I../include -I.. -I.
 LIBS+=@LIBS@
+CPPFLAGS+=-DHAVE_CONFIG_H
 
 all: $(DST)
 

@@ -35,7 +35,7 @@
 #include <iostream>
 
 #include <stdio.h>
-#include <sisocks.h>
+#include "sisocks.h"
 #include "Rsrv.h"
 
 typedef unsigned int Rsize_t;

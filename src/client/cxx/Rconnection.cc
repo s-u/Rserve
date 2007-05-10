@@ -24,10 +24,10 @@
    see also SOCK_ERROR, MAIN and other defines in sisocks.h
 */
 
-#include <Rconnection.h>
+#include "Rconnection.h"
 
 #include <stdio.h>
-#include <sisocks.h>
+#include "sisocks.h"
 #ifdef unix
 #include <sys/un.h>
 #include <unistd.h>

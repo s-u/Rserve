@@ -54,10 +54,10 @@ Rserve.so: @WITH_SERVER_TRUE@ Rserve
 @WITH_SERVER_FALSE@	@( touch $@ && echo "Server was not compiled." > ../inst/Rserve.txt )
 
 client:
-	make -C client
+	make -C client/cxx
 	-rm -rf ../inst/client
 	-cp -r client ../inst/
-	cp Rsrv.h config.h include/sisocks.h ../inst/client
+	cp Rsrv.h config.h include/sisocks.h ../inst/client/cxx/
 
 clean:
 	rm -f *~ *.o *.lo *.so \#* $(XFILES)

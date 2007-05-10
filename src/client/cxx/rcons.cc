@@ -25,7 +25,7 @@ using std::cout;
 #define MAIN         // we are the main program, we need to define this
 #define SOCK_ERRORS  // we will use verbose socket errors
 
-#include <Rconnection.h>
+#include "Rconnection.h"
 #ifdef READLINE
 #include <readline/readline.h>
 #include <readline/history.h>
