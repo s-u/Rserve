@@ -405,7 +405,7 @@ unsigned int* storeSEXP(unsigned int* buf, SEXP x) {
 			l = CDR(l);
 		}
 		/* note that we are using the fact that XT_LANG_xx=XT_LIST_xx+2 */
-		*buf=itop(((t==LISTSXP)?0:2)+(tags?XT_LIST_TAG:XT_LIST_NOTAG)|hasAttr);
+		*buf=itop((((t==LISTSXP)?0:2)+(tags?XT_LIST_TAG:XT_LIST_NOTAG))|hasAttr);
 		buf++;
 		attrFixup;
 		l=x;
@@ -574,7 +574,6 @@ unsigned int* storeSEXP(unsigned int* buf, SEXP x) {
     } else
 		*preBuf=itop(SET_PAR(PAR_TYPE(ptoi(*preBuf)),dist(preBuf,buf)));
     
- skipall:
     return buf;
 }
 
@@ -582,8 +581,8 @@ void printSEXP(SEXP e) /* merely for debugging purposes
 						  in fact Rserve binary transport supports
 						  more types than this function. */
 {
-    int t=TYPEOF(e);
-    int i;
+    int t = TYPEOF(e);
+    int i = 0;
 
 	if (ATTRIB(e) != R_NilValue)
 		printf("[*has attr*] ");
@@ -612,7 +611,6 @@ void printSEXP(SEXP e) /* merely for debugging purposes
     if (t==REALSXP) {
 		if (LENGTH(e)>1) {
 			printf("Vector of real variables: ");
-			i=0;
 			while(i<LENGTH(e)) {
 				printf("%f",REAL(e)[i]);
 				if (i<LENGTH(e)-1) printf(", ");
@@ -629,7 +627,6 @@ void printSEXP(SEXP e) /* merely for debugging purposes
     if (t==CPLXSXP) {
 		if (LENGTH(e)>1) {
 			printf("Vector of complex variables: ");
-			i=0;
 			while(i<LENGTH(e)) {
 				printf("%f+%fi",COMPLEX(e)[i].r,COMPLEX(e)[i].i);
 				if (i<LENGTH(e)-1) printf(", ");
@@ -645,7 +642,6 @@ void printSEXP(SEXP e) /* merely for debugging purposes
     }
     if (t==RAWSXP) {
 		printf("Raw vector: ");
-		i=0;
 		while(i<LENGTH(e)) {
 			printf("%02x",((unsigned int)((unsigned char*)RAW(e))[i])&0xff);
 			if (i<LENGTH(e)-1) printf(" ");
@@ -659,7 +655,6 @@ void printSEXP(SEXP e) /* merely for debugging purposes
     }
     if (t==EXPRSXP) {
 		printf("Vector of %d expressions:\n",LENGTH(e));
-		i=0;
 		while(i<LENGTH(e)) {
 			if (dumpLimit && i>dumpLimit) { printf("..."); break; };
 			printSEXP(VECTOR_ELT(e,i));
@@ -669,7 +664,6 @@ void printSEXP(SEXP e) /* merely for debugging purposes
     }
     if (t==INTSXP) {
 		printf("Vector of %d integers:\n",LENGTH(e));
-		i=0;
 		while(i<LENGTH(e)) {
 			if (dumpLimit && i>dumpLimit) { printf("..."); break; }
 			printf("%d",INTEGER(e)[i]);
@@ -681,7 +675,6 @@ void printSEXP(SEXP e) /* merely for debugging purposes
     }
     if (t==VECSXP) {
 		printf("Vector of %d fields:\n",LENGTH(e));
-		i=0;
 		while(i<LENGTH(e)) {
 			if (dumpLimit && i>dumpLimit) { printf("..."); break; };
 			printSEXP(VECTOR_ELT(e,i));
@@ -690,7 +683,6 @@ void printSEXP(SEXP e) /* merely for debugging purposes
 		return;
     }
     if (t==STRSXP) {
-		i=0;
 		printf("String vector of length %d:\n",LENGTH(e));
 		while(i<LENGTH(e)) {
 			if (dumpLimit && i>dumpLimit) { printf("..."); break; };
@@ -1647,7 +1639,7 @@ decl_sbthread newConn(void *thp) {
 			if (pars<1 || parT[0]!=DT_INT) 
 				sendResp(s,SET_STAT(RESP_ERR,ERR_inv_par));
 			else {
-				rlen_t ns=ptoi(*(unsigned int*)parP);
+				rlen_t ns=ptoi(((unsigned int*)parP)[0]);
 #ifdef RSERV_DEBUG
 				printf(">>CMD_setSendBuf to %ld bytes.\n", (long)ns);
 #endif
@@ -1732,7 +1724,7 @@ decl_sbthread newConn(void *thp) {
 				else {
 					fbufl=sfbufSize; fbuf=sfbuf;
 					if (pars==1 && parT[0]==DT_INT)
-						fbufl=ptoi(*(unsigned int*)parP[0]);
+						fbufl=ptoi(((unsigned int*)parP)[0]);
 #ifdef RSERV_DEBUG
 					printf(">>CMD_readFile(%d)\n",fbufl);
 #endif
