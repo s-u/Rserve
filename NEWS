@@ -9,6 +9,13 @@
 
     o	add support for complex numbers
 
+    o	new Java client: REngine
+	it is more flexible than JRclient and it can be used with
+	other Java/R engines such as JRI. Also it has a much more
+	clean API and better exeption handling.
+
+    o	C++ client was moved to src/client/cxx
+
 JRclient:
     o	change the representation of lists to generic
 	named vectors (class RList)

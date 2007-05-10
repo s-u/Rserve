@@ -53,7 +53,8 @@ Rserve.so: @WITH_SERVER_TRUE@ Rserve
 @WITH_SERVER_TRUE@	cp $^ $@
 @WITH_SERVER_FALSE@	@( touch $@ && echo "Server was not compiled." > ../inst/Rserve.txt )
 
-client:
+client: include/config.h
+	cp include/config.h client/cxx/
 	make -C client/cxx
 	-rm -rf ../inst/client
 	-cp -r client ../inst/
