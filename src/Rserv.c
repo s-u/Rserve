@@ -488,8 +488,27 @@ unsigned int* storeSEXP(unsigned int* buf, SEXP x) {
 		goto didit;
     }
     
-    if (t==EXPRSXP || t==VECSXP || t==STRSXP) {
-		*buf=itop(((t==STRSXP)?XT_VECTOR_STR:XT_VECTOR)|hasAttr);
+	if (t==STRSXP) {
+		char *st;
+		*buf=itop(XT_ARRAY_STR|hasAttr);
+		buf++;
+		attrFixup;
+		st = (char *)buf;
+		i=0;
+		while (i < LENGTH(x)) {
+			const char *cv = CHAR(STRING_ELT(x, i));
+			int l = strlen(cv);
+			strcpy(st, cv);
+			st += l+1;
+			i++;
+		}
+		while ((st-(char*)buf)&3) { *st=1; st++; }
+		buf=(unsigned int*)st;
+		goto didit;
+	}
+
+    if (t==EXPRSXP || t==VECSXP) {
+		*buf=itop(((t==EXPRSXP)?XT_VECTOR_EXP:XT_VECTOR)|hasAttr);
 		buf++;
 		attrFixup;
 		i=0;
@@ -525,10 +544,10 @@ unsigned int* storeSEXP(unsigned int* buf, SEXP x) {
 		char *val;
 		if (t==CHARSXP) {
 			*buf=itop(XT_STR|hasAttr);
-			val=(char*)STRING_PTR(x);
+			val = CHAR(x);
 		} else {
 			*buf=itop(XT_SYMNAME|hasAttr);
-			val=(char*)STRING_PTR(PRINTNAME(x));
+			val = CHAR(PRINTNAME(x));
 		}
 		buf++;
 		attrFixup;
@@ -730,8 +749,12 @@ SEXP decode_to_SEXP(unsigned int **buf, int *UPC)
 #ifdef RSERV_DEBUG
 		printf(" - returned from attributes(@%x)\n", (int)&buf);
 #endif
+		ln -= (((char*)b) - ((char*)pab)); /* adjust length */
 	}
 
+	/* b = beginning of the SEXP data (after attrs)
+	   pab = beginning before attrs (=just behind the heaer)
+	   ln = length of th SEX payload (w/o attr) */
     switch(ty) {
     case XT_INT:
     case XT_ARRAY_INT:
@@ -783,19 +806,19 @@ SEXP decode_to_SEXP(unsigned int **buf, int *UPC)
 			}
 			c++; i++;
 		}
-		*buf=(unsigned int*)cc;
+		*buf=(unsigned int*)((char*)b + ln);
 		break;
 	case XT_RAW:
 		i=ptoi(*b);
 		b++;
 		PROTECT(val=allocVector(RAWSXP, i)); (*UPC)++;
 		memcpy(RAW(val), b, i);
-		*buf=(unsigned int*)((char*)pab + ln);
+		*buf=(unsigned int*)((char*)b + ln);
 		break;
 	case XT_VECTOR:
 	case XT_VECTOR_STR:
 		{
-			unsigned char *ie = (unsigned char*) pab + ln;
+			unsigned char *ie = (unsigned char*) b + ln;
 			int n=0;
 			SEXP lh = R_NilValue;
 			*buf=b;
@@ -827,7 +850,7 @@ SEXP decode_to_SEXP(unsigned int **buf, int *UPC)
 			else
 				val=install(c);
 		}
-		*buf=(unsigned int*)((char*)pab + ln);
+		*buf=(unsigned int*)((char*)b + ln);
 		break;
 	case XT_LIST_NOTAG:
 	case XT_LIST_TAG:
@@ -835,7 +858,7 @@ SEXP decode_to_SEXP(unsigned int **buf, int *UPC)
 	case XT_LANG_TAG:
 		{
 			SEXP vnext = R_NilValue, vtail = 0;
-			unsigned char *ie = (unsigned char*) pab + ln;
+			unsigned char *ie = (unsigned char*) b + ln;
 			val = R_NilValue;
 			*buf=b;
 			while ((unsigned char*)*buf < ie) {
@@ -861,7 +884,7 @@ SEXP decode_to_SEXP(unsigned int **buf, int *UPC)
 		}
 	default:
 		error("unsupported type %d\n", ty);
-		*buf=(unsigned int*)((char*)pab + ln);
+		*buf=(unsigned int*)((char*)b + ln);
     }
 	if (vatt) SET_ATTRIB(val, vatt);
     return val;

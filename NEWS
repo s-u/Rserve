@@ -2,7 +2,18 @@
 ---------------------------
 
 0.5-0	(under development)
-    o	remove scalar types from the protocol
+    o	deprecate scalar types in the protocol
+
+    o	add more efficient storage for dotted-pair lists
+	and symbol names
+
+    o	add support for complex numbers
+
+JRclient:
+    o	change the representation of lists to generic
+	named vectors (class RList)
+
+    o	change the ways attributes are accessed
 
 0.4-7	2007-01-14
     o	relax DLL versions checking on Windows
