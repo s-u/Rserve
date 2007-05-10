@@ -146,5 +146,5 @@ fi
 AC_CHECK_LIB(dl, dlopen)
 
 AC_CONFIG_FILES([src/Makefile])
-AC_CONFIG_FILES([src/client/Makefile])
+AC_CONFIG_FILES([src/client/cxx/Makefile])
 AC_OUTPUT
