@@ -541,7 +541,7 @@ unsigned int* storeSEXP(unsigned int* buf, SEXP x) {
 	
     if (t==CHARSXP||t==SYMSXP) {
 		int sl;
-		char *val;
+		const char *val;
 		if (t==CHARSXP) {
 			*buf=itop(XT_STR|hasAttr);
 			val = CHAR(x);
@@ -1430,6 +1430,8 @@ decl_sbthread newConn(void *thp) {
 #endif
     send(s,buf,32,0);
     while((n=recv(s,&ph,sizeof(ph),0))==sizeof(ph)) {
+		size_t plen = 0;
+		SEXP pp; /* packet payload (as a raw vector) for special commands */
 #ifdef RSERV_DEBUG
 		printf("\nheader read result: %d\n",n);
 		if (n>0) printDump(&ph,n);
@@ -1437,20 +1439,41 @@ decl_sbthread newConn(void *thp) {
 		ph.len=ptoi(ph.len);
 		ph.cmd=ptoi(ph.cmd);
 		ph.dof=ptoi(ph.dof);
+#ifdef __LP64__
+		ph.lenhi=ptoi(ph.lenhi);
+		plen = ph.len;
+		plen |= (((size_t) ph.lenhi) << 32);
+#else
+		plen = ph.len;
+#endif
 		process=0;
 		pars=0;
-		if (ph.len>0) {
+
+		if ((ph.cmd & CMD_SPECIAL_MASK) == CMD_SPECIAL_MASK) {
+			/* this is a very special case - we load the packet payload into a raw vector directly to prevent unnecessaru copying */
+			pp = allocVector(RAWSXP, plen);
+			char *pbuf = RAW(pp);
+			size_t i = 0;
+#ifdef RSERV_DEBUG
+			printf("loading (raw) buffer (awaiting %d bytes)\n",plen);
+#endif
+			while((n = recv(s,pbuf+i,plen-i,0))) {
+				if (n > 0) i+=n;
+				if (i >= plen || n < 1) break;
+			}
+		} else
+		if (plen>0) {
 			unsigned int phead;
 			int parType=0;
 			rlen_t parLen=0;
 	    
-			if (!maxInBuf || ph.len<maxInBuf) {
-				if (ph.len>=inBuf) {
+			if (!maxInBuf || plen<maxInBuf) {
+				if (plen>=inBuf) {
 #ifdef RSERV_DEBUG
-					printf("resizing input buffer (was %d, need %d) to %d\n",inBuf,ph.len,((ph.len|0x1fff)+1));
+					printf("resizing input buffer (was %d, need %d) to %d\n",inBuf,plen,((plen|0x1fff)+1));
 #endif
 					free(buf); /* the buffer is just a scratchpad, so we don't need to use realloc */
-					buf=(char*)malloc(inBuf=((ph.len|0x1fff)+1)); /* use 8kB granularity */
+					buf=(char*)malloc(inBuf=((plen|0x1fff)+1)); /* use 8kB granularity */
 					if (!buf) {
 #ifdef RSERV_DEBUG
 						fprintf(stderr,"FATAL: out of memory while resizing buffer to %d,\n",inBuf);
@@ -1462,23 +1485,23 @@ decl_sbthread newConn(void *thp) {
 					}	    
 				}
 #ifdef RSERV_DEBUG
-				printf("loading buffer (awaiting %d bytes)\n",ph.len);
+				printf("loading buffer (awaiting %d bytes)\n",plen);
 #endif
 				i=0;
-				while((n=recv(s,buf+i,ph.len-i,0))) {
+				while((n=recv(s,buf+i,plen-i,0))) {
 					if (n>0) i+=n;
-					if (i>=ph.len || n<1) break;
+					if (i>=plen || n<1) break;
 				}
-				if (i<ph.len) break;
-				memset(buf+ph.len,0,8);
+				if (i<plen) break;
+				memset(buf+plen,0,8);
 		
 				unaligned=0;
 #ifdef RSERV_DEBUG
 				printf("parsing parameters\n");
-				if (ph.len>0) printDump(buf,ph.len);
+				if (plen>0) printDump(buf,plen);
 #endif
 				c=buf+ph.dof;
-				while((c<buf+ph.dof+ph.len) && (phead=ptoi(*((unsigned int*)c)))) {
+				while((c<buf+ph.dof+plen) && (phead=ptoi(*((unsigned int*)c)))) {
 					rlen_t headSize=4;
 					parType=PAR_TYPE(phead);
 					parLen=PAR_LEN(phead);
@@ -1511,8 +1534,8 @@ decl_sbthread newConn(void *thp) {
 					if (pars>15) break;
 				} /* we don't parse more than 16 parameters */
 			} else {
-				printf("discarding buffer because too big (awaiting %d bytes)\n",ph.len);
-				i=ph.len;
+				printf("discarding buffer because too big (awaiting %d bytes)\n",plen);
+				size_t i=plen;
 				while((n=recv(s,buf,i>inBuf?inBuf:i,0))) {
 					if (n>0) i-=n;
 					if (i<1 || n<1) break;
@@ -1848,6 +1871,42 @@ decl_sbthread newConn(void *thp) {
 			}
 		}
 		
+		if (ph.cmd==CMD_serEval || ph.cmd==CMD_serEEval || ph.cmd == CMD_serAssign) {
+			int Rerr = 0;
+			SEXP us = R_tryEval(LCONS(install("unserialize"),CONS(pp,R_NilValue)), R_GlobalEnv, &Rerr);
+			PROTECT(us);
+			process = 1;
+			if (Rerr == 0) {
+				if (ph.cmd == CMD_serAssign) {
+					if (TYPEOF(us) != VECSXP || LENGTH(us) < 2) {
+						sendResp(s, SET_STAT(RESP_ERR, ERR_inv_par));
+					} else {
+						R_tryEval(LCONS(install("<-"),CONS(VECTOR_ELT(us, 0), CONS(VECTOR_ELT(us, 1), R_NilValue))), R_GlobalEnv, &Rerr);
+						if (Rerr == 0)
+							sendResp(s, RESP_OK);
+						else
+							sendResp(s, SET_STAT(RESP_ERR, Rerr));
+					}
+				} else {
+					SEXP ev = R_tryEval(us, R_GlobalEnv, &Rerr);
+					if (Rerr == 0 && ph.cmd == CMD_serEEval) /* one more round */
+						ev = R_tryEval(ev, R_GlobalEnv, &Rerr);
+					PROTECT(ev);
+					if (Rerr == 0) {
+						SEXP sr = R_tryEval(LCONS(install("serialize"),CONS(ev, CONS(R_NilValue, R_NilValue))), R_GlobalEnv, &Rerr);
+						if (Rerr == 0 && TYPEOF(sr) == RAWSXP) {
+							sendRespData(s, RESP_OK, LENGTH(sr), RAW(sr));
+						} else if (Rerr == 0) Rerr = -2;
+					}
+					UNPROTECT(1);
+				}
+				UNPROTECT(1);
+				if (Rerr) {
+					sendResp(s, SET_STAT(RESP_ERR, Rerr));
+				}
+			}
+		}
+
 		if (ph.cmd==CMD_voidEval || ph.cmd==CMD_eval || ph.cmd==CMD_detachedVoidEval) {
 			process=1;
 			if (pars<1 || parT[0]!=DT_STRING) 

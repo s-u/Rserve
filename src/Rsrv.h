@@ -76,7 +76,7 @@ struct phdr { /* always 16 bytes */
 	int cmd; /* command */
 	int len; /* length of the packet minus header (ergo -16) */
 	int dof; /* data offset behind header (ergo usually 0) */
-	int res; /* reserved - must be 0 */
+	int lenhi; /* high 32-bit of the packet length (since 0103 and supported on 64-bit platforms only) */
 };
 
 /* each entry in the data section (aka parameter list) is preceded by 4 bytes:
@@ -167,6 +167,7 @@ struct phdr { /* always 16 bytes */
 #define CMD_voidEval     0x002 /* string : - */
 #define CMD_eval         0x003 /* string : encoded SEXP */
 #define CMD_shutdown     0x004 /* [admin-pwd] : - */
+
 /* file I/O routines. server may answe */
 #define CMD_openFile     0x010 /* fn : - */
 #define CMD_createFile   0x011 /* fn : - */
@@ -194,6 +195,14 @@ struct phdr { /* always 16 bytes */
 				  transported from Rserve to the client.
 				  (incoming buffer is resized automatically)
 				 */
+
+/* special commands - the payload of packages with this mask does not contain defined parameters */
+
+#define CMD_SPECIAL_MASK 0xf0
+
+#define CMD_serEval      0xf5 /* serialized eval - the packets are raw serialized data without data header */
+#define CMD_serAssign    0xf6 /* serialized assign - serialized list with [[1]]=name, [[2]]=value */
+#define CMD_serEEval     0xf7 /* serialized expression eval - like serEval with one additional evaluation round */
 
 /* data types for the transport protocol (QAP1)
    do NOT confuse with XT_.. values. */

@@ -2,6 +2,11 @@
 ---------------------------
 
 0.5-0	(under development)
+    o	added CMD_serEval and CMD_serAssign which are highly efficient
+	when talking to R clients as they don't need any intermediate
+	buffer. The corresponding R client functions RSeval and
+	RSassign have been re-written to use this new API.
+
     o	deprecate scalar types in the protocol
 
     o	add more efficient storage for dotted-pair lists

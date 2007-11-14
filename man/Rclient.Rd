@@ -3,20 +3,24 @@
 \alias{RSconnect}
 \alias{RSclose}
 \alias{RSeval}
+\alias{RSeval.old}
 \alias{RSlogin}
 \alias{RSdetach}
 \alias{RSevalDetach}
 \alias{RSattach}
 \alias{RSassign}
+\alias{RSassign.old}
 \usage{
 RSconnect(host = "localhost", port = 6311)
 RSlogin(c, user, pwd, silent = FALSE)
-RSeval(c, cmd)
+RSeval(c, expr)
+RSeval.old(c, cmd)
 RSclose(c)
 RSdetach(c)
 RSevalDetach(c, cmd = "")
 RSattach(session)
 RSassign(c, obj, name = deparse(substitute(obj)) )
+RSassign.old(c, obj, name = deparse(substitute(obj)) )
 }
 \description{
   Rserve is a server providing R functionality via sockets. The
@@ -46,6 +50,7 @@ RSassign(c, obj, name = deparse(substitute(obj)) )
     \code{RSevalDetach}}
   \item{obj}{value to assign}
   \item{name}{name to assign to on the remote side}
+  \item{expr}{R expression to evaluate remotely}
 }
 \details{
   \code{RSconnect} creates a connection to a Rserve. The returned handle
@@ -59,7 +64,17 @@ RSassign(c, obj, name = deparse(substitute(obj)) )
 
   \code{RSclose} closes the Rserve connection.
 
-  \code{RSeval} evaluates the string in the remote Rserve and returns
+  \code{RSeval} evaluates the supplied expression
+  remotely. \code{expr} can be either a string or any R
+  expression. Use \code{\link{quote}} to use unevaluated
+  expressions. The implementation of \code{RSeval} is very efficient
+  in that it does not require any buffer on the remote side and uses
+  native R serialization as the protocol. See exmples below for
+  correct use.
+
+  \code{RSeval.old} is deprecated and present only for compatibility
+  with older Rserve implementations. It evaluates the string in the
+  remote Rserve and returns
   the result. Note that you will have to load the same packages on both
   ends if the result is an (S3/S4) object such that corresponding
   classes and methods are available. Also note that the result is
@@ -84,7 +99,30 @@ RSassign(c, obj, name = deparse(substitute(obj)) )
   from the \code{RSdetach} or \code{RSevalDetach} comment.
 
   \code{RSassign} pushes an object to Rserve and assigns it to the given
-  name.
+  name. Note that the name can be an (unevaluated) R expression itself
+  thus allowing constructs such as \code{RSassign(c, 1:5,
+  quote(a$foo))} which will result in \code{a$foo <- 1:5}
+  remotely. However, character names are interpreted literarly.
+}
+\examples{
+\dontrun{
+  c <- RSconnect()
+  data(stackloss)
+  RSassign(c, stackloss)
+  RSeval(c, quote(library(MASS)))
+  RSeval(c, quote(rlm(stack.loss ~ ., stackloss)$coeff))
+  RSeval(c, "getwd()")
+  
+  image <- RSeval(c, quote(try({
+    attach(stackloss)
+    library(Cairo)
+    Cairo(file="plot.png")
+    plot(Air.Flow,stack.loss,col=2,pch=19,cex=2)
+    dev.off()
+    readBin("plot.png", "raw", 999999)})))
+  if (inherits(image, "try-error"))
+    stop(image)
+}
 }
 \author{Simon Urbanek}
 \keyword{interface}

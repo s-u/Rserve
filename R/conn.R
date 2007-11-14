@@ -7,7 +7,16 @@ RSconnect <- function(host="localhost", port=6311) {
   return( c )
 }
 
-RSeval <- function(c, cmd) {
+RSeval <- function(c, expr) {
+  r <- if (is.character(expr)) serialize(parse(text=paste("{",paste(expr,collapse="\n"),"}"))[[1]],NULL) else serialize(expr, NULL)
+  writeBin(c(0xf5L, length(r), 0L, 0L), c, endian="little")
+  writeBin(r, c)
+  b <- readBin(c,"int",4,signed=FALSE,endian="little")
+  if (length(b)<4 || b[1] != 65537L) stop("remote evaluation failed")
+  unserialize(readBin(c,"raw",b[2]))
+}
+
+RSeval.old <- function(c, cmd) {
   r <- paste("serialize({", cmd[1], "},NULL)")
   sc <- charToRaw(as.character(r)[1])
   l <- length(sc) + 1
@@ -59,7 +68,17 @@ RSeval <- function(c, cmd) {
   r
 }
 
-RSassign <- function ( c, obj, name = deparse(substitute(obj)) ) {
+RSassign <- function (c, obj, name = deparse(substitute(obj))) {
+  r <- serialize(list(name, obj), NULL)
+  writeBin(c(0xf6L,length(r),0L,0L), c, endian="little")
+  writeBin(r, c)
+  b <- readBin(c,"int",4,signed=FALSE,endian="little")
+  if (length(b)<4 || b[1] != 65537L)
+    stop("remote assign failed")
+  invisible(obj)
+}
+
+RSassign.old <- function ( c, obj, name = deparse(substitute(obj)) ) {
   so <- serialize(list(name=name, obj=obj), NULL)
   large <- (length(so) > 0x800000)
   if (large) stop("Cannot assign objects larger than 8MB.")
