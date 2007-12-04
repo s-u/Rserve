@@ -191,8 +191,9 @@ Rserve <- function(debug=FALSE, port=6311, args=NULL) {
       if ( !is.null(args) ) fn <- paste(fn, paste(args, collapse=' '))
 
       pad <- paste(R.home(),"\\bin;",sep='')
+      if (!exists("Sys.setenv")) Sys.setenv <- Sys.putenv
       if (charmatch(pad, Sys.getenv("PATH"), nomatch=0) == 0)
-        Sys.putenv(PATH=paste(pad, Sys.getenv("PATH"), sep=''))
+        Sys.setenv(PATH=paste(pad, Sys.getenv("PATH"), sep=''))
       
       cat("Stating Rserve...\n", fn)
       system(fn, wait=FALSE)
