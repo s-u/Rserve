@@ -76,7 +76,10 @@ struct phdr { /* always 16 bytes */
 	int cmd; /* command */
 	int len; /* length of the packet minus header (ergo -16) */
 	int dof; /* data offset behind header (ergo usually 0) */
-	int lenhi; /* high 32-bit of the packet length (since 0103 and supported on 64-bit platforms only) */
+	int res; /* high 32-bit of the packet length (since 0103
+				and supported on 64-bit platforms only)
+				aka "lenhi", but the name was not changed to
+				maintain compatibility */
 };
 
 /* each entry in the data section (aka parameter list) is preceded by 4 bytes:
@@ -248,7 +251,7 @@ struct phdr { /* always 16 bytes */
 
 #define XT_ARRAY_INT     32 /* P  data: [n*4]int,int,.. */
 #define XT_ARRAY_DOUBLE  33 /* P  data: [n*8]double,double,.. */
-#define XT_ARRAY_STR     34 /* P  data: [?]string,string,.. */
+#define XT_ARRAY_STR     34 /* P  data: int(n),string,string,.. */
 #define XT_ARRAY_BOOL_UA 35 /* -  data: [n]byte,byte,..  (unaligned! NOT supported anymore) */
 #define XT_ARRAY_BOOL    36 /* P  data: int(n),byte,byte,... */
 #define XT_RAW           37 /* P  data: int(n),byte,byte,... */

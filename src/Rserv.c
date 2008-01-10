@@ -493,6 +493,8 @@ unsigned int* storeSEXP(unsigned int* buf, SEXP x) {
 		*buf=itop(XT_ARRAY_STR|hasAttr);
 		buf++;
 		attrFixup;
+		*buf = itop(LENGTH(x));
+		buf++;
 		st = (char *)buf;
 		i=0;
 		while (i < LENGTH(x)) {
@@ -1440,9 +1442,9 @@ decl_sbthread newConn(void *thp) {
 		ph.cmd=ptoi(ph.cmd);
 		ph.dof=ptoi(ph.dof);
 #ifdef __LP64__
-		ph.lenhi=ptoi(ph.lenhi);
+		ph.res=ptoi(ph.res);
 		plen = ph.len;
-		plen |= (((size_t) ph.lenhi) << 32);
+		plen |= (((size_t) ph.res) << 32);
 #else
 		plen = ph.len;
 #endif
