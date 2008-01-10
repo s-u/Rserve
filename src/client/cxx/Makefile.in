@@ -4,24 +4,18 @@
 
 SRC = $(wildcard *.cc)
 OBJ = $(SRC:%.cc=%.o)
-DST = demo1 rcons
+DST = demo1 rcons rsdown
 
 LIBS+=@LIBS@
 CPPFLAGS+=-DHAVE_CONFIG_H
 
-all: $(DST)
+all: $(DST) $(OBJ)
 
-demo1: Rconnection.o demo1.o
-	$(CXX) $^ -o $@ $(LIBS)
-
-rcons: Rconnection.o rcons.o
-	$(CXX) $^ -o $@ $(LIBS)
-
-rcmd: Rconnection.o rcmd.o
+%: Rconnection.o %.o
 	$(CXX) $^ -o $@ $(LIBS)
 
 debug:
-	CXXFLAGS=-g $(MAKE) all
+	$(MAKE) CXXFLAGS=-g all
 
 clean:
 	rm -rf *~ *.o \#* .\#* $(DST)
