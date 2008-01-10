@@ -212,6 +212,44 @@ private:
     void fix_content();
 };
 
+//===================================== Rstrings --- XT_ARRAY_STR
+// NOTE: XT_ARRAY_STR is new in 0103 and ths class is just a
+//       very crude implementation. It replaces Rstring because
+//       XT_STR has been deprecated.
+
+class Rstrings : public Rexp {
+    char **cont;
+    int nel;
+public:
+   Rstrings(Rmessage *msg) : Rexp(msg) { decode(); }
+   Rstrings(unsigned int *ipos, Rmessage *imsg) : Rexp(ipos, imsg) { decode(); }
+    /*Rstring(const char *str) : Rexp(XT_STR, str, strlen(str)+1) {}*/
+    
+    char **strings() { return cont; }
+    char *stringAt(int i) { return (i<0||i>=nel)?0:cont[i]; }
+    char *string() { return stringAt(0); }
+    int count() { return nel; }
+
+    virtual std::ostream& os_print (std::ostream& os) {
+        return os << "\"" << string() <<"\"";
+    }
+ private:
+    void decode() {
+      int *i = (int*) data;
+      nel = ptoi(i[0]);
+      if (nel > 0) {
+	char *c = ((char*)data)+4; int j=0;
+	cont = (char**) malloc(sizeof(char*)*nel);
+	while (j < nel) {
+	  cont[j] = strdup(c);
+	  while (*c) c++;
+	  c++; j++;
+	}	
+      } else
+	cont = 0;
+    }
+};
+
 //===================================== Rstring --- XT_STR
 
 class Rstring : public Rexp {
@@ -226,6 +264,8 @@ public:
         return os << "\"" << string() <<"\"";
     }
 };
+
+
 
 //===================================== Rlist --- XT_LIST (CONS lists)
 
@@ -337,6 +377,7 @@ public:
     int voidEval(const char *cmd);
     Rexp *eval(const char *cmd, int *status=0, int opt=0);
     int login(const char *user, const char *pwd);
+    int shutdown(const char *key);
 
     /*      ( I/O functions )     */
     int openFile(const char *fn);

@@ -49,7 +49,8 @@
 #define AF_LOCAL AF_UNIX
 #endif
 
-static char *myID= "Rsrv0102QAP1"; /* this client supports up to protocol version 0102 */
+// NOTE: 0103 compatibility has not been established! use at your own risk!
+static char *myID= "Rsrv0103QAP1"; /* this client supports up to protocol version 0103 */
 
 static Rexp *new_parsed_Rexp(unsigned int *d, Rmessage *msg) {
     int type=ptoi(*d)&0x3f;
@@ -65,6 +66,8 @@ static Rexp *new_parsed_Rexp(unsigned int *d, Rmessage *msg) {
         return new Rstring(d,msg);
     if (type==XT_SYM)
         return new Rsymbol(d,msg);
+    if (type==XT_ARRAY_STR)
+        return new Rstrings(d,msg);
     return new Rexp(d,msg);
 }
 
@@ -593,6 +596,15 @@ int Rconnection::request(Rmessage *targetMsg, Rmessage *contents) {
 }
 
 /** --- high-level functions -- */
+
+int Rconnection::shutdown(const char *key) {
+    Rmessage *msg = new Rmessage();
+    Rmessage *cm  = key?new Rmessage(CMD_shutdown, key):new Rmessage(CMD_shutdown);
+    int res = request(msg, cm);
+    delete cm;
+    delete msg;
+    return res;
+}
 
 int Rconnection::assign(const char *symbol, Rexp *exp) {
     Rmessage *msg=new Rmessage();
