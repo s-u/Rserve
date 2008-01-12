@@ -180,6 +180,9 @@ typedef int socklen_t;
 #include <Rinternals.h>
 #include <Rdefines.h>
 #include <Rversion.h>
+#if (R_VERSION >= R_Version(2,3,0))
+#include <Rinterface.h>
+#endif
 #if R_VERSION < 0x2010
 #include "Parse.h"
 #else
@@ -2312,7 +2315,11 @@ int main(int argc, char **argv)
 			top_argv[top_argc++]=argv[i];
 		i++;
     }
-    
+
+#if R_VERSION >= R_Version(2,5,0)
+	R_SignalHandlers = 0; /* disable signal handlers */
+#endif
+
     stat=Rf_initEmbeddedR(top_argc,top_argv);
     if (stat<0) {
 		printf("Failed to initialize embedded R! (stat=%d)\n",stat);
