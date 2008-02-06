@@ -219,7 +219,7 @@ private:
 
 class Rstrings : public Rexp {
     char **cont;
-    int nel;
+    unsigned int nel;
 public:
    Rstrings(Rmessage *msg) : Rexp(msg) { decode(); }
    Rstrings(unsigned int *ipos, Rmessage *imsg) : Rexp(ipos, imsg) { decode(); }
@@ -228,22 +228,24 @@ public:
     char **strings() { return cont; }
     char *stringAt(int i) { return (i<0||i>=nel)?0:cont[i]; }
     char *string() { return stringAt(0); }
-    int count() { return nel; }
+    unsigned int count() { return nel; }
 
     virtual std::ostream& os_print (std::ostream& os) {
-        return os << "\"" << string() <<"\"";
+        return os << "char*[" << nel <<"]\"" << string() <<"\"..";
     }
  private:
     void decode() {
-      int *i = (int*) data;
-      nel = ptoi(i[0]);
-      if (nel > 0) {
-	char *c = ((char*)data)+4; int j=0;
+      char *c = (char*) data;
+      int i = 0;
+      nel = 0;
+      while (i < len) { if (!c[i]) nel++; i++; }
+      if (nel) {
+	i = 0;
 	cont = (char**) malloc(sizeof(char*)*nel);
-	while (j < nel) {
-	  cont[j] = strdup(c);
+	while (i < nel) {
+	  cont[i] = strdup(c);
 	  while (*c) c++;
-	  c++; j++;
+	  c++; i++;
 	}	
       } else
 	cont = 0;

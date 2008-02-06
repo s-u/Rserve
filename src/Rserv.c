@@ -496,8 +496,7 @@ unsigned int* storeSEXP(unsigned int* buf, SEXP x) {
 		*buf=itop(XT_ARRAY_STR|hasAttr);
 		buf++;
 		attrFixup;
-		*buf = itop(LENGTH(x));
-		buf++;
+		/* leading int n; is not needed due to the choice of padding */
 		st = (char *)buf;
 		i=0;
 		while (i < LENGTH(x)) {
@@ -507,6 +506,7 @@ unsigned int* storeSEXP(unsigned int* buf, SEXP x) {
 			st += l+1;
 			i++;
 		}
+		/* pad with '\01' to make sure we can determine the number of elements */
 		while ((st-(char*)buf)&3) { *st=1; st++; }
 		buf=(unsigned int*)st;
 		goto didit;
