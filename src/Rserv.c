@@ -228,6 +228,7 @@ int active = 1; /* 1=server loop is active, 0=shutdown */
 int UCIX   = 1; /* unique connection index */
 
 char *localSocketName = 0; /* if set listen on this local (unix) socket instead of TCP/IP */
+int localSocketMode = 0;   /* if set, chmod is used on the socket when created */
 
 int allowIO=1;  /* 1=allow I/O commands, 0=don't */
 
@@ -1029,6 +1030,12 @@ int loadConfig(char *fn)
 				if (setgid(ngid))
 					fprintf(stderr,"setgid(%d): failed. no group switch performed.",ngid);
 			}
+			if (!strcmp(c,"chroot") && *p) {
+				if (chroot(p)) {
+					perror("chroot");
+					fprintf(stderr,"chroot(\"%s\"): failed.", p);
+				}
+			}
 #endif
 			if (!strcmp(c,"allow")) {
 				if (*p) {
@@ -1059,6 +1066,10 @@ int loadConfig(char *fn)
 					localSocketName=(char*)malloc(strlen(p)+1);
 					strcpy(localSocketName,p);
 				} else localSocketName=0;
+			}
+			if (!strcmp(c,"sockmod")) {
+				if (*p)
+					localSocketMode=atoi(p);
 			}
 			if (!strcmp(c,"pwdfile")) {
 				if (*p) {
@@ -2156,9 +2167,11 @@ void serverLoop() {
     reuse=1; /* enable socket address reusage */
     setsockopt(ss,SOL_SOCKET,SO_REUSEADDR,&reuse,sizeof(reuse));
 #ifdef unix
-    if (localSocketName)
+    if (localSocketName) {
 		FCF("bind",bind(ss,(SA*) &lusa, sizeof(lusa)));    
-    else
+		if (localSocketMode)
+			chmod(localSocketName, localSocketMode);
+	} else
 #endif
 		FCF("bind",bind(ss,build_sin(&ssa,0,port),sizeof(ssa)));
     
