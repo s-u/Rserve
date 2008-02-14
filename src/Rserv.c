@@ -244,6 +244,8 @@ int parentPID=-1;
 
 int maxSendBufSize=0; /* max. sendbuf for auto-resize. 0=no limit */
 
+static int umask_value = 0;
+
 static char **allowed_ips = 0;
 
 static const char *rserve_ver_id = "$Id$";
@@ -1052,6 +1054,8 @@ int loadConfig(char *fn)
 					fprintf(stderr,"chroot(\"%s\"): failed.", p);
 				}
 			}
+			if (!strcmp(c,"umask") && *p)
+				umask_value=satoi(p);
 #endif
 			if (!strcmp(c,"allow")) {
 				if (*p) {
@@ -2393,7 +2397,9 @@ int main(int argc, char **argv)
     
     setsid();
     chdir("/");
-    umask(0);
+#endif
+#ifdef unix
+    umask(umask_value);
 #endif
     
     serverLoop();
