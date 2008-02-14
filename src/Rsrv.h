@@ -251,7 +251,7 @@ struct phdr { /* always 16 bytes */
 
 #define XT_ARRAY_INT     32 /* P  data: [n*4]int,int,.. */
 #define XT_ARRAY_DOUBLE  33 /* P  data: [n*8]double,double,.. */
-#define XT_ARRAY_STR     34 /* P  data: int(n),string,string,.. (string=byte,byte,...,0) */
+#define XT_ARRAY_STR     34 /* P  data: string,string,.. (string=byte,byte,...,0) padded with '\01' */
 #define XT_ARRAY_BOOL_UA 35 /* -  data: [n]byte,byte,..  (unaligned! NOT supported anymore) */
 #define XT_ARRAY_BOOL    36 /* P  data: int(n),byte,byte,... */
 #define XT_RAW           37 /* P  data: int(n),byte,byte,... */

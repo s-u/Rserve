@@ -246,11 +246,27 @@ int maxSendBufSize=0; /* max. sendbuf for auto-resize. 0=no limit */
 
 static char **allowed_ips = 0;
 
+static const char *rserve_ver_id = "$Id$";
+
+static char rserve_rev[16]; /* this is generated from rserve_ver_id by main */
+
 #ifdef THREADED
 int localUCIX;
 #else
 #define localUCIX UCIX
 #endif
+
+/* "smart" atoi - accepts 0x for hex and 0 for octal */
+static int satoi(const char *str) {
+	if (!str) return 0;
+	if (str[0]=='0') {
+		if (str[1]=='x')
+			return strtol(str, 0, 16);
+		if (str[1]>='0' && str[1]<='9')
+			return strtol(str, 0, 8);
+	}
+	return atoi(str);
+}
 
 #ifdef RSERV_DEBUG
 void printDump(void *b, int len) {
@@ -980,7 +996,7 @@ int loadConfig(char *fn)
 				localonly=(*p=='1' || *p=='y' || *p=='e')?0:1;
 			if (!strcmp(c,"port")) {
 				if (*p) {
-					int np=atoi(p);
+					int np=satoi(p);
 					if (np>0) port=np;
 				}
 			}
@@ -1021,12 +1037,12 @@ int loadConfig(char *fn)
 			}
 #ifdef unix
 			if (!strcmp(c,"uid") && *p) {
-				int nuid=atoi(p);
+				int nuid=satoi(p);
 				if (setuid(nuid))
 					fprintf(stderr,"setuid(%d): failed. no user switch performed.",nuid);
 			}
 			if (!strcmp(c,"gid") && *p) {
-				int ngid=atoi(p);
+				int ngid=satoi(p);
 				if (setgid(ngid))
 					fprintf(stderr,"setgid(%d): failed. no group switch performed.",ngid);
 			}
@@ -1069,7 +1085,7 @@ int loadConfig(char *fn)
 			}
 			if (!strcmp(c,"sockmod")) {
 				if (*p)
-					localSocketMode=atoi(p);
+					localSocketMode=satoi(p);
 			}
 			if (!strcmp(c,"pwdfile")) {
 				if (*p) {
@@ -2245,10 +2261,19 @@ extern int Rf_initEmbeddedR(int, char**);
 /* main function - start Rserve */
 int main(int argc, char **argv)
 {
-    int stat,i;
-    
+    int stat,i;    
+	rserve_rev[0]=0;
+	{ /* cut out the SVN revision from the Id string */
+		const char *c = strstr(rserve_ver_id, ".c ");
+		if (c) {
+			char *d = c + 3;
+			c = d; while (*c && *c != ' ') c++;
+			strncpy(rserve_rev, d, c - d);
+		}
+	}
+
 #ifdef RSERV_DEBUG
-    printf("Rserve %d.%d-%d (C)Copyright 2002,3 Simon Urbanek\n\n",RSRV_VER>>16,(RSRV_VER>>8)&255,RSRV_VER&255);
+    printf("Rserve %d.%d-%d (%s) (C)Copyright 2002-8 Simon Urbanek\n%s\n\n",RSRV_VER>>16,(RSRV_VER>>8)&255,RSRV_VER&255, rserve_rev, rserve_ver_id);
 #endif
     if (!isByteSexOk()) {
 		printf("FATAL ERROR: This program was not correctly compiled - the endianess is wrong!\nUse -DSWAPEND when compiling on PPC or similar platforms.\n");
@@ -2270,7 +2295,7 @@ int main(int argc, char **argv)
 				if (i+1==argc)
 					fprintf(stderr,"Missing port specification for --RS-port.\n");
 				else {
-					port=atoi(argv[++i]);
+					port=satoi(argv[++i]);
 					if (port<1) {
 						fprintf(stderr,"Invalid port number in --RS-port, using default port.\n");
 						port=default_Rsrv_port;
@@ -2282,7 +2307,7 @@ int main(int argc, char **argv)
 				if (i+1==argc)
 					fprintf(stderr,"Missing limit specification for --RS-dumplimit.\n");
 				else
-					dumpLimit=atoi(argv[++i]);
+					dumpLimit=satoi(argv[++i]);
 			}
 			if (!strcmp(argv[i]+2,"RS-socket")) {
 				isRSP=1;
@@ -2314,7 +2339,7 @@ int main(int argc, char **argv)
 				return 0;	       
 			}
 			if (!strcmp(argv[i]+2,"version")) {
-				printf("Rserve v%d.%d-%d\n",RSRV_VER>>16,(RSRV_VER>>8)&255,RSRV_VER&255);
+				printf("Rserve v%d.%d-%d (%s)\n",RSRV_VER>>16,(RSRV_VER>>8)&255,RSRV_VER&255,rserve_rev);
 			}
 			if (!strcmp(argv[i]+2,"help")) {
 				printf("Usage: R CMD Rserve [<options>]\n\nOptions: --help  this help screen\n --version  prints Rserve version (also passed to R)\n --RS-port <port> listen on the specified TCP port\n --RS-socket <socket> use specified local (unix) socket instead of TCP/IP.\n --RS-workdir <path> use specified working directory root for connections.\n --RS-conf <file> load additional config file.\n --RS-settings  dumps current settings of the Rserve\n\nAll other options are passed to the R engine.\n\n");
