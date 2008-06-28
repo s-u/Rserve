@@ -2270,7 +2270,7 @@ int main(int argc, char **argv)
 	{ /* cut out the SVN revision from the Id string */
 		const char *c = strstr(rserve_ver_id, ".c ");
 		if (c) {
-			char *d = c + 3;
+			const char *d = c + 3;
 			c = d; while (*c && *c != ' ') c++;
 			strncpy(rserve_rev, d, c - d);
 		}
