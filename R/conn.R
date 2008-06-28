@@ -216,3 +216,7 @@ RSlogin <- function(c, user, pwd, silent=FALSE) {
   invisible(b[1]%%256 == 1)
 }
 
+RSshutdown <- function(c, pwd=NULL) {
+  # FIXME: we ignore pwd and don't check error status
+  writeBin(as.integer(c(4, 0, 0, 0)), c, endian="little")
+}

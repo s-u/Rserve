@@ -10,12 +10,14 @@
 \alias{RSattach}
 \alias{RSassign}
 \alias{RSassign.old}
+\alias{RSshutdown}
 \usage{
 RSconnect(host = "localhost", port = 6311)
 RSlogin(c, user, pwd, silent = FALSE)
 RSeval(c, expr)
 RSeval.old(c, cmd)
 RSclose(c)
+RSshutdown(c, pwd = NULL)
 RSdetach(c)
 RSevalDetach(c, cmd = "")
 RSattach(session)
@@ -86,6 +88,13 @@ RSassign.old(c, obj, name = deparse(substitute(obj)) )
   connection is closed but can be restored by using \code{RSattach} with
   the value returned by \code{RSdetach}. Technically the R on the other
   end is still running and waiting to be atached.
+
+  \code{RSshutdown} terminates the server gracefully. It should be
+  immediately followed by \code{RSclose} since the server closes the
+  connection. It can be issued only on a valid (authenticated)
+  connection. The password parameter is currently ignored since
+  password-protected shutdown is not yet supported. Please note that
+  you should not terminate servers that you did not start.
 
   \code{RSevalDetach} same as \code{RSdetach} but allows asynchronous
   evaluation of the command. The remote Rserve is instructed to evaluate
