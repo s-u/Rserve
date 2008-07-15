@@ -18,6 +18,10 @@
 	it is more flexible than JRclient and it can be used with
 	other Java/R engines such as JRI. Also it has a much more
 	clean API and better exeption handling.
+	- allow NaNs to be passed in raw form to R, i.e. double
+	  NAs can be created using
+	  Double.longBitsToDouble(0x7ff00000000007a2L)
+	  (nice methods for this should follow)
 
     o	C++ client was moved to src/client/cxx
 
