@@ -1,7 +1,7 @@
  NEWS/Changelog for Rserve
 ---------------------------
 
-0.5-0	(under development)
+0.5-0	(2008-07-21)
     o	added CMD_serEval and CMD_serAssign which are highly efficient
 	when talking to R clients as they don't need any intermediate
 	buffer. The corresponding R client functions RSeval and
