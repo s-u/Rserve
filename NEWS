@@ -1,6 +1,9 @@
  NEWS/Changelog for Rserve
 ---------------------------
 
+0.5-2	(under development)
+    o	updates in the REngine Java client, added documentation
+
 0.5-1	2008-07-22
     o	fix build issue with R 2.7.x on Windows
 
