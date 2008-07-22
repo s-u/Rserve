@@ -176,12 +176,19 @@ typedef int socklen_t;
 #ifdef FORKED
 #include <sys/wait.h>
 #endif
+#ifdef ERROR
+#undef ERROR
+#endif
 #include <R.h>
 #include <Rinternals.h>
 #include <Rdefines.h>
 #include <Rversion.h>
 #if (R_VERSION >= R_Version(2,3,0))
+#ifdef Win32 /* Windows doesn't have Rinterface */
+extern int R_SignalHandlers;
+#else
 #include <Rinterface.h>
+#endif
 #endif
 #if R_VERSION < 0x2010
 #include "Parse.h"
@@ -291,7 +298,7 @@ void sendResp(int s, int rsp) {
     printf("OUT.sendResp(void data)\n");
     printDump(&ph,sizeof(ph));
 #endif
-    send(s,&ph,sizeof(ph),0);
+    send(s,(char*)&ph,sizeof(ph),0);
 }
 
 char *getParseName(int n) {
@@ -936,8 +943,8 @@ void sendRespData(int s, int rsp, int len, void *buf) {
     printDump(buf,len);
 #endif
     
-    send(s,&ph,sizeof(ph),0);
-    send(s,buf,len,0);
+    send(s,(char*)&ph,sizeof(ph),0);
+    send(s,(char*)buf,len,0);
 }
 
 /* initial ID string */
@@ -1262,7 +1269,7 @@ int detach_session(SOCKET s) {
 		return -1;
 	}
 
-    setsockopt(ss,SOL_SOCKET,SO_REUSEADDR,&reuse,sizeof(reuse));
+    setsockopt(ss,SOL_SOCKET,SO_REUSEADDR,(const char*)&reuse,sizeof(reuse));
 
 #ifdef Win32
 	while ((port = (((int) rand()) & 0x7fff)+32768)>65000) {};
@@ -1343,7 +1350,7 @@ SOCKET resume_session() {
 			closesocket(s);
 		} else {
 			int n=0;
-			if ((n=recv(s, clk, 32, 0)) != 32) {
+			if ((n=recv(s, (char*)clk, 32, 0)) != 32) {
 #ifdef RSERV_DEBUG
 				printf("session: expected 32, got %d = closing\n", n);
 #endif
@@ -1464,8 +1471,8 @@ decl_sbthread newConn(void *thp) {
 #ifdef RSERV_DEBUG
     printf("sending ID string.\n");
 #endif
-    send(s,buf,32,0);
-    while((n=recv(s,&ph,sizeof(ph),0))==sizeof(ph)) {
+    send(s,(char*)buf,32,0);
+    while((n=recv(s,(char*)&ph,sizeof(ph),0))==sizeof(ph)) {
 		size_t plen = 0;
 		SEXP pp; /* packet payload (as a raw vector) for special commands */
 #ifdef RSERV_DEBUG
@@ -1493,7 +1500,7 @@ decl_sbthread newConn(void *thp) {
 #ifdef RSERV_DEBUG
 			printf("loading (raw) buffer (awaiting %d bytes)\n",plen);
 #endif
-			while((n = recv(s,pbuf+i,plen-i,0))) {
+			while((n = recv(s,(char*)(pbuf+i),plen-i,0))) {
 				if (n > 0) i+=n;
 				if (i >= plen || n < 1) break;
 			}
@@ -1524,7 +1531,7 @@ decl_sbthread newConn(void *thp) {
 				printf("loading buffer (awaiting %d bytes)\n",plen);
 #endif
 				i=0;
-				while((n=recv(s,buf+i,plen-i,0))) {
+				while((n=recv(s,(char*)(buf+i),plen-i,0))) {
 					if (n>0) i+=n;
 					if (i>=plen || n<1) break;
 				}
@@ -1572,7 +1579,7 @@ decl_sbthread newConn(void *thp) {
 			} else {
 				printf("discarding buffer because too big (awaiting %d bytes)\n",plen);
 				size_t i=plen;
-				while((n=recv(s,buf,i>inBuf?inBuf:i,0))) {
+				while((n=recv(s,(char*)buf,i>inBuf?inBuf:i,0))) {
 					if (n>0) i-=n;
 					if (i<1 || n<1) break;
 				}
@@ -2185,7 +2192,7 @@ void serverLoop() {
 	} else
 		ss=FCF("open socket",socket(AF_INET,SOCK_STREAM,0));
     reuse=1; /* enable socket address reusage */
-    setsockopt(ss,SOL_SOCKET,SO_REUSEADDR,&reuse,sizeof(reuse));
+    setsockopt(ss,SOL_SOCKET,SO_REUSEADDR,(const char*)&reuse,sizeof(reuse));
 #ifdef unix
     if (localSocketName) {
 		FCF("bind",bind(ss,(SA*) &lusa, sizeof(lusa)));    
