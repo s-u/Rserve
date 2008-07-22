@@ -4,18 +4,25 @@
 #
 # Merges <me> into possibly fat file <them> and places the result in <me>.
 # <me> is assumed to be single-arch only.
-# Checks whether /usr/bin/lipo exists and does nothing if it doesn't.
+# Checks whether /usr/bin/lipo exists and uses cp if it doesn't.
 #
-# (C)2006 Simon Urbanek
+# (C)2006,8 Simon Urbanek
 
 LIPO=/usr/bin/lipo
 
 if test -e "${LIPO}" -a -e "$2"; then
     myarch=`${LIPO} -detailed_info "$1"| sed -n -e 's|.\{0,\}architecture:\{0,1\} ||p'`
     binarch=`${LIPO} -detailed_info "$2"| sed -n -e 's|.\{0,\}architecture:\{0,1\} ||p'`
-    if test "$myarch" != "$binarch"; then
-	${LIPO} "$2" -remove "$myarch" -o liposuction 2> /dev/null
-	${LIPO} -create liposuction "$1" -o "$1"
+    if test "$myarch" = "$binarch"; then
+	# the target is a single-arch of the same type as us - just replace
+	cp "$1" "$2"
+    else
+        # try to remove our arch - if it fails (it is not fat or doesn't have our arch),
+	# take the whole thing
+	${LIPO} "$2" -remove "$myarch" -o liposuction || cp "$2" liposuction
+	${LIPO} -create liposuction "$1" -o "$2"
 	rm -f liposuction
     fi
+else
+    cp "$1" "$2"
 fi
