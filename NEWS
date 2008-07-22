@@ -2,6 +2,10 @@
 ---------------------------
 
 0.5-2	(under development)
+    o	add support for XT_VECTOR_EXP in assignments
+
+    o	improve protection for vectors
+
     o	updates in the REngine Java client, added documentation
 
 0.5-1	2008-07-22

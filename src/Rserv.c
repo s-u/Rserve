@@ -840,24 +840,38 @@ SEXP decode_to_SEXP(unsigned int **buf, int *UPC)
 		break;
 	case XT_VECTOR:
 	case XT_VECTOR_STR:
+	case XT_VECTOR_EXP:
 		{
 			unsigned char *ie = (unsigned char*) b + ln;
 			int n=0;
 			SEXP lh = R_NilValue;
 			*buf=b;
+			SEXP vr = allocVector(VECSXP, 1);
+			PROTECT(vr);
 			while ((unsigned char*)*buf < ie) {
-				SEXP v = decode_to_SEXP(buf, UPC);
+				int my_upc = 0; /* unprotect all objects on the way since we're staying locked-in */
+				SEXP v = decode_to_SEXP(buf, &my_upc);
 				lh = CONS(v, lh);
+				SET_VECTOR_ELT(vr, 0, lh); /* this is our way of staying protected .. maybe not optimal .. */
+				if (my_upc) UNPROTECT(my_upc);
 				n++;
 			}
-			printf(" vector, %d elements\n", n);
-			val = allocVector((ty==XT_VECTOR)?VECSXP:STRSXP, n);
+#ifdef RSERV_DEBUG
+			printf(" vector (%s), %d elements\n", (ty==XT_VECTOR)?"generic":((ty==XT_VECTOR_EXP)?"expression":"string"), n);
+#endif
+			val = allocVector((ty==XT_VECTOR)?VECSXP:((ty==XT_VECTOR_EXP)?EXPRSXP:STRSXP), n);
+			PROTECT(val);
 			while (n>0) {
 				n--;
 				SET_ELEMENT(val, n, CAR(lh));
 				lh=CDR(lh);
 			}
+#ifdef RSERV_DEBUG
 			printf(" end of vector %x/%x\n", (int) *buf, (int) ie);
+#endif
+			UNPROTECT(2); /* val and vr */
+			PROTECT(val);
+			(*UPC)++;
 			break;
 		}
 
@@ -865,13 +879,17 @@ SEXP decode_to_SEXP(unsigned int **buf, int *UPC)
 	case XT_SYMNAME:
 		/* i=ptoi(*b);
 		   b++; */
+#ifdef RSERV_DEBUG
 		printf(" string/symbol(%d) '%s'\n", ty, (char*)b);
+#endif
 		{
 			char *c = (char*) b;
 			if (ty==XT_STR)
 				val=mkChar(c);
 			else
 				val=install(c);
+			PROTECT(val);
+			(*UPC)++;
 		}
 		*buf=(unsigned int*)((char*)b + ln);
 		break;
@@ -883,24 +901,34 @@ SEXP decode_to_SEXP(unsigned int **buf, int *UPC)
 			SEXP vnext = R_NilValue, vtail = 0;
 			unsigned char *ie = (unsigned char*) b + ln;
 			val = R_NilValue;
-			*buf=b;
+			*buf = b;
 			while ((unsigned char*)*buf < ie) {
+				int my_upc = 0;
+#ifdef RSERV_DEBUG
 				printf(" el %08x of %08x\n", (unsigned int)*buf, (unsigned int) ie);
-				SEXP el = decode_to_SEXP(buf, UPC);
+#endif
+				SEXP el = decode_to_SEXP(buf, &my_upc);
 				SEXP ea = 0;
 				if (ty==XT_LANG_TAG || ty==XT_LIST_TAG) {
+#ifdef RSERV_DEBUG
 					printf(" tag %08x of %08x\n", (unsigned int)*buf, (unsigned int) ie);
-					ea = decode_to_SEXP(buf, UPC);
+#endif
+					ea = decode_to_SEXP(buf, &my_upc);
 				}
 				if (ty==XT_LANG_TAG || ty==XT_LANG_NOTAG)
 					vnext = LCONS(el, R_NilValue);
 				else
 					vnext = CONS(el, R_NilValue);
+				if (my_upc) UNPROTECT(my_upc);
+				PROTECT(vnext);
 				if (ea) SET_TAG(vnext, ea);
-				if (vtail)
+				if (vtail) {
 					SETCDR(vtail, vnext);
-				else
+					UNPROTECT(1);
+				} else {
 					val = vnext;
+					(*UPC)++;
+				}
 				vtail = vnext;				   
 			}
 			break;

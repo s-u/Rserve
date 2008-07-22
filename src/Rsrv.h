@@ -238,7 +238,7 @@ struct phdr { /* always 16 bytes */
 							     (1=TRUE, 0=FALSE, 2=NA) */
 #define XT_S4            7  /* P  data: [0] */
 
-#define XT_VECTOR        16 /* P  data: [?]REXP */
+#define XT_VECTOR        16 /* P  data: [?]REXP,REXP,.. */
 #define XT_LIST          17 /* -  X head, X vals, X tag (since 0.1-5) */
 #define XT_CLOS          18 /* P  X formals, X body  (closure; since 0.1-5) */
 #define XT_SYMNAME       19 /* s  same as XT_STR (since 0.5) */
@@ -247,7 +247,7 @@ struct phdr { /* always 16 bytes */
 #define XT_LANG_NOTAG    22 /* s  same as XT_LIST_NOTAG (since 0.5) */
 #define XT_LANG_TAG      23 /* s  same as XT_LIST_TAG (since 0.5) */
 #define XT_VECTOR_EXP    26 /* s  same as XT_VECTOR (since 0.5) */
-#define XT_VECTOR_STR    27 /* s  same as XT_VECTOR (since 0.5) */
+#define XT_VECTOR_STR    27 /* -  same as XT_VECTOR (since 0.5 but unused, use XT_ARRAY_STR instead) */
 
 #define XT_ARRAY_INT     32 /* P  data: [n*4]int,int,.. */
 #define XT_ARRAY_DOUBLE  33 /* P  data: [n*8]double,double,.. */
