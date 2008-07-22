@@ -1,7 +1,7 @@
  NEWS/Changelog for Rserve
 ---------------------------
 
-0.5-1	(under development)
+0.5-1	2008-07-22
     o	fix build issue with R 2.7.x on Windows
 
     o	mergefat now works properly and uses cp if there is no lipo
