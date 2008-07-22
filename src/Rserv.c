@@ -1474,7 +1474,7 @@ decl_sbthread newConn(void *thp) {
     send(s,(char*)buf,32,0);
     while((n=recv(s,(char*)&ph,sizeof(ph),0))==sizeof(ph)) {
 		size_t plen = 0;
-		SEXP pp; /* packet payload (as a raw vector) for special commands */
+		SEXP pp = R_NilValue; /* packet payload (as a raw vector) for special commands */
 #ifdef RSERV_DEBUG
 		printf("\nheader read result: %d\n",n);
 		if (n>0) printDump(&ph,n);
@@ -1495,7 +1495,7 @@ decl_sbthread newConn(void *thp) {
 		if ((ph.cmd & CMD_SPECIAL_MASK) == CMD_SPECIAL_MASK) {
 			/* this is a very special case - we load the packet payload into a raw vector directly to prevent unnecessaru copying */
 			pp = allocVector(RAWSXP, plen);
-			char *pbuf = RAW(pp);
+			char *pbuf = (char*) RAW(pp);
 			size_t i = 0;
 #ifdef RSERV_DEBUG
 			printf("loading (raw) buffer (awaiting %d bytes)\n",plen);
