@@ -25,7 +25,9 @@
 #ifndef __RSRV_H__
 #define __RSRV_H__
 
+#ifndef NO_CONFIG_H
 #include "config.h"
+#endif
 
 #define RSRV_VER 0x000502 /* Rserve v0.5-2 */
 
@@ -297,18 +299,17 @@ struct phdr { /* always 16 bytes */
    the compiler contants don't work */
 #if defined __BIG_ENDIAN__ || defined _BIG_ENDIAN_
 #define SWAPEND 1
-#else
-#if defined __LITTLE_ENDIAN__ || defined _LITTLE_ENDIAN_ || defined BS_LITTLE_ENDIAN
-#else
-#if defined BS_BIG_ENDIAN
+#elif defined __LITTLE_ENDIAN__ || defined _LITTLE_ENDIAN_ || defined BS_LITTLE_ENDIAN
+/* #undef SWAPEND */
+#elif defined BS_BIG_ENDIAN
 #define SWAPEND 1
-#else
-/* we assume that Windows is little-endian (which is true for Intel but possibly not others) */
-#ifndef Win32
+#elif __ia64__ || __i386__ || __x86_64__ /* take a guess based on the architecture (Intel-like) */
+#define __LITTLE_ENDIAN__ 1
+#elif __ppc__ || __ppc64__ /* any ppc */
+#define __BIG_ENDIAN__ 1
+#define SWAPEND 1
+#elif ! defined Win32 /* Windows is little-endian is most cases, anywhere else we're stuck */
 #error "Cannot determine endianness. Make sure config.h is included or __{BIG|LITTLE}_ENDIAN__ is defined ."
-#endif
-#endif
-#endif
 #endif
 
 /* FIXME: all the mess below needs more efficient implementation - the current one is so messy to work around alignment problems on some platforms like Sun and HP 9000 */
