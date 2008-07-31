@@ -2,6 +2,11 @@
 ---------------------------
 
 0.5-2	(under development)
+    o	fix a bug in CMD_readFile and CMD_setBufferSize that
+	resulted in invalid buffer sizes (one of the ways to
+	trigger the bug was to attempt to read a small number of
+	bytes with readFile). Thanks to H. Rehauer for reporting.
+
     o	add support for XT_VECTOR_EXP in assignments
 
     o	improve protection for vectors

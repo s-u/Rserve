@@ -1413,9 +1413,7 @@ decl_sbthread newConn(void *thp) {
     char *sendbuf;
     int sendBufSize;
     char *tail;
-    char *fbuf;
     char *sfbuf;
-    int fbufl;
     int Rerror;
     char wdname[512];
     int authed=0;
@@ -1568,7 +1566,7 @@ decl_sbthread newConn(void *thp) {
 		
 				unaligned=0;
 #ifdef RSERV_DEBUG
-				printf("parsing parameters\n");
+				printf("parsing parameters (buf=%p, len=%d)\n", buf, (int) plen);
 				if (plen>0) printDump(buf,plen);
 #endif
 				c=buf+ph.dof;
@@ -1582,8 +1580,8 @@ decl_sbthread newConn(void *thp) {
 						parType^=DT_LARGE;
 					} 
 #ifdef RSERV_DEBUG
-					printf("PAR[%d]: %08x (PAR_LEN=%ld, PAR_TYPE=%d, large=%s)\n", pars, i,
-						   (long)parLen, parType, (headSize==8)?"yes":"no");
+					printf("PAR[%d]: %08x (PAR_LEN=%ld, PAR_TYPE=%d, large=%s, c=%p, ptr=%p)\n", pars, i,
+						   (long)parLen, parType, (headSize==8)?"yes":"no", c, c + headSize);
 #endif
 #ifdef ALIGN_DOUBLES
 					if (unaligned) { /* on Sun machines it is deadly to process unaligned parameters,
@@ -1733,7 +1731,7 @@ decl_sbthread newConn(void *thp) {
 			if (pars<1 || parT[0]!=DT_INT) 
 				sendResp(s,SET_STAT(RESP_ERR,ERR_inv_par));
 			else {
-				rlen_t ns=ptoi(((unsigned int*)parP)[0]);
+				rlen_t ns=ptoi(((unsigned int*)(parP[0]))[0]);
 #ifdef RSERV_DEBUG
 				printf(">>CMD_setSendBuf to %ld bytes.\n", (long)ns);
 #endif
@@ -1816,24 +1814,30 @@ decl_sbthread newConn(void *thp) {
 				if (!cf)
 					sendResp(s,SET_STAT(RESP_ERR,ERR_notOpen));
 				else {
-					fbufl=sfbufSize; fbuf=sfbuf;
-					if (pars==1 && parT[0]==DT_INT)
-						fbufl=ptoi(((unsigned int*)parP)[0]);
+					int fbufl = sfbufSize;
+					char *fbuf = sfbuf;
+					if (pars == 1 && parT[0] == DT_INT)
+						fbufl = ptoi(((unsigned int*)(parP[0]))[0]);
 #ifdef RSERV_DEBUG
-					printf(">>CMD_readFile(%d)\n",fbufl);
+					printf(">>CMD_readFile(%d)\n", fbufl);
 #endif
-					if (fbufl<0) fbufl=sfbufSize;
-					if (fbufl>sfbufSize)
-						fbuf=(char*)malloc(fbufl);
-					if (!fbuf) /* well, logically not clean, but in practice true */
-						sendResp(s,SET_STAT(RESP_ERR,ERR_inv_par));
+					if (fbufl < 0) fbufl = sfbufSize;
+					if (fbufl > sfbufSize) {
+#ifdef RSERV_DEBUG
+						printf(" - requested size %ld is larger than default buffer %ld, allocating extra buffer\n",
+						       (long) fbufl, (long) sfbufSize);
+#endif
+						fbuf = (char*)malloc(fbufl);
+					}
+					if (!fbuf) /* well, logically not clean (it's out of memory), but in practice likely true */
+						sendResp(s, SET_STAT(RESP_ERR, ERR_inv_par));
 					else {
-						i=fread(fbuf,1,fbufl,cf);
-						if (i>0)
-							sendRespData(s,RESP_OK,i,fbuf);
+						i = fread(fbuf, 1, fbufl, cf);
+						if (i > 0)
+							sendRespData(s, RESP_OK, i, fbuf);
 						else
-							sendResp(s,RESP_OK);
-						if (fbuf!=sfbuf)
+							sendResp(s, RESP_OK);
+						if (fbuf != sfbuf)
 							free(fbuf);
 					}
 				}
