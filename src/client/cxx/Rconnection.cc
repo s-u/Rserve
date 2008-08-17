@@ -54,17 +54,20 @@ static char *myID= "Rsrv0103QAP1"; /* this client supports up to protocol versio
 
 static Rexp *new_parsed_Rexp(unsigned int *d, Rmessage *msg) {
     int type=ptoi(*d)&0x3f;
+#ifdef DEBUG_CXX
+    printf("new_parsed_Rexp(%p, %p) type=%d\n", d, msg, type);
+#endif
     if (type==XT_ARRAY_INT || type==XT_INT)
         return new Rinteger(d,msg);
     if (type==XT_ARRAY_DOUBLE || type==XT_DOUBLE)
         return new Rdouble(d,msg);
-    if (type==XT_LIST)
+    if (type==XT_LIST || type == XT_LIST_NOTAG || type == XT_LIST_TAG)
         return new Rlist(d,msg);
     if (type==XT_VECTOR)
         return new Rvector(d,msg);
     if (type==XT_STR)
         return new Rstring(d,msg);
-    if (type==XT_SYM)
+    if (type==XT_SYM || type==XT_SYMNAME)
         return new Rsymbol(d,msg);
     if (type==XT_ARRAY_STR)
         return new Rstrings(d,msg);
@@ -198,7 +201,9 @@ void Rmessage::parse() {
             unsigned int p2=ptoi(pp[1]);
             len|=((Rsize_t)p2)<<24;
         }
-        //printf("par %d: %x length %d\n", pars, p1&0x3f, len);
+#ifdef DEBUG_CXX
+        printf("  par %d: %d length %d\n", pars, p1&0x3f, len);
+#endif
         par[pars++]=(unsigned int*)c;
         c+=hs;
         c+=len;
@@ -224,7 +229,9 @@ int Rmessage::send(int s) {
 }
 
 Rexp::Rexp(Rmessage *msg) {
-    //printf("new Rexp@%x\n", this);
+#ifdef DEBUG_CXX
+    printf("new Rexp@%x\n", this);
+#endif
     master=0; rcount=0; attr=0; attribs=0;
     this->msg=msg;
     int hl=1;
@@ -238,7 +245,9 @@ Rexp::Rexp(Rmessage *msg) {
 }
     
 Rexp::Rexp(unsigned int *pos, Rmessage *msg) {
-    //printf("new Rexp@%x\n", this);
+#ifdef DEBUG_CXX
+    printf("new Rexp@%x\n", this);
+#endif
     attr=0; master=0; this->msg=msg; rcount=0; attribs=0;
     next=parse(pos);
 }
@@ -256,7 +265,9 @@ Rexp::Rexp(int type, const char *data, int len, Rexp *attr) {
 }
 
 Rexp::~Rexp() {
-    //printf("releasing Rexp@%x\n", this);
+#ifdef DEBUG_CXX
+    printf("releasing Rexp@%p\n", this);
+#endif
     if (attr)
         delete(attr);
     attr=0;
@@ -300,7 +311,9 @@ char *Rexp::parse(unsigned int *pos) { // plen is not used
             attr->set_master(master?master:this);
     }
     type=p1&0x3f;
-    //printf("Rexp(type=%d, len=%d, attr=%x)\n", type, len, attr);
+#ifdef DEBUG_CXX
+    printf("Rexp(type=%d, len=%d, attr=%p)\n", type, len, attr);
+#endif
     return data+len;
 }
 
@@ -362,7 +375,11 @@ void Rdouble::fix_content() {
 }
 
 void Rsymbol::fix_content() {
-    if (*data==3) name=data+4; // normally the symbol should consist of a string SEXP specifying its name - no further content is defined as of now
+    if (type == XT_SYM && *data==3) name=data+4; // normally the symbol should consist of a string SEXP specifying its name - no further content is defined as of now
+    if (type == XT_SYMNAME) name=data; // symname consists solely of the name
+#ifdef DEBUG_CXX
+    printf("SYM %p \"%s\"\n", this, name);
+#endif
 }
 
 Rlist::~Rlist() {
@@ -374,22 +391,68 @@ Rlist::~Rlist() {
 void Rlist::fix_content() {
     char *ptr = data;
     char *eod = data+len;
-    head=new_parsed_Rexp((unsigned int*)ptr,0);
-    if (head) {
+#ifdef DEBUG_CXX
+    printf("Rlist::fix_content data=%p, type=%d\n", ptr, type);
+#endif
+    if (type == XT_LIST) { /* old-style lists */
+      head=new_parsed_Rexp((unsigned int*)ptr,0);
+      if (head) {
         ptr=head->next;
         if (ptr<eod) {
-            tail=(Rlist*)new_parsed_Rexp((unsigned int*)ptr,0);
-            if (tail) {
-                ptr=tail->next;
-                if (ptr<eod)
-                    tag=new_parsed_Rexp((unsigned int*)ptr,0);
-                if (tail->type!=XT_LIST) {
-                    // if tail is not a list, then something is wrong - just delete it
-                    delete(tail); tail=0;
-                }
-            }
+	  tail=(Rlist*)new_parsed_Rexp((unsigned int*)ptr,0);
+	  if (tail) {
+	    ptr=tail->next;
+	    if (ptr<eod)
+	      tag=new_parsed_Rexp((unsigned int*)ptr,0);
+	    if (tail->type!=XT_LIST) {
+	      // if tail is not a list, then something is wrong - just delete it
+	      delete(tail); tail=0;
+	    }
+	  }
         }
+      }
+    } else if (type == XT_LIST_NOTAG) { /* new style list w/o tags */
+      Rlist *lt = this;
+      int n = 0;
+      while (ptr < eod) {
+	Rexp *h = new_parsed_Rexp((unsigned int*) ptr, 0);
+	if (!h) break;
+	if (n)
+	  lt = lt->tail = new Rlist(type, h, 0, h->next, msg);
+	else
+	  lt->head = h;
+	n++;
+	ptr = h->next;
+      }
+    } else if (type == XT_LIST_TAG) { /* new style list with tags */
+      Rlist *lt = this;
+      int n = 0;
+      while (ptr < eod) {
+	Rexp *h = new_parsed_Rexp((unsigned int*) ptr, 0);
+#ifdef DEBUG_CXX
+	printf(" LIST_TAG: n=%d, ptr=%p, h=%p\n", n, ptr, h);
+#endif
+	if (!h) break;
+	ptr = h->next;
+	Rexp *t = new_parsed_Rexp((unsigned int*) ptr, 0);
+#ifdef DEBUG_CXX
+	printf("          tag=%p (ptr=%p)\n", t, ptr);
+#endif
+	if (!t) break;
+	if (n)
+	  lt = lt->tail = new Rlist(type, h, t, t->next, msg);
+	else {
+	  lt->head = h;
+	  lt->tag = t;
+	}
+	ptr = t->next;
+	n++;
+      }
+      next = ptr;
     }
+#ifdef DEBUG_CXX
+    printf(" end of list %p, ptr=%p\n", this, ptr);
+#endif
 }
 
 Rvector::~Rvector() {
@@ -438,16 +501,28 @@ int Rvector::indexOfString(const char *str) {
     return -1;
 }
 
+int Rstrings::indexOfString(const char *str) {
+    unsigned int i = 0;
+    while (i < nel) {
+        if (cont[i] && !strcmp(cont[i], str)) return i;
+        i++;
+    }
+    return -1;
+}
+
 Rexp* Rvector::byName(const char *name) {
-    if (count<1 || !attr || attr->type!=XT_LIST) return 0;        
+  if (count<1 || !attr || (attr->type!=XT_LIST && attr->type != XT_LIST_TAG)) return 0;        
     Rexp *e = ((Rlist*) attr)->head;
     if (((Rlist*) attr)->tag)
         e=((Rlist*) attr)->entryByTagName("names");
-    if (!e || (e->type!=XT_VECTOR && e->type!=XT_STR))
+    if (!e || (e->type!=XT_VECTOR && e->type!=XT_ARRAY_STR && e->type!=XT_STR))
         return 0;
     if (e->type==XT_VECTOR) {
         int pos = ((Rvector*)e)->indexOfString(name);
         if (pos>-1 && pos<count) return cont[pos];
+    } else if (e->type == XT_ARRAY_STR) {
+        int pos = ((Rstrings*)e)->indexOfString(name);
+        if (pos>-1 && pos<count) return cont[pos];	
     } else {
         if (!strcmp(((Rstring*)e)->string(),name))
             return cont[0];

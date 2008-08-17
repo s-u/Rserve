@@ -216,7 +216,7 @@ private:
 // NOTE: XT_ARRAY_STR is new in 0103 and ths class is just a
 //       very crude implementation. It replaces Rstring because
 //       XT_STR has been deprecated.
-
+// FIXME: it should be a subclass of Rvector!
 class Rstrings : public Rexp {
     char **cont;
     unsigned int nel;
@@ -229,6 +229,7 @@ public:
     char *stringAt(int i) { return (i<0||i>=nel)?0:cont[i]; }
     char *string() { return stringAt(0); }
     unsigned int count() { return nel; }
+    int indexOfString(const char *str);
 
     virtual std::ostream& os_print (std::ostream& os) {
         return os << "char*[" << nel <<"]\"" << string() <<"\"..";
@@ -282,10 +283,16 @@ public:
     Rlist(unsigned int *ipos, Rmessage *imsg) : Rexp(ipos, imsg)
     { head=tag=0; tail=0; fix_content(); }
 
+    /* this is a sort of special constructor that allows to create a Rlist
+       based solely on its content. This is necessary since 0.5 because
+       each LISTSXP is no longer represented by its own encoded SEXP
+       but they are packed in one content list instead */
+    Rlist(int type, Rexp *head, Rexp *tag, char *next, Rmessage *imsg) : Rexp(type, 0, 0, 0) { this->head = head; this->tag = tag; tail = 0; this->next = next; this->msg = imsg; master = 0; }
+
     virtual ~Rlist();
     
     Rexp *entryByTagName(const char *tagName)  {
-        if (tag && tag->type==XT_SYM && !strcmp(((Rsymbol*)tag)->symbolName(),tagName)) return head;
+      if (tag && (tag->type==XT_SYM || tag->type==XT_SYMNAME) && !strcmp(((Rsymbol*)tag)->symbolName(),tagName)) return head;
         if (tail) return tail->entryByTagName(tagName);
         return 0;
     }

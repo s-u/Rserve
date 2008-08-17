@@ -7,6 +7,9 @@
 	trigger the bug was to attempt to read a small number of
 	bytes with readFile). Thanks to H. Rehauer for reporting.
 
+    o	adapt C++ client to changes in 0.5 (at least to the point
+	where the demo1 code works)
+
     o	add support for XT_VECTOR_EXP in assignments
 
     o	improve protection for vectors
