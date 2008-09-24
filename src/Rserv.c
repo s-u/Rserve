@@ -2374,10 +2374,10 @@ int main(int argc, char **argv)
 					loadConfig(argv[++i]);
 			}
 			if (!strcmp(argv[i]+2,"RS-settings")) {
-				printf("Rserve v%d.%d-%d\n\nconfig file: %s\nworking root: %s\nport: %d\nlocal socket: %s\nauthorization required: %s\nplain text password: %s\npasswords file: %s\nallow I/O: %s\nmax.input buffer size: %d kB\n\n",
+				printf("Rserve v%d.%d-%d\n\nconfig file: %s\nworking root: %s\nport: %d\nlocal socket: %s\nauthorization required: %s\nplain text password: %s\npasswords file: %s\nallow I/O: %s\nallow remote access: %s\nmax.input buffer size: %d kB\n\n",
 					   RSRV_VER>>16,(RSRV_VER>>8)&255,RSRV_VER&255,
 					   CONFIG_FILE,workdir,port,localSocketName?localSocketName:"[none, TCP/IP used]",
-					   authReq?"yes":"no",usePlain?"allowed":"not allowed",pwdfile?pwdfile:"[none]",allowIO?"yes":"no",
+					   authReq?"yes":"no",usePlain?"allowed":"not allowed",pwdfile?pwdfile:"[none]",allowIO?"yes":"no",localonly?"no":"yes",
 					   maxInBuf/1024);
 				return 0;	       
 			}
