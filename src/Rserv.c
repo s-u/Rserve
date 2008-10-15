@@ -328,7 +328,7 @@ rlen_t getStorageSize(SEXP x) {
 #ifdef RSERV_DEBUG
     printf("getStorageSize(type=%d,len=%d)\n",t,tl);
 #endif
-    if (TYPEOF(ATTRIB(x))>0) {
+    if (TYPEOF(ATTRIB(x)) == LISTSXP) {
 		rlen_t alen=getStorageSize(ATTRIB(x));
 		len+=alen;
     }
@@ -410,7 +410,7 @@ unsigned int* storeSEXP(unsigned int* buf, SEXP x) {
 		*buf=itop(XT_NULL); buf++; goto didit;
     }
     
-    if (TYPEOF(ATTRIB(x))>0) hasAttr=XT_HAS_ATTR;
+    if (TYPEOF(ATTRIB(x)) == LISTSXP) hasAttr=XT_HAS_ATTR;
     
     if (t==NILSXP) {
 		*buf=itop(XT_NULL|hasAttr);
@@ -615,7 +615,7 @@ void printSEXP(SEXP e) /* merely for debugging purposes
     int t = TYPEOF(e);
     int i = 0;
 
-	if (ATTRIB(e) != R_NilValue)
+	if (TYPEOF(ATTRIB(e)) == LISTSXP)
 		printf("[*has attr*] ");
     
     if (t==NILSXP) {

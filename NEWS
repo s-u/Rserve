@@ -7,12 +7,18 @@
 	trigger the bug was to attempt to read a small number of
 	bytes with readFile). Thanks to H. Rehauer for reporting.
 
+    o	ignore attributes if they are not in a LISTSXP (there seem
+	to be other (ab)uses of the ATTRIB entry in conjunction with
+	character hashes in recent R versions)
+
     o	adapt C++ client to changes in 0.5 (at least to the point
 	where the demo1 code works)
 
     o	add support for XT_VECTOR_EXP in assignments
 
     o	improve protection for vectors
+
+    o	report "remote" setting in --RS-settings
 
     o	updates in the REngine Java client, added documentation
 
