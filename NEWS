@@ -1,15 +1,15 @@
  NEWS/Changelog for Rserve
 ---------------------------
 
-0.5-2	(under development)
+0.5-2	2008-10-17
     o	fix a bug in CMD_readFile and CMD_setBufferSize that
 	resulted in invalid buffer sizes (one of the ways to
 	trigger the bug was to attempt to read a small number of
 	bytes with readFile). Thanks to H. Rehauer for reporting.
 
-    o	ignore attributes if they are not in a LISTSXP (there seem
-	to be other (ab)uses of the ATTRIB entry in conjunction with
-	character hashes in recent R versions)
+    o	ignore attributes if they are not in a LISTSXP - there seem
+	to be other uses of the ATTRIB entry in conjunction with
+	character hashes in recent R versions. (BR #76)
 
     o	adapt C++ client to changes in 0.5 (at least to the point
 	where the demo1 code works)
