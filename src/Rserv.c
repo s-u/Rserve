@@ -1,12 +1,10 @@
 /*
  *  Rserv : R-server that allows to use embedded R via TCP/IP
- *          currently based on R-1.5.1 API (tested up to R 1.8.1)
- *  Copyright (C) 2002,3 Simon Urbanek
+ *  Copyright (C) 2002-8 Simon Urbanek
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2 of the License, or
- *  (at your option) any later version.
+ *  the Free Software Foundation; version 2 of the License
  *
  *  This program is distributed in the hope that it will be useful,
  *  but WITHOUT ANY WARRANTY; without even the implied warranty of

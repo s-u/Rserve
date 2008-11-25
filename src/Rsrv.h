@@ -3,17 +3,20 @@
  *  Copyright (C) 2002-8 Simon Urbanek
  *
  *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; version 2 of the License
+ *  it under the terms of the GNU Lesser General Public License as published
+ *  by the Free Software Foundation; version 2.1 of the License
  *
  *  This program is distributed in the hope that it will be useful,
  *  but WITHOUT ANY WARRANTY; without even the implied warranty of
  *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
+ *  GNU Lesser General Public License for more details.
  *
- *  You should have received a copy of the GNU General Public License
+ *  You should have received a copy of the GNU Lesser General Public License
  *  along with this program; if not, write to the Free Software
  *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *
+ *  Note: This header file is licensed under LGPL to allow other
+ *        programs to use it under LGPL. Rserve itself is licensed under GPL.
  *
  *  $Id$
  */
