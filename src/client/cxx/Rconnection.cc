@@ -258,6 +258,7 @@ Rexp::Rexp(unsigned int *pos, Rmessage *msg) {
 Rexp::Rexp(int type, const char *data, int len, Rexp *attr) {
     this->attr=attr; master=this; rcount=0; attribs=0;
     this->type=type;
+    this->msg=0;
     if (len>0) {
         this->data=(char*) malloc(len);
         memcpy(this->data, data, len);
