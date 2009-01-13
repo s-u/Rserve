@@ -34,25 +34,29 @@ int main(int ac, char **av) {
     const char *sock_name = 0;
     const char *host_name = 0;
     const char *pwd = 0;
+    const char *user = 0;
 
     int i = 1;
     while (i < ac) {
       if (av[i][0] == '-') {
         switch (av[i][1]) {
         case 'h': help = 1; break;
+	case 'H': if (++i < ac) host_name = av[i]; break;
+	case 'u': if (++i < ac) user = av[i]; break;
         case 'p': if (++i < ac) port = atoi(av[i]); break;
         case 'P': if (++i < ac) pwd = av[i]; else pwd = getpass("password: "); break;
         case 's': if (++i < ac) sock_name = av[i]; break;
 	case 'c': i++;
         }
-      } else if (!host_name) host_name = av[i];
+      }
       i++;
     }
-     
+
     if (help) {
-      printf("\n Usage: %s [<host>] [-c <cmd>] [-p <port>] [-s <socket>] [-P <password>] [-h] <file1> [<file2> [...]]\n\n", av[0]);
+      printf("\n Usage: %s [-H <host>] [-c <cmd>] [-p <port>] [-s <socket>] [-u <user>] [-P <password>] [-h] <file1> [<file2> [...]]\n\n", av[0]);
       return 0;
     }
+
     if (host_name) {
       if (port > 1) rc = new Rconnection(host_name, port);
       else rc = new Rconnection(host_name);
@@ -67,10 +71,19 @@ int main(int ac, char **av) {
     i = rc->connect();
     if (i) {
       sockerrorchecks(buf, 1023, -1);
-        printf("unable to connect (result=%d, socket:%s).\n", i, buf);
-	return i;
+      fprintf(stderr, "unable to connect (result=%d, socket:%s).\n", i, buf);
+      return i;
     }
-    
+
+    if (user) {
+      if (!pwd) pwd = "";
+      i = rc->login(user, pwd);
+      if (i) {
+	fprintf(stderr, "login failed (result=%d)\n", i);
+	return i;
+      }
+    }
+
     i = 1;
     // source all files specified at the command line and print the output
     while (i < ac) {
@@ -87,6 +100,8 @@ int main(int ac, char **av) {
 	case 'p':
 	case 'P':
 	case 's':
+	case 'H':
+	case 'u':
 	  i++;
 	}
       } else {
