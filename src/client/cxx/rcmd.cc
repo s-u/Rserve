@@ -30,11 +30,13 @@ int main(int ac, char **av) {
     initsocks(); // this is needed for Win32 - it does nothing on unix
 
     Rconnection *rc = 0;
-    int port = -1, help = 0;
+    int port = -1, help = 0, do_cd = 1;
     const char *sock_name = 0;
     const char *host_name = 0;
     const char *pwd = 0;
     const char *user = 0;
+    const char *wd = 0;
+
 
     int i = 1;
     while (i < ac) {
@@ -46,14 +48,18 @@ int main(int ac, char **av) {
         case 'p': if (++i < ac) port = atoi(av[i]); break;
         case 'P': if (++i < ac) pwd = av[i]; else pwd = getpass("password: "); break;
         case 's': if (++i < ac) sock_name = av[i]; break;
+	case 'w': if (++i < ac) wd = av[i]; break;
+	case 'n': do_cd = 0; break;
 	case 'c': i++;
         }
       }
       i++;
     }
 
+    if (wd) do_cd = 1;
+
     if (help) {
-      printf("\n Usage: %s [-H <host>] [-c <cmd>] [-p <port>] [-s <socket>] [-u <user>] [-P <password>] [-h] <file1> [<file2> [...]]\n\n", av[0]);
+      printf("\n Usage: %s [-H <host>] [-c <cmd>] [-w <dir>] [-n] [-p <port>] [-s <socket>] [-u <user>] [-P <password>] [-h] <file1> [<file2> [...]]\n\n", av[0]);
       return 0;
     }
 
@@ -65,7 +71,7 @@ int main(int ac, char **av) {
     } else {
       rc = new Rconnection();
     }
-    
+
     buf[1023]=0;
 
     i = rc->connect();
@@ -82,6 +88,23 @@ int main(int ac, char **av) {
 	fprintf(stderr, "login failed (result=%d)\n", i);
 	return i;
       }
+    }
+
+    if (do_cd) {
+      char *es, *d;
+      const char *c;
+      if (!wd)
+	wd = strdup(getwd(buf));
+      d = es = (char*) malloc(strlen(wd) * 2 + 14);
+      c = wd;
+      strcpy(d, "setwd(\""); d += 7;
+      while (*c) {
+	if (*c == '\"' || *c == '\\' || *c == '\'') (d++)[0] = '\\';
+	if (*c == '\n' || *c == '\r') (d++)[0] = ' '; else (d++)[0] = (c++)[0];
+      }
+      strcpy(d, "\")");
+      rc->voidEval(es);
+      free(es);
     }
 
     i = 1;
@@ -102,6 +125,7 @@ int main(int ac, char **av) {
 	case 's':
 	case 'H':
 	case 'u':
+	case 'w':
 	  i++;
 	}
       } else {
