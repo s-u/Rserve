@@ -2,7 +2,7 @@
 ---------------------------
 
 0.5-3	(under development)
-    o	fix a SET_VECTOR_ELT/SET_STRING_ELT mismatches
+    o	fix SET_VECTOR_ELT/SET_STRING_ELT mismatches
 
 0.5-2	2008-10-17
     o	fix a bug in CMD_readFile and CMD_setBufferSize that

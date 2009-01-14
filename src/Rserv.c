@@ -1,6 +1,6 @@
 /*
  *  Rserv : R-server that allows to use embedded R via TCP/IP
- *  Copyright (C) 2002-8 Simon Urbanek
+ *  Copyright (C) 2002-9 Simon Urbanek
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -780,7 +780,7 @@ SEXP decode_to_SEXP(unsigned int **buf, int *UPC)
     case XT_INT:
     case XT_ARRAY_INT:
 		l=ln/4;
-		PROTECT(val=NEW_INTEGER(l));
+		PROTECT(val = allocVector(INTSXP, l));
 		(*UPC)++;
 		i=0;
 		while (i<l) {
@@ -791,7 +791,7 @@ SEXP decode_to_SEXP(unsigned int **buf, int *UPC)
     case XT_DOUBLE:
     case XT_ARRAY_DOUBLE:
 		l=ln/8;
-		PROTECT(val=NEW_NUMERIC(l)); (*UPC)++;
+		PROTECT(val = allocVector(REALSXP, l)); (*UPC)++;
 		i=0;
 		while (i<l) {
 			fixdcpy(REAL(val)+i,b);
@@ -818,11 +818,11 @@ SEXP decode_to_SEXP(unsigned int **buf, int *UPC)
 			c++;
 			i++; 
 		}
-		PROTECT(val=NEW_STRING(j)); (*UPC)++;
+		PROTECT(val = allocVector(STRSXP, j)); (*UPC)++;
 		i=j=0; c=(char*)b; cc=c;
 		while(i<ln) {
 			if (!*c) {
-				VECTOR_ELT(val,j)=mkChar(cc);
+				SET_VECTOR_ELT(val, j, mkChar(cc));
 				j++; cc=c+1;
 			}
 			c++; i++;
@@ -832,7 +832,7 @@ SEXP decode_to_SEXP(unsigned int **buf, int *UPC)
 	case XT_RAW:
 		i=ptoi(*b);
 		b++;
-		PROTECT(val=allocVector(RAWSXP, i)); (*UPC)++;
+		PROTECT(val = allocVector(RAWSXP, i)); (*UPC)++;
 		memcpy(RAW(val), b, i);
 		*buf=(unsigned int*)((char*)b + ln);
 		break;
