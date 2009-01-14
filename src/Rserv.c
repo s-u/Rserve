@@ -1200,7 +1200,7 @@ SEXP parseString(char *s, int *parts, ParseStatus *status) {
     }
     
     PROTECT(cv=allocVector(STRSXP, 1));
-    SET_VECTOR_ELT(cv, 0, mkChar(s));  
+    SET_STRING_ELT(cv, 0, mkChar(s));  
     
     while (maxParts>0) {
 		pr=RS_ParseVector(cv, maxParts, status);
@@ -1218,8 +1218,8 @@ SEXP parseExps(char *s, int exps, ParseStatus *status) {
     SEXP cv, pr;
     
     PROTECT(cv=allocVector(STRSXP, 1));
-    SET_VECTOR_ELT(cv, 0, mkChar(s));  
-    pr=RS_ParseVector(cv, 1, status);
+    SET_STRING_ELT(cv, 0, mkChar(s));  
+    pr = RS_ParseVector(cv, 1, status);
     UNPROTECT(1);
     return pr;
 }
