@@ -4,6 +4,32 @@
 0.5-3	(under development)
     o	fix SET_VECTOR_ELT/SET_STRING_ELT mismatches
 
+    o	added string encoding support (where R supports it)
+	The string encoding can be set in the configuration file
+	(directive "encoding"), on the command line with --RS-encoding
+	or within a session by the client command CMD_setEncoding.
+
+	This means that strings are converted to the given encoding
+	before being sent to the client and also all strings from the
+	client are assumed to come from the given encoding.
+	(Previously the strings were always passed as-is with no
+	conversion). The currently supported encodings are "native"
+	(same as the server session locale), "utf8" and	"latin1". The
+	server default is currently "native" for compatibility with
+	previous versions (but may change to "utf8" in the future, so
+	explicit use of encoding in the config file is advised).
+
+	If a server is used mainly by Java clients, it is advisable to
+	set the server encoding to "utf8" since that it the only
+	encoding supported by Java clients.
+
+	For efficieny it is still advisable to run Rserve in the same
+	locale as the majority of clients to minimize the necessary
+	conversions. With diverse clients UTF-8 is the most versatile
+	encoding for the server to run in while it can still serve
+	latin1 clients as well.
+
+
 0.5-2	2008-10-17
     o	fix a bug in CMD_readFile and CMD_setBufferSize that
 	resulted in invalid buffer sizes (one of the ways to
@@ -25,12 +51,14 @@
 
     o	updates in the REngine Java client, added documentation
 
+
 0.5-1	2008-07-22
     o	fix build issue with R 2.7.x on Windows
 
     o	mergefat now works properly and uses cp if there is no lipo
 	(this fixes multi-arch issues on Mac OS X and makes sure that
 	Rserve/Rserve.dbg are installed even on non-Mac systems)
+
 
 0.5-0	2008-07-21
     o	added CMD_serEval and CMD_serAssign which are highly efficient
@@ -61,6 +89,7 @@ JRclient:
 	named vectors (class RList)
 
     o	change the ways attributes are accessed
+
 
 0.4-7	2007-01-14
     o	relax DLL versions checking on Windows
