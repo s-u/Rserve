@@ -203,6 +203,7 @@ struct phdr { /* always 16 bytes */
 				  transported from Rserve to the client.
 				  (incoming buffer is resized automatically)
 				 */
+#define CMD_setEncoding   0x082  /* string (one of "native","latin1","utf8") : -; since 0.5-3 */
 
 /* special commands - the payload of packages with this mask does not contain defined parameters */
 

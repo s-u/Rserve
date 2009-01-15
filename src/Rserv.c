@@ -92,6 +92,8 @@ the use of DT_LARGE/XT_LARGE.
    uid <uid>
    gid <gid>
 
+   encoding native|latin1|utf8 [native]
+
    source <file>
    eval <expression(s)>
 
@@ -173,6 +175,7 @@ typedef int socklen_t;
 #endif
 #ifdef FORKED
 #include <sys/wait.h>
+#include <signal.h>
 #endif
 #ifdef ERROR
 #undef ERROR
@@ -262,6 +265,39 @@ int localUCIX;
 #else
 #define localUCIX UCIX
 #endif
+
+/* string encoding handling */
+#if (R_VERSION < R_Version(2,8,0)) || (defined DISABLE_ENCODING)
+#define mkRChar(X) mkChar(X)
+#define CHAR_FE(X) CHAR(X)
+#else
+#define USE_ENCODING 1
+static cetype_t string_encoding = CE_NATIVE;  /* default is native */
+#define mkRChar(X) mkCharCE((X), string_encoding)
+#define CHAR_FE(X) charsxp_to_current(X)
+static const char *charsxp_to_current(SEXP s) {
+	if (Rf_getCharCE(s) == string_encoding) return CHAR(s);
+	return Rf_reEnc(CHAR(s), getCharCE(s), string_encoding, 0);
+}
+#endif
+
+static int set_string_encoding(const char *enc, int verbose) {
+#ifdef USE_ENCODING
+	if (!strcmp(enc, "native")) string_encoding = CE_NATIVE;
+	else if (!strcmp(enc, "latin1")) string_encoding = CE_LATIN1;
+	else if (!strcmp(enc, "utf8")) string_encoding = CE_UTF8;
+	else {
+		if (verbose)
+			fprintf(stderr, "WARNING: invalid encoding value '%s' - muse be one of 'native', 'latin1' or 'utf8'.\n", enc);
+		return 0;
+	}
+	return 1;
+#else
+	if (verbose)
+		fprintf(stderr, "WARNING: 'encoding' defined but this Rserve has no encoding support.\n");
+	return 0;
+#endif
+}
 
 /* "smart" atoi - accepts 0x for hex and 0 for octal */
 static int satoi(const char *str) {
@@ -364,13 +400,13 @@ rlen_t getStorageSize(SEXP x) {
     case SYMSXP:
     case CHARSXP:
 		{
-			char *ct=(char*) ((t==CHARSXP)?STRING_PTR(x):STRING_PTR(PRINTNAME(x)));
+			const char *ct = ((t==CHARSXP) ? CHAR_FE(x) : CHAR_FE(PRINTNAME(x)));
 			if (!ct)
-				len+=4;
+				len += 4;
 			else {
-				unsigned int sl=strlen(ct)+1;
-				sl=(sl+3)&0xfffffffc;
-				len+=sl;
+				unsigned int sl = strlen(ct) + 1;
+				sl = (sl+3) & 0xfffffffc;
+				len += sl;
 			}
 		}
 		break;
@@ -524,7 +560,7 @@ unsigned int* storeSEXP(unsigned int* buf, SEXP x) {
 		st = (char *)buf;
 		i=0;
 		while (i < LENGTH(x)) {
-			const char *cv = CHAR(STRING_ELT(x, i));
+			const char *cv = CHAR_FE(STRING_ELT(x, i));
 			int l = strlen(cv);
 			strcpy(st, cv);
 			st += l+1;
@@ -573,10 +609,10 @@ unsigned int* storeSEXP(unsigned int* buf, SEXP x) {
 		const char *val;
 		if (t==CHARSXP) {
 			*buf=itop(XT_STR|hasAttr);
-			val = CHAR(x);
+			val = CHAR_FE(x);
 		} else {
 			*buf=itop(XT_SYMNAME|hasAttr);
-			val = CHAR(PRINTNAME(x));
+			val = CHAR_FE(PRINTNAME(x));
 		}
 		buf++;
 		attrFixup;
@@ -720,7 +756,7 @@ void printSEXP(SEXP e) /* merely for debugging purposes
 		return;
     }
     if (t==CHARSXP) {
-		printf("scalar string: \"%s\"\n",(char*) STRING_PTR(e));
+		printf("scalar string: \"%s\"\n", CHAR(e));
 		return;
     }
     if (t==SYMSXP) {
@@ -822,7 +858,7 @@ SEXP decode_to_SEXP(unsigned int **buf, int *UPC)
 		i=j=0; c=(char*)b; cc=c;
 		while(i<ln) {
 			if (!*c) {
-				SET_VECTOR_ELT(val, j, mkChar(cc));
+				SET_STRING_ELT(val, j, mkRChar(cc));
 				j++; cc=c+1;
 			}
 			c++; i++;
@@ -837,7 +873,7 @@ SEXP decode_to_SEXP(unsigned int **buf, int *UPC)
 		*buf=(unsigned int*)((char*)b + ln);
 		break;
 	case XT_VECTOR:
-	case XT_VECTOR_STR:
+	case XT_VECTOR_STR: /* FIXME: really this will fail in R 2.9.0-devel because SET_ELEMENT only supports lists now. Given that XT_VECTOR_STR should not be used we may consider removing it ... */
 	case XT_VECTOR_EXP:
 		{
 			unsigned char *ie = (unsigned char*) b + ln;
@@ -861,7 +897,7 @@ SEXP decode_to_SEXP(unsigned int **buf, int *UPC)
 			PROTECT(val);
 			while (n>0) {
 				n--;
-				SET_ELEMENT(val, n, CAR(lh));
+				SET_VECTOR_ELT(val, n, CAR(lh));
 				lh=CDR(lh);
 			}
 #ifdef RSERV_DEBUG
@@ -883,7 +919,7 @@ SEXP decode_to_SEXP(unsigned int **buf, int *UPC)
 		{
 			char *c = (char*) b;
 			if (ty==XT_STR)
-				val=mkChar(c);
+				val=mkRChar(c);
 			else
 				val=install(c);
 			PROTECT(val);
@@ -1090,46 +1126,32 @@ int loadConfig(char *fn)
 			if (!strcmp(c,"umask") && *p)
 				umask_value=satoi(p);
 #endif
-			if (!strcmp(c,"allow")) {
-				if (*p) {
-					char **l;
-					if (!allowed_ips) {
-						allowed_ips=(char**) malloc(sizeof(char*)*128);
-						*allowed_ips=0;
-					}
-					l=allowed_ips;
-					while (*l) l++;
-					if (l-allowed_ips>=127)
-						fprintf(stderr, "Maximum of allowed IPs (127) exceeded, ignoring 'allow %s'\n", p);
-					else {
-						*l=strdup(p);
-						l++;
-						*l=0;
-					}
+			if (!strcmp(c,"allow") && *p) {
+				char **l;
+				if (!allowed_ips) {
+					allowed_ips = (char**) malloc(sizeof(char*)*128);
+					*allowed_ips = 0;
 				}
+				l = allowed_ips;
+				while (*l) l++;
+				if (l - allowed_ips >= 127)
+					fprintf(stderr, "WARNING: Maximum of allowed IPs (127) exceeded, ignoring 'allow %s'\n", p);
+					else {
+						*l = strdup(p);
+						l++;
+						*l = 0;
+					}
 			}
-			if (!strcmp(c,"workdir")) {
-				if (*p) {
-					workdir=(char*)malloc(strlen(p)+1);
-					strcpy(workdir,p);
-				} else workdir=0;
-			}
-			if (!strcmp(c,"socket")) {
-				if (*p) {
-					localSocketName=(char*)malloc(strlen(p)+1);
-					strcpy(localSocketName,p);
-				} else localSocketName=0;
-			}
-			if (!strcmp(c,"sockmod")) {
-				if (*p)
-					localSocketMode=satoi(p);
-			}
-			if (!strcmp(c,"pwdfile")) {
-				if (*p) {
-					pwdfile=(char*)malloc(strlen(p)+1);
-					strcpy(pwdfile,p);
-				} else pwdfile=0;
-			}
+			if (!strcmp(c,"workdir"))
+				workdir = (*p) ? strdup(p) : 0;
+			if (!strcmp(c,"encoding") && *p)
+				set_string_encoding(p, 1);
+			if (!strcmp(c,"socket"))
+				localSocketName = (*p) ? strdup(p) : 0;
+			if (!strcmp(c,"sockmod") && *p)
+					localSocketMode = satoi(p);
+			if (!strcmp(c,"pwdfile"))
+				pwdfile = (*p) ? strdup(p) : 0;
 			if (!strcmp(c,"auth"))
 				authReq=(*p=='1' || *p=='y' || *p=='r' || *p=='e')?1:0;
 			if (!strcmp(c,"plaintext"))
@@ -1200,7 +1222,7 @@ SEXP parseString(char *s, int *parts, ParseStatus *status) {
     }
     
     PROTECT(cv=allocVector(STRSXP, 1));
-    SET_STRING_ELT(cv, 0, mkChar(s));  
+    SET_STRING_ELT(cv, 0, mkRChar(s));  
     
     while (maxParts>0) {
 		pr=RS_ParseVector(cv, maxParts, status);
@@ -1218,7 +1240,7 @@ SEXP parseExps(char *s, int exps, ParseStatus *status) {
     SEXP cv, pr;
     
     PROTECT(cv=allocVector(STRSXP, 1));
-    SET_STRING_ELT(cv, 0, mkChar(s));  
+    SET_STRING_ELT(cv, 0, mkRChar(s));  
     pr = RS_ParseVector(cv, 1, status);
     UNPROTECT(1);
     return pr;
@@ -1724,6 +1746,26 @@ decl_sbthread newConn(void *thp) {
 			return;
 		}
 
+		if (ph.cmd == CMD_setEncoding) { /* set string encoding */
+			process = 1;
+			if (pars<1 || parT[0] != DT_STRING) 
+				sendResp(s, SET_STAT(RESP_ERR, ERR_inv_par));
+			else {
+				char *c = (char*) parP[0];
+#ifdef RSERV_DEBUG
+				printf(">>CMD_setEncoding '%s'.\n", c ? c : "<null>");
+#endif
+#ifdef USE_ENCODING
+				if (c && set_string_encoding(c, 0))
+					sendResp(s, RESP_OK);
+				else
+					sendResp(s, SET_STAT(RESP_ERR, ERR_inv_par));
+#else
+				sendResp(s, SET_STAT(RESP_ERR, ERR_unsupportedCmd));
+#endif
+			}
+		}
+
 		if (ph.cmd==CMD_setBufferSize) {
 			process=1;
 			if (pars<1 || parT[0]!=DT_INT) 
@@ -1907,7 +1949,7 @@ decl_sbthread newConn(void *thp) {
 					printf("  assigning string \"%s\"\n",((char*)(parP[1])));
 #endif
 					PROTECT(val = allocVector(STRSXP,1));
-					SET_STRING_ELT(val,0,mkChar((char*)(parP[1])));
+					SET_STRING_ELT(val,0,mkRChar((char*)(parP[1])));
 					defineVar((sym)?sym:install(c),val,R_GlobalEnv);
 					UNPROTECT(1);
 					sendResp(s,RESP_OK);
@@ -2356,6 +2398,13 @@ int main(int argc, char **argv)
 					fprintf(stderr,"Missing socket specification for --RS-socket.\n");
 				else
 					localSocketName=argv[++i];
+			}
+			if (!strcmp(argv[i]+2, "RS-encoding")) {
+				isRSP = 1;
+				if (i + 1 == argc)
+					fprintf(stderr,"Missing socket specification for --RS-encoding.\n");
+				else
+					set_string_encoding(argv[++i], 1);
 			}
 			if (!strcmp(argv[i]+2,"RS-workdir")) {
 				isRSP=1;
