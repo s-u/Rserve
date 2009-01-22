@@ -27,6 +27,20 @@
    see also SOCK_ERROR, MAIN and other defines in sisocks.h
 */
 
+/* locally generated status error and return codes:
+   -1  - operation failed (e.g. connect failed)
+   -2  - handhake failed
+   -3  - invalid ID string
+   -4  - protocol not supported
+   -5  - not connected
+   -6  - - unused -
+   -7  - remote connection close
+   -8  - malformed packet
+   -9  - send error
+   -10 - out of memory
+   -11 - operation is unsupported (e.g. unix login while crypt is not linked)
+   -12 - eval didn't return a SEXP (possibly the server is too old/buggy or crashed)
+ */
 #include "Rconnection.h"
 
 #include <stdio.h>
@@ -260,6 +274,9 @@ Rexp::Rexp(int type, const char *data, int len, Rexp *attr) {
     this->type=type;
     this->msg=0;
     if (len>0) {
+#ifdef DEBUG_CXX
+        fprintf(stderr, "Rexp::Rexp %p: allocating %d bytes\n", this, len);
+#endif
         this->data=(char*) malloc(len);
         memcpy(this->data, data, len);
         this->len=len;
@@ -711,8 +728,9 @@ int Rconnection::assign(const char *symbol, Rexp *exp) {
         delete(msg);
         return res;
     }
-    // we should check response code here ...
-    return 0;
+    if (!res) res = CMD_STAT(msg->command());
+    delete(msg);
+    return res;
 }
 
 int Rconnection::voidEval(const char *cmd) {
@@ -721,7 +739,7 @@ int Rconnection::voidEval(const char *cmd) {
     return status;
 }
     
-Rexp *Rconnection::eval(const char *cmd, int *status, int opt) {
+Rexp *Rconnection::eval(const char *cmd, int *status, int opt) { /* opt = 1 -> void eval */
     Rmessage *msg=new Rmessage();
     Rmessage *cmdMessage=new Rmessage((opt&1)?CMD_voidEval:CMD_eval, cmd);
     int res=request(msg,cmdMessage);
@@ -731,9 +749,9 @@ Rexp *Rconnection::eval(const char *cmd, int *status, int opt) {
         delete(msg);
         return 0;
     }
-    if (!res && (msg->pars!=1 || (ptoi(msg->par[0][0])&0x3f)!=DT_SEXP)) {
+    if ((opt & 1) == 0 && !res && (msg->pars!=1 || (ptoi(msg->par[0][0])&0x3f)!=DT_SEXP)) {
         delete(msg);
-        if (status) *status=-10; // returned object is not SEXP
+        if (status) *status=-12; // returned object is not SEXP
         return 0;
     }
     if (res) {
