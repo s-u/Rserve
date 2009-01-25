@@ -56,8 +56,9 @@ cat DESCRIPTION| sed "s/Version:.*/Version: ${VER}/" > d
 mv d DESCRIPTION
 echo "Creating package ..."
 cd ..
-R CMD build --force Rserve
-# tar fcz Rserve_${VER}.tar.gz Rserve
+# do NOT use build - it screws up symbolic links
+#R CMD build --force Rserve
+tar fcz Rserve_${VER}.tar.gz Rserve
 cd ${SWD}
 cp /tmp/Rserve_${VER}.tar.gz ..
 rm -rf /tmp/Rserve

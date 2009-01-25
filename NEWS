@@ -1,6 +1,9 @@
  NEWS/Changelog for Rserve
 ---------------------------
 
+0.5-4	(under development)
+
+
 0.5-3	2009-01-25
     o	fix SET_VECTOR_ELT/SET_STRING_ELT mismatches
 
