@@ -20,10 +20,12 @@ Rserv_d.o:	Rserv.c
 
 Rserve.exe:	Rserv.o winembed.o
 	$(LINKER) -s $(DLLFLAGS) $(LINKFLAGS) $($*-LINKFLAGS) -o $@ $^ $($*-LIBS) $(LIBS) -lwsock32 $(DLLLIBS)
+	-@mkdir $(TOP)/inst 2>/dev/null
 	-cp $@ $(TOP)/inst/$@
 
 Rserve_d.exe:	Rserv_d.o winembed.o
 	$(LINKER) $(DLLFLAGS) $(LINKFLAGS) $($*-LINKFLAGS) -o $@ $^ $($*-LIBS) $(LIBS) -lwsock32 $(DLLLIBS)
+	-@mkdir $(TOP)/inst 2>/dev/null
 	-cp $@ $(TOP)/inst/$@
 
 # there's not really a DLL - all we want is the EXE,
@@ -39,8 +41,8 @@ install: Rserve.exe Rserve_d.exe
 	cp $^ $(RHOME)/bin
 
 clean: 
-	-rm *.o Rserve.exe Rserve_d.exe
+	-rm -f *.o Rserve.exe Rserve_d.exe
 
 distclean: clean
-	-rm Rserve.exe Rserve_d.exe
-	-rm $(TOP)/inst/Rserve.exe $(TOP)/inst/Rserve_d.exe
+	-rm -f Rserve.exe Rserve_d.exe
+	-rm -f $(TOP)/inst/Rserve.exe $(TOP)/inst/Rserve_d.exe

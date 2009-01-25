@@ -10,7 +10,7 @@ cp -r ../Rserve /tmp
 rm -f /tmp/Rserve/mkdist
 
 cd /tmp/Rserve
-mkdir inst
+# mkdir inst
 if [ -e configure ]; then
   echo "Note: configure exists, no attempt to reconfigure will be made."
 else

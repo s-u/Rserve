@@ -33,7 +33,8 @@ server:	$(XFILES)
 #	-cp $(XFILES) ../inst/bin$(R_ARCH)/
 
 # we copy the binary only in single-arch case to avoid confusion
-	-if test "x$(R_ARCH)" = x; then cp $(XFILES) ../inst/; else echo "Rserve binary was installed in libs because multi-arch support is enabled." > ../inst/Rserve-bin.txt; fi
+	-@mkdir -p ../inst 2>/dev/null
+	-@if test "x$(R_ARCH)" = x; then cp $(XFILES) ../inst/; else echo "Rserve binary was installed in libs because multi-arch support is enabled." > ../inst/Rserve-bin.txt; fi
 
 install: @WITH_SERVER_TRUE@ $(XFILES)
 @WITH_SERVER_TRUE@	-cp Rserve $(Rbin)
@@ -56,6 +57,7 @@ Rserve.so: @WITH_SERVER_TRUE@ Rserve
 client: config.h
 	cp config.h client/cxx/
 	make -C client/cxx
+	-@mkdir ../inst 2>/dev/null
 	-rm -rf ../inst/client
 	-cp -r client ../inst/
 	cp Rsrv.h config.h include/sisocks.h ../inst/client/cxx/
