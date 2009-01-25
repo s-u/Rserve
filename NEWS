@@ -4,6 +4,14 @@
 0.5-3	(under development)
     o	fix SET_VECTOR_ELT/SET_STRING_ELT mismatches
 
+    o	set object flag when decoding objects that have
+	a "class" attribute (fixes issues with S3 objects that
+	were passed from the client to the server).
+
+    o	set S4 bit for pure S4 objects (S4SEXP). No other S4
+	objects are supported because there is no way to tell
+	that an assembled object is really an S4 object
+
     o	added string encoding support (where R supports it)
 	The string encoding can be set in the configuration file
 	(directive "encoding"), on the command line with --RS-encoding

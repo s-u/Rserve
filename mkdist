@@ -56,7 +56,8 @@ cat DESCRIPTION| sed "s/Version:.*/Version: ${VER}/" > d
 mv d DESCRIPTION
 echo "Creating package ..."
 cd ..
-tar fcz Rserve_${VER}.tar.gz Rserve
+R CMD build --force Rserve
+# tar fcz Rserve_${VER}.tar.gz Rserve
 cd ${SWD}
 cp /tmp/Rserve_${VER}.tar.gz ..
 rm -rf /tmp/Rserve

@@ -971,7 +971,27 @@ SEXP decode_to_SEXP(unsigned int **buf, int *UPC)
 		error("unsupported type %d\n", ty);
 		*buf=(unsigned int*)((char*)b + ln);
     }
-	if (vatt) SET_ATTRIB(val, vatt);
+	if (vatt) {
+		/* if vatt contains "class" we have to set the object bit [we could use classgets(vec,kls) instead] */
+		SEXP head = vatt;
+		int has_class = 0;
+		SET_ATTRIB(val, vatt);
+		while (head != R_NilValue) {
+			if (TAG(head) == R_ClassSymbol) {
+				has_class = 1; break;
+			}
+			head = CDR(head);
+		}
+		if (has_class) /* if it has a class slot, we have to set the object bit */
+			SET_OBJECT(val, 1);
+#ifdef SET_S4_OBJECT
+		/* FIXME: we have currently no way of knowing whether an object
+		   derived from a non-S4 type is actually S4 object. Hence
+		   we can only flag "pure" S4 objects */
+		if (TYPEOF(val) == S4SXP)
+			SET_S4_OBJECT(val);
+#endif
+	}
     return val;
 }
 
