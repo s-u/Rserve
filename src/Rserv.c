@@ -1564,7 +1564,7 @@ decl_sbthread newConn(void *thp) {
 			char *pbuf = (char*) RAW(pp);
 			size_t i = 0;
 #ifdef RSERV_DEBUG
-			printf("loading (raw) buffer (awaiting %d bytes)\n",plen);
+			printf("loading (raw) buffer (awaiting %d bytes)\n", (int)plen);
 #endif
 			while((n = recv(s,(char*)(pbuf+i),plen-i,0))) {
 				if (n > 0) i+=n;
@@ -1579,13 +1579,13 @@ decl_sbthread newConn(void *thp) {
 			if (!maxInBuf || plen<maxInBuf) {
 				if (plen>=inBuf) {
 #ifdef RSERV_DEBUG
-					printf("resizing input buffer (was %d, need %d) to %d\n",inBuf,plen,((plen|0x1fff)+1));
+					printf("resizing input buffer (was %d, need %d) to %d\n", (int)inBuf, (int) plen, (int)(((plen|0x1fff)+1)));
 #endif
 					free(buf); /* the buffer is just a scratchpad, so we don't need to use realloc */
 					buf=(char*)malloc(inBuf=((plen|0x1fff)+1)); /* use 8kB granularity */
 					if (!buf) {
 #ifdef RSERV_DEBUG
-						fprintf(stderr,"FATAL: out of memory while resizing buffer to %d,\n",inBuf);
+						fprintf(stderr,"FATAL: out of memory while resizing buffer to %d,\n", (int)inBuf);
 #endif
 						sendResp(s,SET_STAT(RESP_ERR,ERR_out_of_mem));
 						free(sendbuf); free(sfbuf);
@@ -1594,7 +1594,7 @@ decl_sbthread newConn(void *thp) {
 					}	    
 				}
 #ifdef RSERV_DEBUG
-				printf("loading buffer (awaiting %d bytes)\n",plen);
+				printf("loading buffer (awaiting %d bytes)\n",(int) plen);
 #endif
 				i=0;
 				while((n=recv(s,(char*)(buf+i),plen-i,0))) {
@@ -1643,7 +1643,7 @@ decl_sbthread newConn(void *thp) {
 					if (pars>15) break;
 				} /* we don't parse more than 16 parameters */
 			} else {
-				printf("discarding buffer because too big (awaiting %d bytes)\n",plen);
+				printf("discarding buffer because too big (awaiting %d bytes)\n", (int)plen);
 				size_t i=plen;
 				while((n=recv(s,(char*)buf,i>inBuf?inBuf:i,0))) {
 					if (n>0) i-=n;
