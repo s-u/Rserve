@@ -67,7 +67,7 @@
 #endif
 
 // NOTE: 0103 compatibility has not been established! use at your own risk!
-static char *myID= "Rsrv0103QAP1"; /* this client supports up to protocol version 0103 */
+static const char *myID = "Rsrv0103QAP1"; /* this client supports up to protocol version 0103 */
 
 static Rexp *new_parsed_Rexp(unsigned int *d, Rmessage *msg) {
     int type=ptoi(*d)&0x3f;
@@ -355,7 +355,7 @@ Rexp *Rexp::attribute(const char *name) {
     return (attr && attr->type==XT_LIST)?((Rlist*)attr)->entryByTagName(name):0;
 }
 
-char **Rexp::attributeNames() {
+const char **Rexp::attributeNames() {
     if (!attr || attr->type!=XT_LIST)
         return 0;
     if (attribs==0) {
@@ -365,7 +365,7 @@ char **Rexp::attributeNames() {
             if (l->tag && l->tag->type==XT_SYM) attribs++;
             l=l->tail;
         }
-        attrnames=(char**) malloc(sizeof(char*)*(attribs+1));
+        attrnames=(const char**) malloc(sizeof(char*)*(attribs+1));
         l = (Rlist*) attr;
         while (l && l->type==XT_LIST) {
             if (l->tag && l->tag->type==XT_SYM)
