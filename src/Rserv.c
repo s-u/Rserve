@@ -2415,7 +2415,11 @@ void serverLoop() {
 		while (waitpid(-1,0,WNOHANG)>0);
 #endif
 #ifdef unix
-		timv.tv_sec=0; timv.tv_usec=100000; /* 500ms (used to be 10ms) - it shouldn't really matter since it's ok for us to sleep */
+		/* 500ms (used to be 10ms) - it shouldn't really matter since
+		   it's ok for us to sleep -- the timeout will only influence
+		   how often we collect terminated children and (maybe) how
+		   quickly we react to shutdown */
+		timv.tv_sec=0; timv.tv_usec=500000;
 		FD_ZERO(&readfds);
 		FD_SET(ss, &readfds);
 		if (children) {
