@@ -2491,7 +2491,7 @@ void serverLoop() {
 #endif
 						close(cp->inp);
 						/* remove the child from the list */
-						if (cp->prev) cp->prev->next = cp->next; else children = cp;
+						if (cp->prev) cp->prev->next = ncp; else children = ncp;
 						if (ncp) ncp->prev = cp->prev;
 						free(cp);
 						cp = ncp;
