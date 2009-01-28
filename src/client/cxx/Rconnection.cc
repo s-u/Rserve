@@ -110,7 +110,7 @@ Rmessage::Rmessage() {
 
 Rmessage::Rmessage(int cmd) {
     memset(&head,0,sizeof(head));
-    head.cmd=cmd&0x3f;
+    head.cmd = cmd;
     data=0;
     len=0;
     complete=1;
@@ -122,7 +122,7 @@ Rmessage::Rmessage(int cmd, const char *txt) {
     if ((tl&3)>0)
         tl=(tl+4)&0xffffc; // allign the text
     len=tl+4; // message length is tl + 4 (short format only)
-    head.cmd=cmd&0x3f;
+    head.cmd=cmd;
     head.len=len;
     data=(char*)malloc(tl+16);
     memset(data,0,tl+16);
@@ -134,7 +134,7 @@ Rmessage::Rmessage(int cmd, const char *txt) {
 Rmessage::Rmessage(int cmd, const void *buf, int dlen, int raw_data) {
     memset(&head,0,sizeof(head));
     len=(raw_data)?dlen:(dlen+4);
-    head.cmd=cmd&0x3f;
+    head.cmd=cmd;
     head.len=len;
     data=(char*)malloc(len);
     memcpy(data, (raw_data)?buf:((char*)buf+4), dlen);
@@ -146,7 +146,7 @@ Rmessage::Rmessage(int cmd, const void *buf, int dlen, int raw_data) {
 Rmessage::Rmessage(int cmd, int i) {
     memset(&head,0,sizeof(head));
     len=8; // DT_INT+len (4) + payload-1xINT (4)
-    head.cmd=cmd&0x3f;
+    head.cmd=cmd;
     head.len=len;
     data=(char*)malloc(8);
     *((int*)data)=itop(SET_PAR(DT_INT,4));
@@ -868,3 +868,42 @@ int Rconnection::login(const char *user, const char *pwd) {
   free(authbuf);
   return res;
 }
+
+#ifdef CMD_ctrl
+
+/* server control methods */
+int serverEval(const char *cmd);
+int serverSource(const char *fn);
+int serverShutdown();
+
+int Rconnection::serverEval(const char *cmd) {
+    Rmessage *msg = new Rmessage(); /* result message */
+    Rmessage *cmdMessage = new Rmessage(CMD_ctrlEval, cmd); /* request message */
+    int res = request(msg, cmdMessage);
+    delete (cmdMessage);
+    if (!res) res = CMD_STAT(msg->command());
+    delete (msg);
+    return res;
+}
+
+int Rconnection::serverSource(const char *fn) {
+    Rmessage *msg = new Rmessage(); /* result message */
+    Rmessage *cmdMessage = new Rmessage(CMD_ctrlSource, fn); /* request message */
+    int res = request(msg, cmdMessage);
+    delete (cmdMessage);
+    if (!res) res = CMD_STAT(msg->command());
+    delete (msg);
+    return res;
+}
+
+int Rconnection::serverShutdown() {
+    Rmessage *msg = new Rmessage(); /* result message */
+    Rmessage *cmdMessage = new Rmessage(CMD_ctrlShutdown); /* request message */
+    int res = request(msg, cmdMessage);
+    delete (cmdMessage);
+    if (!res) res = CMD_STAT(msg->command());
+    delete (msg);
+    return res;
+}
+
+#endif

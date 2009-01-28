@@ -398,6 +398,13 @@ public:
     int writeFile(const char *buf, unsigned int len);
     int closeFile();
     int removeFile(const char *fn);
+	
+#ifdef CMD_ctrl
+    /* server control functions (need Rserve 0.6-0 or higher) */
+    int serverEval(const char *cmd);
+    int serverSource(const char *fn);
+    int serverShutdown();
+#endif
 };
 
 #endif

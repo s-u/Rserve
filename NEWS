@@ -1,7 +1,38 @@
  NEWS/Changelog for Rserve
 ---------------------------
 
-0.5-4	(under development)
+0.6-0	(under development)
+    o	added support for control commands CMD_ctrlEval,
+	CMD_ctrlSource and CMD_ctrlShutdown. Those commands provide
+	control over the server process. The side-efect of eval and
+	source are then available to all future connections.
+
+	Control commands are only available if they are enabled, e.g.,
+	with the config file entry "control enable". In addition if
+	authorization is required or the passwords file is set only
+	designated users will have control access (see next point).
+
+	Note that enabling control commands will make Rserve use at
+	least one file descriptor per active child process, so you may
+	want to adjust the maximum number of file descriptor in your
+	system if you expect hundreds of concurrent clients.
+
+    o	The passwords file format has been enhanced to give
+	finer-granularity control over the user authorization.
+
+	Only users with "@" prefix can issue control commands. The
+	prefix is not part of the user name for authentication
+	purposes.
+
+	In addition, if the password file contains an entry
+	starting with "*" it will be interpreted as blank
+	authorization, i.e. any username/pwd will authenticate. This
+	may be useful in conjunction with control prefix, e.g., the
+	following file would give blank authorization to all users but
+	only the user "joe" will be able to use control commands:
+
+	@joe foobar
+	*
 
 
 0.5-3	2009-01-25

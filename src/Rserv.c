@@ -229,6 +229,13 @@ extern int R_SignalHandlers;
 #define RS_ParseVector(A,B,C) R_ParseVector(A,B,C,R_NilValue)
 #endif
 
+/* child control commands */
+#define CCTL_EVAL     1 /* data: string */
+#define CCTL_SOURCE   2 /* data: string */
+#define CCTL_SHUTDOWN 3 /* - */
+
+#define MAX_CTRL_DATA (1024*1024) /* max. length of data for control commands - larger data will be ignored */
+
 int dumpLimit=128;
 
 int port = default_Rsrv_port;
@@ -250,7 +257,12 @@ SOCKET csock=-1;
 
 int parentPID=-1;
 
-int maxSendBufSize=0; /* max. sendbuf for auto-resize. 0=no limit */
+int is_child = 0;       /* 0 for parent (master), 1 for children */
+int parent_pipe = -1;   /* pipe to the master process or -1 if not available */
+int can_control = 0;    /* control commands will be rejected unless this flag is set */
+int child_control = 0;  /* enable/disable the ability of children to send commands to the master process */
+
+int maxSendBufSize = 0; /* max. sendbuf for auto-resize. 0=no limit */
 
 static int umask_value = 0;
 
@@ -1162,6 +1174,8 @@ int loadConfig(char *fn)
 						*l = 0;
 					}
 			}
+			if (!strcmp(c, "control") && (p[0] == 'e' || p[0] == 'y' || p[1] == '1'))
+				child_control = 1;
 			if (!strcmp(c,"workdir"))
 				workdir = (*p) ? strdup(p) : 0;
 			if (!strcmp(c,"encoding") && *p)
@@ -1439,6 +1453,13 @@ SOCKET resume_session() {
 	return -1;
 }
 
+typedef struct child_process {
+	pid_t pid;
+	int   inp;
+	struct child_process *prev, *next;
+} child_process_t;
+
+child_process_t *children;
 
 /* working thread/function. the parameter is of the type struct args* */
 decl_sbthread newConn(void *thp) {
@@ -1467,15 +1488,46 @@ decl_sbthread newConn(void *thp) {
     
     SEXP xp,exp;
     FILE *cf=0;
+
+	int cinp[2];
     
 #ifdef FORKED  
-    long rseed=random();
-    rseed^=time(0);
-    if ((lastChild=fork())!=0) {
+    long rseed = random();
+    rseed ^= time(0);
+	
+	parent_pipe = -1;
+	cinp[0] = -1;
+
+	/* we use the input pipe only if child control is enabled. disabled pipe means no registration */
+	if (child_control && pipe(cinp) != 0)
+		cinp[0] = -1;
+
+    if ((lastChild = fork()) != 0) { /* parent/master part */
 		/* close the connection socket - the child has it already */
 		closesocket(a->s);
+		if (cinp[0] != -1) { /* if we have a valid pipe register the child */
+			child_process_t *cp = (child_process_t*) malloc(sizeof(child_process_t));
+			close(cinp[1]); /* close the write end which is what the child will be using */
+#ifdef RSERV_DEBUG
+			printf("child %d was spawned, registering input pipe\n", (int)lastChild);
+#endif
+			cp->inp = cinp[0];
+			cp->pid = lastChild;
+			cp->next = children;
+			if (children) children->prev = cp;
+			cp->prev = 0;
+			children = cp;
+		}
+		free(a); /* release the args */
 		return;
     }
+	/* child part */
+	is_child = 1;
+	if (cinp[0] != -1) { /* if we have a vaild pipe to the parent set it up */
+		parent_pipe = cinp[1];
+		close(cinp[0]);
+	}
+
     srandom(rseed);
     
     parentPID=getppid();
@@ -1538,6 +1590,11 @@ decl_sbthread newConn(void *thp) {
     printf("sending ID string.\n");
 #endif
     send(s,(char*)buf,32,0);
+	
+	can_control = 0;
+	if (!authReq && !pwdfile) /* control is allowed by default only if authentication is not required and passwd is not present. In all other cases it will be set during authentication. */
+		can_control = 1;
+
     while((n=recv(s,(char*)&ph,sizeof(ph),0))==sizeof(ph)) {
 		size_t plen = 0;
 		SEXP pp = R_NilValue; /* packet payload (as a raw vector) for special commands */
@@ -1688,6 +1745,7 @@ decl_sbthread newConn(void *thp) {
 				printf("Authentication attempt (login='%s',pwd='%s',pwdfile='%s')\n",c,cc,pwdfile);
 #endif
 				if (pwdfile) {
+					int ctrl_flag = 0;
 					authed=0; /* if pwdfile exists, default is access denied */
 					/* TODO: opening pwd file, parsing it and responding
 					   might be a bad idea, since it allows DOS attacks as this
@@ -1709,6 +1767,18 @@ decl_sbthread newConn(void *thp) {
 								};
 								c2=c1;
 								while(*c2) if (*c2=='\r'||*c2=='\n') *c2=0; else c2++;
+								ctrl_flag = 0;
+								if (*c == '@') { /* only users with @ prefix can use control commands */
+									c++;
+									ctrl_flag = 1;
+								}
+								if (*c == '*') { /* general authentication - useful to set control access but leave client access open */
+									authed = 1;
+#ifdef RSERV_DEBUG
+									printf("Public authentication enabled (found * entry), allowing login without checking.\n");
+#endif
+									break;
+								}
 								if (!strcmp(sfbuf,c)) { /* login found */
 #ifdef RSERV_DEBUG
 									printf("Found login '%s', checking password.\n", c);
@@ -1737,12 +1807,14 @@ decl_sbthread newConn(void *thp) {
 					} /* if (cf) */
 					cf=0;
 					if (authed) {
+						can_control = ctrl_flag;
 						process=1;
 						sendResp(s,RESP_OK);
 					}
 				}
 			}
 		}
+
 		/* if not authed by now, close connection */
 		if (authReq && !authed) {
 			sendResp(s,SET_STAT(RESP_ERR,ERR_auth_failed));
@@ -1750,8 +1822,8 @@ decl_sbthread newConn(void *thp) {
 			free(sendbuf); free(sfbuf); free(buf);
 			return;
 		}
-	
-		if (ph.cmd==CMD_shutdown) {
+
+		if (ph.cmd==CMD_shutdown) { /* FIXME: now that we have control commands we may rethink this ... */
 			sendResp(s,RESP_OK);
 #ifdef RSERV_DEBUG
 			printf("initiating clean shutdown.\n");
@@ -1764,6 +1836,48 @@ decl_sbthread newConn(void *thp) {
 			exit(0);
 #endif
 			return;
+		}
+
+		if (ph.cmd == CMD_ctrlEval || ph.cmd == CMD_ctrlSource || ph.cmd == CMD_ctrlShutdown) {
+			process = 1;
+#ifdef RSERV_DEBUG
+			printf("control command: %s [can control: %s, pipe: %d]\n", (ph.cmd == CMD_ctrlEval) ? "eval" : ((ph.cmd == CMD_ctrlSource) ? "source" : "shutdown"), can_control ? "yes" : "no", parent_pipe);
+#endif
+			if (!can_control) /* no right to do this */
+				sendResp(s, SET_STAT(RESP_ERR, ERR_accessDenied));
+			else {
+				/* source and eval require a parameter */
+				if ((ph.cmd == CMD_ctrlEval || ph.cmd == CMD_ctrlSource) && (pars < 1 || parT[0] != DT_STRING))
+					sendResp(s, SET_STAT(RESP_ERR, ERR_inv_par));
+				else {
+					if (parent_pipe == -1)
+						sendResp(s, SET_STAT(RESP_ERR, ERR_ctrl_closed));
+					else {
+						long cmd[2] = { 0, 0 };
+						if (ph.cmd == CMD_ctrlEval) { cmd[0] = CCTL_EVAL; cmd[1] = strlen(parP[0]) + 1; }
+						else if (ph.cmd == CMD_ctrlSource) { cmd[0] = CCTL_SOURCE; cmd[1] = strlen(parP[0]) + 1; }
+						else cmd[0] = CCTL_SHUTDOWN;
+						if (write(parent_pipe, cmd, sizeof(cmd)) != sizeof(cmd)) {
+#ifdef RSERV_DEBUG
+							printf(" - send to parent pipe (cmd=%ld, len=%ld) failed, closing parent pipe\n", cmd[0], cmd[1]);
+#endif
+							close(parent_pipe);
+							parent_pipe = -1;
+							sendResp(s, SET_STAT(RESP_ERR, ERR_ctrl_closed));
+						} else {
+							if (cmd[1] && write(parent_pipe, parP[0], cmd[1]) != cmd[1]) {
+#ifdef RSERV_DEBUG
+								printf(" - send to parent pipe (cmd=%ld, len=%ld, sending data) failed, closing parent pipe\n", cmd[0], cmd[1]);
+#endif
+								close(parent_pipe);
+								parent_pipe = 01;
+								sendResp(s, SET_STAT(RESP_ERR, ERR_ctrl_closed));
+							} else
+								sendResp(s, RESP_OK);
+						}
+					}
+				}
+			}
 		}
 
 		if (ph.cmd == CMD_setEncoding) { /* set string encoding */
@@ -2296,14 +2410,24 @@ void serverLoop() {
     
     FCF("listen",listen(ss,LISTENQ));
     while(active) { /* main serving loop */
+		int maxfd = ss;
 #ifdef FORKED
 		while (waitpid(-1,0,WNOHANG)>0);
 #endif
 #ifdef unix
-		timv.tv_sec=0; timv.tv_usec=10000;
-		FD_ZERO(&readfds); FD_SET(ss,&readfds);
-		selRet=select(ss+1,&readfds,0,0,&timv);
-		if (selRet>0 && FD_ISSET(ss,&readfds)) {
+		timv.tv_sec=0; timv.tv_usec=100000; /* 500ms (used to be 10ms) - it shouldn't really matter since it's ok for us to sleep */
+		FD_ZERO(&readfds);
+		FD_SET(ss, &readfds);
+		if (children) {
+			child_process_t *cp = children;
+			while (cp) {
+				FD_SET(cp->inp, &readfds);
+				if (cp->inp > maxfd) maxfd = cp->inp;
+				cp = cp->next;
+			}
+		}
+		selRet = select(maxfd + 1, &readfds, 0, 0, &timv);
+		if (selRet > 0 && FD_ISSET(ss,&readfds)) {
 #endif
 			sa=(struct args*)malloc(sizeof(struct args));
 			memset(sa,0,sizeof(struct args));
@@ -2354,6 +2478,78 @@ void serverLoop() {
 			newConn(sa);
 #endif
 #ifdef unix
+		} else if (selRet > 0 && children) { /* one of the children signalled */
+			child_process_t *cp = children;
+			while (cp) {
+				if (FD_ISSET(cp->inp, &readfds)) {
+					long cmd[2];
+					int n = read(cp->inp, cmd, sizeof(cmd));
+					if (n < sizeof(cmd)) { /* is anything less arrives, assume corruption and remove the child */
+						child_process_t *ncp = cp->next;
+#ifdef RSERV_DEBUG
+						printf("pipe to child %d closed (n=%d), removing child\n", (int) cp->pid, n);
+#endif
+						close(cp->inp);
+						/* remove the child from the list */
+						if (cp->prev) cp->prev->next = cp->next; else children = cp;
+						if (ncp) ncp->prev = cp->prev;
+						free(cp);
+						cp = ncp;
+					} else { /* we got a valid command */
+						/* FIXME: we should perform more rigorous checks on the protocol - we are currently ignoring anything bad */
+						char cib[256];
+						char *xb = 0;
+#ifdef RSERV_DEBUG
+						printf(" command from child %d: %ld data bytes: %ld\n", (int) cp->pid, cmd[0], cmd[1]);
+#endif
+						cib[0] = 0;
+						cib[255] = 0;
+						n = 0;
+						if (cmd[1] > 0 && cmd[1] < 256)
+							n = read(cp->inp, cib, cmd[1]);
+						else if (cmd[1] > 0 && cmd[1] < MAX_CTRL_DATA) {
+							xb = (char*) malloc(cmd[1] + 4);
+							xb[0] = 0;
+							if (xb)
+								n = read(cp->inp, xb, cmd[1]);
+							if (n > 0)
+								xb[n] = 0;
+						}
+#ifdef RSERV_DEBUG
+						printf(" - read %d bytes of %ld data from child %d\n", n, cmd[1], (int) cp->pid);
+#endif
+						if (n == cmd[1]) { /* perform commands only if we got all the data */
+							if (cmd[0] == CCTL_EVAL) {
+#ifdef RSERV_DEBUG
+								printf(" - control calling voidEval(\"%s\")\n", xb ? xb : cib);
+#endif
+								voidEval(xb ? xb : cib);
+							} else if (cmd[0] == CCTL_SOURCE) {
+								int evalRes = 0;
+								SEXP exp;
+								SEXP sfn = PROTECT(allocVector(STRSXP, 1));
+								SET_STRING_ELT(sfn, 0, mkRChar(xb ? xb : cib));
+								exp = LCONS(install("source"), CONS(sfn, R_NilValue));
+#ifdef RSERV_DEBUG
+								printf(" - control calling source(\"%s\")\n", xb ? xb : cib);
+#endif
+								R_tryEval(exp, R_GlobalEnv, &evalRes);
+#ifdef RSERV_DEBUG
+								printf(" - result: %d\n", evalRes);
+#endif
+								UNPROTECT(1);								
+							} else if (cmd[0] == CCTL_SHUTDOWN) {
+#ifdef RSERV_DEBUG
+								printf(" - shutdown via control, setting active to 0\n");
+#endif
+								active = 0;
+							}
+						}
+						cp = cp->next;
+					}
+				} else
+					cp = cp->next;
+			}
 		}
 #endif
     }
@@ -2441,11 +2637,12 @@ int main(int argc, char **argv)
 					loadConfig(argv[++i]);
 			}
 			if (!strcmp(argv[i]+2,"RS-settings")) {
-				printf("Rserve v%d.%d-%d\n\nconfig file: %s\nworking root: %s\nport: %d\nlocal socket: %s\nauthorization required: %s\nplain text password: %s\npasswords file: %s\nallow I/O: %s\nallow remote access: %s\nmax.input buffer size: %d kB\n\n",
-					   RSRV_VER>>16,(RSRV_VER>>8)&255,RSRV_VER&255,
-					   CONFIG_FILE,workdir,port,localSocketName?localSocketName:"[none, TCP/IP used]",
-					   authReq?"yes":"no",usePlain?"allowed":"not allowed",pwdfile?pwdfile:"[none]",allowIO?"yes":"no",localonly?"no":"yes",
-					   maxInBuf/1024);
+				printf("Rserve v%d.%d-%d\n\nconfig file: %s\nworking root: %s\nport: %d\nlocal socket: %s\nauthorization required: %s\nplain text password: %s\npasswords file: %s\nallow I/O: %s\nallow remote access: %s\ncontrol commands: %s\nmax.input buffer size: %d kB\n\n",
+					   RSRV_VER>>16, (RSRV_VER>>8)&255, RSRV_VER&255,
+					   CONFIG_FILE, workdir, port, localSocketName ? localSocketName : "[none, TCP/IP used]",
+					   authReq ? "yes" : "no", usePlain ? "allowed" : "not allowed", pwdfile ? pwdfile : "[none]",
+					   allowIO ? "yes" : "no", localonly ? "no" : "yes",
+					   child_control ? "yes" : "no", maxInBuf/1024);
 				return 0;	       
 			}
 			if (!strcmp(argv[i]+2,"version")) {

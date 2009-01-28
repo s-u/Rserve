@@ -32,7 +32,7 @@
 #include "config.h"
 #endif
 
-#define RSRV_VER 0x000504 /* Rserve v0.5-4 */
+#define RSRV_VER 0x000600 /* Rserve v0.6-0 */
 
 #define default_Rsrv_port 6311
 
@@ -163,6 +163,9 @@ struct phdr { /* always 16 bytes */
 #define ERR_out_of_mem       0x4d /* out of memory. the connection is usually
 									 closed after this error was sent */
 
+/* since 0.6-0 */
+#define ERR_ctrl_closed      0x4e /* control pipe to the master process is closed or broken */
+
 /* since 0.4-0 */
 #define ERR_session_busy     0x50 /* session is still busy */
 #define ERR_detach_failed    0x51 /* unable to detach seesion (cannot determine
@@ -195,6 +198,20 @@ struct phdr { /* always 16 bytes */
 #define CMD_detachSession    0x030 /* : session key */
 #define CMD_detachedVoidEval 0x031 /* string : session key; doesn't */
 #define CMD_attachSession    0x032 /* session key : - */  
+
+/* control commands (since 0.6-0) - passed on to the master process */
+/* Note: currently all control commands are asychronous, i.e. RESP_OK
+   indicates that the command was enqueued in the master pipe, but there
+   is no guarantee that it will be processed. Moreover non-forked
+   connections (e.g. the default debug setup) don't process any
+   control commands until the current client connection is closed so
+   the connection issuing the control command will never see its
+   result.
+*/
+#define CMD_ctrl            0x40  /* -- not a command - just a constant -- */
+#define CMD_ctrlEval        0x42  /* string : - */
+#define CMD_ctrlSource      0x45  /* string : - */
+#define CMD_ctrlShutdown    0x44  /* - : - */
 
 /* 'internal' commands (since 0.1-9) */
 #define CMD_setBufferSize 0x081  /* [int sendBufSize] 
