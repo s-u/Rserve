@@ -28,10 +28,11 @@ AC_MSG_CHECKING([whether to compile the server])
 if test "${with_server}" = yes; then
    AC_MSG_RESULT(yes)
    if test "${has_R_shlib}" = no; then
-      AC_MSG_ERROR([R was configured without --enable-R-shlib
+      AC_MSG_ERROR([R was configured without --enable-R-shlib or --enable-R-static-lib
 
-*** Rserve requires R shared library.                                  ***
-*** Please install libR.so or compile R with --enable-R-shlib support  ***
+*** Rserve requires R (shared or static) library.                       ***
+*** Please install R library or compile R with either --enable-R-shlib  ***
+*** or --enable-R-static-lib support                                    ***
 
  Alternatively use --without-server if you wish to build only Rserve client.
 

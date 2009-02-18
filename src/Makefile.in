@@ -51,7 +51,7 @@ Rserve.dbg:	Rserv_d.o session.o md5.o
 # this is fake for now - we should switch to Makevars.in and compile a proper library
 Rserve$(SHLIB_EXT): @WITH_SERVER_TRUE@ Rserve
 @WITH_SERVER_TRUE@	cp $^ $@
-@WITH_SERVER_FALSE@	@( touch $@ && echo "Server was not compiled." > ../inst/Rserve.txt )
+@WITH_SERVER_FALSE@	-@( touch $@; mkdir ../inst 2>/dev/null; echo "Server was not compiled." > ../inst/Rserve.txt )
 
 client: config.h
 	cp config.h client/cxx/
