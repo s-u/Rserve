@@ -1,0 +1,38 @@
+all: $(SHLIB) instdir Rserve.exe Rserve_d.exe
+
+.PHONY: all instdir
+
+INSTDIR = ../inst
+
+MAIN_LD = $(CC)
+PKG_CPPFLAGS = -DWin32 -I. -D_R_ -Iinst/include -Iinclude -Iinclude/Win32
+
+## for R < 2.9.0
+R_XTRA_CPPFLAGS = -I"$(R_HOME)/include"
+ALL_CPPFLAGS = $(R_XTRA_CPPFLAGS) $(PKG_CPPFLAGS)
+
+Rserv_d.o: Rserv.c
+	$(CC) $(ALL_CPPFLAGS) $(ALL_CFLAGS) -DRSERV_DEBUG -g -c $< -o $@
+
+$(SHLIB):
+	@echo 'nothing to be done'
+
+instdir:
+	-@mkdir $(INSTDIR) 2>/dev/null
+
+Rserve.exe:	Rserv.o winembed.o
+	$(LINKER) -s -o $@ $^ -lwsock32 -L$(RHOME)/bin -lR
+	-cp $@ $(INSTDIR)
+	-cp $@ "$(R_HOME)/bin"
+
+Rserve_d.exe:	Rserv_d.o winembed.o
+	$(LINKER) -o $@ $^ -lwsock32 -L$(RHOME)/bin -lR
+	-cp $@ $(INSTDIR)
+	-cp $@ "$(R_HOME)/bin"
+
+clean: 
+	-rm -f *.o Rserve.exe Rserve_d.exe
+
+distclean: clean
+	-rm -f Rserve.exe Rserve_d.exe
+	-rm -rf $(INSTDIR)
