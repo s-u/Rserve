@@ -146,6 +146,8 @@ the use of DT_LARGE/XT_LARGE.
 #ifdef Win32
 typedef int socklen_t;
 #define CAN_TCP_NODELAY
+#include <windows.h>
+#include <io.h>
 #endif
 
 #include <stdio.h>
@@ -186,7 +188,7 @@ typedef int socklen_t;
 #include <Rversion.h>
 #if (R_VERSION >= R_Version(2,3,0))
 #ifdef Win32 /* Windows doesn't have Rinterface */
-extern int R_SignalHandlers;
+extern __declspec(dllimport) int R_SignalHandlers;
 #else
 #include <Rinterface.h>
 #endif
@@ -264,7 +266,9 @@ int child_control = 0;  /* enable/disable the ability of children to send comman
 
 int maxSendBufSize = 0; /* max. sendbuf for auto-resize. 0=no limit */
 
+#ifdef unix
 static int umask_value = 0;
+#endif
 
 static char **allowed_ips = 0;
 
@@ -1476,7 +1480,6 @@ decl_sbthread newConn(void *thp) {
     char *tail;
     char *sfbuf;
     int Rerror;
-    char wdname[512];
     int authed=0;
     int unaligned=0;
     char salt[5];
@@ -1489,8 +1492,11 @@ decl_sbthread newConn(void *thp) {
     SEXP xp,exp;
     FILE *cf=0;
 
+#ifdef unix
+    char wdname[512];
 	int cinp[2];
-    
+#endif
+
 #ifdef FORKED  
     long rseed = random();
     rseed ^= time(0);
@@ -2359,13 +2365,13 @@ void serverLoop() {
     SAIN ssa;
     socklen_t al;
     int reuse;
-    int selRet=0;
     struct args *sa;
     struct sockaddr_in lsa;
     
 #ifdef unix
     struct sockaddr_un lusa;
     struct timeval timv;
+    int selRet=0;
     fd_set readfds;
 #endif
     
@@ -2410,11 +2416,11 @@ void serverLoop() {
     
     FCF("listen",listen(ss,LISTENQ));
     while(active) { /* main serving loop */
+#ifdef unix
 		int maxfd = ss;
 #ifdef FORKED
 		while (waitpid(-1,0,WNOHANG)>0);
 #endif
-#ifdef unix
 		/* 500ms (used to be 10ms) - it shouldn't really matter since
 		   it's ok for us to sleep -- the timeout will only influence
 		   how often we collect terminated children and (maybe) how

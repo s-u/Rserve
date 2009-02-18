@@ -70,7 +70,7 @@ extern void run_Rmainloop(void);
 /* This version blocks all events: a real one needs to call ProcessEvents
    frequently. See rterm.c and ../system.c for one approach using
    a separate thread for input */
-int myReadConsole(char *prompt, char *buf, int len, int addtohistory)
+int myReadConsole(const char *prompt, char *buf, int len, int addtohistory)
 {
     fputs(prompt, stdout);
     fflush(stdout);
@@ -78,7 +78,7 @@ int myReadConsole(char *prompt, char *buf, int len, int addtohistory)
     else return 0;
 }
 
-void myWriteConsole(char *buf, int len)
+void myWriteConsole(const char *buf, int len)
 {
     printf("%s", buf);
 }
@@ -93,16 +93,16 @@ void myBusy(int which)
     /* set a busy cursor ... if which = 1, unset if which = 0 */
 }
 
-void myMessage(char *s)
+void myMessage(const char *s)
 {
     if (!s) return;
     myWriteConsole(s, strlen(s));
 }
 
-int myYesNoCancel(char *s)
+int myYesNoCancel(const char *s)
 {
     char  ss[128];
-    unsigned char a[3];
+    char a[3];
 
     sprintf(ss, "%s [y/n/c]: ", s);
     myReadConsole(ss, a, 3, 0);
@@ -125,13 +125,19 @@ static void my_onintr(int sig)
 
 static char Rversion[25], RUser[MAX_PATH], RHome[MAX_PATH];
 
+static int dir_exists(const char* dn)
+{
+  DWORD att = GetFileAttributes(dn); /* this actually needs Win2k or higher but I suppose that's ok these days ... */
+  return (att != INVALID_FILE_ATTRIBUTES && ((att & FILE_ATTRIBUTE_DIRECTORY) != 0 || att == FILE_ATTRIBUTE_NORMAL));
+  /* the last one is weird, but according to MS docs it can happen any we cannot tell whether it's a file or a directory */
+}
+
 int Rf_initEmbeddedR(int argc, char **argv)
 {
     structRstart rp;
     Rstart Rp = &rp;
     char *p;
     char rhb[MAX_PATH+10];
-   LONG h;
    DWORD t,s=MAX_PATH;
    HKEY k;
 
@@ -148,11 +154,17 @@ int Rf_initEmbeddedR(int argc, char **argv)
     if(getenv("R_HOME")) {
 	strcpy(RHome, getenv("R_HOME"));
     } else { /* fetch R_HOME from the registry */
-      if (RegOpenKeyEx(HKEY_LOCAL_MACHINE,"SOFTWARE\\R-core\\R",0,KEY_QUERY_VALUE,&k)!=ERROR_SUCCESS ||
-	  RegQueryValueEx(k,"InstallPath",0,&t,RHome,&s)!=ERROR_SUCCESS) {
-	fprintf(stderr, "R_HOME must be set or R properly installed (\\Software\\R-core\\R\\InstallPath registry entry must exist).\n");
-	return -2;
-      };
+      /* try HKCU first such that users can override the system setting */
+      if (RegOpenKeyEx(HKEY_CURRENT_USER, "SOFTWARE\\R-core\\R", 0, KEY_QUERY_VALUE, &k) != ERROR_SUCCESS ||
+	  RegQueryValueEx(k, "InstallPath", 0, &t, (LPVOID)RHome, &s) != ERROR_SUCCESS ||
+	  !dir_exists(RHome)) {
+	/* then try HKLM where teh system-wide installs would be */
+	if (RegOpenKeyEx(HKEY_LOCAL_MACHINE, "SOFTWARE\\R-core\\R", 0, KEY_QUERY_VALUE, &k) != ERROR_SUCCESS ||
+	    RegQueryValueEx(k, "InstallPath", 0, &t, (LPVOID)RHome, &s) != ERROR_SUCCESS) {
+	  fprintf(stderr, "R_HOME must be set or R properly installed (\\Software\\R-core\\R\\InstallPath registry entry must exist).\n");
+	  return -2;
+	}
+      }
       sprintf(rhb,"R_HOME=%s",RHome);
       putenv(rhb);
     }

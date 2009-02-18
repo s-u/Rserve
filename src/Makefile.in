@@ -1,4 +1,3 @@
-SFILES = $(wildcard *.c)
 XFILES = Rserve Rserve.dbg
 
 # modify these variables to match your setup
@@ -15,15 +14,15 @@ linkR     = @RLD@
 MYINC = -Iinclude -I$(port)
 PKG_CFLAGS += -DDAEMON $(MYINC) $(Rincludes)
 
-all: Rserve.so @WITH_SERVER_TRUE@ server
+all: Rserve$(SHLIB_EXT) @WITH_SERVER_TRUE@ server
 @WITH_CLIENT_TRUE@	$(MAKE) client
 
 server:	$(XFILES)
 # when installing multiple archs we have no way to put the binaries in the correct directory
 # because only *.so get copied. Therefore we need to fake the bin files as ".so"s to get
 # copied. Not a nice hack, but it works...
-	-cp Rserve Rserve-bin.so
-	-cp Rserve.dbg Rserve-dbg.so
+	-cp Rserve Rserve-bin$(SHLIB_EXT)
+	-cp Rserve.dbg Rserve-dbg$(SHLIB_EXT)
 # merging to bin/Rserve works only if installed from sources, won't work for binary
 	-./mergefat Rserve "$(Rbin)/Rserve"
 	-./mergefat Rserve.dbg "$(Rbin)/Rserve.dbg"
@@ -50,7 +49,7 @@ Rserve.dbg:	Rserv_d.o session.o md5.o
 	$(CC) $^ -o $@ $(linkR) $(LIBS) $(PKG_LIBS)
 
 # this is fake for now - we should switch to Makevars.in and compile a proper library
-Rserve.so: @WITH_SERVER_TRUE@ Rserve
+Rserve$(SHLIB_EXT): @WITH_SERVER_TRUE@ Rserve
 @WITH_SERVER_TRUE@	cp $^ $@
 @WITH_SERVER_FALSE@	@( touch $@ && echo "Server was not compiled." > ../inst/Rserve.txt )
 

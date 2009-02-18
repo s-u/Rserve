@@ -1,0 +1,9 @@
+#!/bin/sh
+
+echo '--- Rserve for Windows ---'
+echo ''
+echo '** MAKE SURE YOU READ THE RSERVE RELEASE NOTES FOR WINDOWS !! **'
+echo '** Rserve for Windows is different in several aspects         **'
+echo '** from the unix version, see                                 **'
+echo '** http://rforge.net/Rserve/rserve-win.html                   **'
+echo ''
