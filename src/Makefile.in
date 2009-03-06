@@ -40,7 +40,7 @@ install: @WITH_SERVER_TRUE@ $(XFILES)
 @WITH_SERVER_TRUE@	-cp Rserve.dbg $(Rbin)
 
 Rserve:	Rserv.o session.o md5.o
-	$(CC) $^ -o $@ $(linkR) $(LIBS)
+	$(CC) $^ -o $@ $(linkR) $(LIBS) $(PKG_LIBS)
 
 Rserv_d.o: Rserv.c Rsrv.h
 	$(CC) $(MYINC) $(Rincludes) -c Rserv.c -o $@ -DNODAEMON -DRSERV_DEBUG -g $(PKG_CPPFLAGS) $(CPPFLAGS) $(CFLAGS)
