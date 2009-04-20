@@ -882,10 +882,9 @@ SEXP decode_to_SEXP(unsigned int **buf, int *UPC)
 		*buf=(unsigned int*)((char*)b + ln);
 		break;
 	case XT_RAW:
-		i=ptoi(*b);
-		b++;
+		i = ptoi(*b);
 		PROTECT(val = allocVector(RAWSXP, i)); (*UPC)++;
-		memcpy(RAW(val), b, i);
+		memcpy(RAW(val), (b + 1), i);
 		*buf=(unsigned int*)((char*)b + ln);
 		break;
 	case XT_VECTOR:

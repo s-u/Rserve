@@ -36,6 +36,10 @@
 
     o	Windows build cleanup (thanks to Brian Ripley)
 
+    o	fixed decoding of XT_RAW (it advanced too far), this affected
+	the use of XT_RAW as non-last element only (thanks to Saptarshi
+	Guha for reporting)
+
 
 0.5-3	2009-01-25
     o	fix SET_VECTOR_ELT/SET_STRING_ELT mismatches
