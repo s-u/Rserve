@@ -840,6 +840,22 @@ SEXP decode_to_SEXP(unsigned int **buf, int *UPC)
 		}
 		*buf=b;
 		break;
+    case XT_ARRAY_BOOL:
+		{
+			int vl = ptoi(*(b++));
+			char *cb = (char*) b;
+			PROTECT(val = allocVector(LGLSXP, vl));
+			(*UPC)++;
+			i = 0;
+			while (i < vl) {
+				LOGICAL(val)[i] = cb[i];
+				i++;
+			}
+			while ((i & 3) != 0) i++;
+			b = (unsigned int*) (cb + i);
+		}
+		*buf = b;
+		break;
     case XT_DOUBLE:
     case XT_ARRAY_DOUBLE:
 		l=ln/8;
@@ -2295,7 +2311,7 @@ decl_sbthread newConn(void *thp) {
 								}
 #endif
 #ifdef RSERV_DEBUG
-								printf("stored SEXP; length=%d (incl. DT_SEXP header)\n",tail-sendhead);
+								printf("stored SEXP; length=%d (incl. DT_SEXP header)\n",(int) (tail-sendhead));
 #endif
 								sendRespData(s,RESP_OK,tail-sendhead,sendhead);
 								if (tempSB) { /* if this is just a temporary sendbuffer then shrink it back to normal */
