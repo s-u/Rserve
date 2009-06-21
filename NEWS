@@ -40,6 +40,10 @@
 	the use of XT_RAW as non-last element only (thanks to Saptarshi
 	Guha for reporting)
 
+    o	don't advertize ARuc if not supported (this bug only affected
+	systems without crypt support with plaintext enabled and
+	required authorization)
+
     o	add assign support for logical vectors
 
 

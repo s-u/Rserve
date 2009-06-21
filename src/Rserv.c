@@ -1599,13 +1599,20 @@ decl_sbthread newConn(void *thp) {
     
     strcpy(buf,IDstring);
     if (authReq) {
+#ifdef HAS_CRYPT
+		/* advertize crypt */
 		memcpy(buf+16,"ARuc",4);
 		salt[0]='K';
 		salt[1]=code64[rand()&63];
 		salt[2]=code64[rand()&63];
 		salt[3]=' '; salt[4]=0;
 		memcpy(buf+20,salt,4);
+		/* append plaintext if enabled */
 		if (usePlain) memcpy(buf+24,"ARpt",4);
+#else
+		/* if crypt is not an option, we may need to advertize plain text if enabled */
+		if (usePlain) memcpy(buf+16, "ARpt", 4);
+#endif
     }
 #ifdef RSERV_DEBUG
     printf("sending ID string.\n");
