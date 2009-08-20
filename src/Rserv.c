@@ -829,6 +829,10 @@ SEXP decode_to_SEXP(unsigned int **buf, int *UPC)
 	   pab = beginning before attrs (=just behind the heaer)
 	   ln = length of th SEX payload (w/o attr) */
     switch(ty) {
+	case XT_NULL:
+		val = R_NilValue;
+		*buf = b;
+		break;
     case XT_INT:
     case XT_ARRAY_INT:
 		l=ln/4;
