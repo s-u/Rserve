@@ -1,7 +1,7 @@
  NEWS/Changelog for Rserve
 ---------------------------
 
-0.6-0	(under development)
+0.6-0	2009-10-27
     o	added support for control commands CMD_ctrlEval,
 	CMD_ctrlSource and CMD_ctrlShutdown. Those commands provide
 	control over the server process. The side-efect of eval and
