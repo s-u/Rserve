@@ -1,4 +1,5 @@
-<?php
+<?php ob_start(); // just to make sure we can send headers
+//
 // Simple Rserve client for PHP.
 // Supports Rserve protocol 0103 only (used by Rserve 0.5 and higher)
 //
@@ -13,8 +14,10 @@
 //   local) and port is the TCP port number (6311 is the default).
 //   returns a socket used to communicate with Rserve
 //
-// * function Rserve_eval($socket, $command)
+// * function Rserve_eval($socket, $command[, $attr])
 //   evaluates the given command and returns the result
+//   $attr is optional and is expected to be a reference to the
+//   variable you want the R object attributes to be stored in.
 //
 // * function Rserve_close($socket)
 //   closes the connection
@@ -27,19 +30,15 @@
 //       should) so beware that those quirks in PHP can cause
 //       trouble for some named lists in R where the conventions
 //       are not as erratic as in PHP.
-//       Also the current implementation assumes little-endian
-//       implementation of unpack in PHP -- see FIXME below if
-//       you have a big-endian machine.
-
 
 //======= helper functions
+$machine_is_bigendian = pack("s", 1); $machine_is_bigendian = ($machine_is_bigendian[0] == 0);
 function int8($buf, $o=0) { return ord($buf[$o]); }
 function int24($buf, $o=0) { return (ord($buf[$o]) | (ord($buf[$o + 1]) << 8) | (ord($buf[$o + 2]) << 16)); }
 function int32($buf, $o=0) { return (ord($buf[$o]) | (ord($buf[$o + 1]) << 8) | (ord($buf[$o + 2]) << 16) | (ord($buf[$o + 3]) << 24)); }
 function mkint32($i) { $r = chr($i & 255); $i >>= 8; $r .= chr($i & 255); $i >>=8; $r .= chr($i & 255); $i >>=8; $r .= chr($i & 255); return $r; }
 function mkint24($i) { $r = chr($i & 255); $i >>= 8; $r .= chr($i & 255); $i >>=8; $r .= chr($i & 255); return $r; }
-function flt64($buf, $o=0) { // FIXME: if the machine is big-endian, we need to swap bytes first!
- $r = unpack("d", substr($buf, $o, 8)); return $r[1]; }
+function flt64($buf, $o=0) { $ss = substr($buf, $o, 8); if ($machine_is_bigendian) for ($k = 0; $k < 7; $k++) $ss[7 - $k] = $buf[$o + $k]; $r = unpack("d", substr($buf, $o, 8)); return $r[1]; }
 
 function mkp_str($cmd, $string) {
     $n = strlen($string) + 1; $string .= chr(0);
@@ -176,7 +175,7 @@ function Rserve_connect($host="127.0.0.1", $port=6311) {
     return $socket;
 }
 
-function Rserve_eval($socket, $command) {
+function Rserve_eval($socket, $command, $attr = NULL) {
     $pkt = mkp_str(3, $command);
     socket_send($socket, $pkt, strlen($pkt), 0);
     $r = get_rsp($socket);
@@ -186,24 +185,82 @@ function Rserve_eval($socket, $command) {
     if ($rr != 1) { echo "eval failed with error code " . $sc; return FALSE; }
     if (int8($r, 16) != 10) { echo "invalid response (expecting SEXP)"; return FALSE; }
     $i = 20;
-    return parse_SEXP($r, $i);
+    return parse_SEXP($r, $i, &$attr);
 }
 
 function Rserve_close($socket) {
     return socket_close($socket);
 }
 
+//========== FastRWeb - compatible requests - sample use of the client to behave like Rcgi in FastRWeb
+
+$root = "/var/FastRWeb"; // set to the root of your FastRWeb installation - must be absolute
+
+function process_FastRWeb() {
+    global $root;
+    // $req = array_merge($_GET, $_POST);
+    $path = $_SERVER['PATH_INFO'];
+    if (!isset($path)) { echo "No path specified."; return FALSE; }
+    $sp = str_replace("..", "_", $path); // sanitize paths
+    $script = "$root/web.R$sp.R";
+    if (!file_exists($script)) { echo "Script [$script] $sp.R does not exist."; return FALSE; }
+    // escape dangerous characters
+    $script = str_replace("\\", "\\\\", $script);
+    $script = str_replace("\"", "\\\"", $script);
+    $qs = str_replace("\\", "\\\\", $_SERVER['QUERY_STRING']);
+    $qs = str_replace("\"", "\\\"", $qs);
+    $s = Rserve_connect();
+    $r =  Rserve_eval($s, "{ qs<-\"$qs\"; setwd('$root/tmp'); library(FastRWeb); .out<-''; cmd<-'html'; ct<-'text/html'; hdr<-''; pars<-list(); lapply(strsplit(strsplit(qs,\"&\")[[1]],\"=\"),function(x) pars[[x[1]]]<<-x[2]); if(exists('init') && is.function(init)) init(); as.character(try({source(\"$script\"); as.WebResult(do.call(run, pars)) },silent=TRUE))}");
+    Rserve_close($s);
+
+    if (!is_array($r)) { // this ususally means that an erro rocurred since the returned value is jsut a string
+	ob_end_flush();
+	echo $r;
+	exit(0);
+    }
+
+    if (isset($r[2])) header("Content-type: $r[2]");
+
+    if (($r[0] == "file") or ($r[0] == "tmpfile")) {
+	$f = fopen($r[1], "rb");
+        $contents = '';
+        while (!feof($f)) $contents .= fread($f, 8192);
+	fclose($f);
+	ob_end_clean();
+	echo $contents;
+	if ($r[0] == "tmpfile") unlink($r[0]);
+	exit(0);
+    }
+
+    if ($r[0] == "html") {
+	ob_end_clean();
+	echo (is_array($r[1]) ? implode("\n", $r[1]) : $r[1]);
+	exit(0);
+    }
+
+    print_r($r);
+
+    ob_end_flush();
+
+    exit(0);
+}
+
+//--- uncomment the following line if you want this script to serve as FastRWeb handler (see FastRWeb package and IASC paper)
+// process_FastRWeb();
+
 //========== user code -- example and test --
 
 $s = Rserve_connect();
 if ($s == FALSE) {
-    echo "FAILED";
+    echo "Connect FAILED";
 } else {
     print_r (Rserve_eval($s, "list(str=R.version.string,foo=1:10,bar=1:5/2,logic=c(TRUE,FALSE,NA))"));
-	echo "<p/>";
+    echo "<p/>";
     print_r (Rserve_eval($s, "{x=rnorm(10); y=x+rnorm(10)/2; lm(y~x)}"));
 
     Rserve_close($s);
 }
+
+ob_end_flush();
 
 ?>
