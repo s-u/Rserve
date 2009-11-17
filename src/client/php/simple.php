@@ -130,6 +130,13 @@ function parse_SEXP($buf, $offset, $attr = NULL) {
 	if (count($a) == 1) return $a[0];
 	return $a;
     }
+    if ($ra == 36) { // boolean vector
+	$n = int32($r, $i); $i += 4; $k = 0;
+	$a = array();
+	while ($k < $n) { $v = int8($r, $i++); $a[$k++] = ($v == 1) ? TRUE : (($v == 0) ? FALSE : NULL); }
+	if ($n == 1) return $a[0];
+	return $a;
+    }
     if ($ra == 37) { // raw vector
 	$len = int32($r, $i); $i += 4;
 	return substr($r, $i, $len);
@@ -192,7 +199,7 @@ $s = Rserve_connect();
 if ($s == FALSE) {
     echo "FAILED";
 } else {
-    print_r (Rserve_eval($s, "list(str=R.version.string,foo=1:10,bar=1:5/2)"));
+    print_r (Rserve_eval($s, "list(str=R.version.string,foo=1:10,bar=1:5/2,logic=c(TRUE,FALSE,NA))"));
 	echo "<p/>";
     print_r (Rserve_eval($s, "{x=rnorm(10); y=x+rnorm(10)/2; lm(y~x)}"));
 
