@@ -1,6 +1,9 @@
  NEWS/Changelog for Rserve
 ---------------------------
 
+0.6-1	(under development)
+    o	added a very primitive PHP client
+
 0.6-0	2009-10-27
     o	added support for control commands CMD_ctrlEval,
 	CMD_ctrlSource and CMD_ctrlShutdown. Those commands provide
