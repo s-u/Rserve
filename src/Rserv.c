@@ -1476,6 +1476,9 @@ SOCKET resume_session() {
 	return -1;
 }
 
+#ifdef WIN32
+# include <process.h>
+#endif
 typedef struct child_process {
 	pid_t pid;
 	int   inp;
@@ -1501,7 +1504,9 @@ decl_sbthread newConn(void *thp) {
     int Rerror;
     int authed=0;
     int unaligned=0;
+#ifdef HAS_CRYPT
     char salt[5];
+#endif
     rlen_t tempSB=0;
     
     int parT[16];

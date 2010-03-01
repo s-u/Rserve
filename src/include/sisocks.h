@@ -45,13 +45,14 @@
 
 #define windows
 #include <windows.h>
-#include <winsock.h>
+#include <winsock2.h>
 #include <string.h>
 #include <stdlib.h>
 #define inet_aton(A,B) (0, B.s_addr=inet_addr(A))
 
 #define sockerrno WSAGetLastError()
 
+#ifndef WIN64
 #define ECONNREFUSED WSAECONNREFUSED
 #define EADDRINUSE WSAEADDRINUSE
 #define ENOTSOCK WSAENOTSOCK
@@ -67,6 +68,18 @@
 #define EFAULT WSAEFAULT
 #define EWOULDBLOCK WSAEWOULDBLOCK
 #define EACCES WSAEACCES
+#else
+#define ECONNREFUSED WSAECONNREFUSED
+#define EADDRINUSE WSAEADDRINUSE
+#define ENOTSOCK WSAENOTSOCK
+#define EISCONN WSAEISCONN
+#define ETIMEDOUT WSAETIMEDOUT
+#define ENETUNREACH WSAENETUNREACH
+#define EINPROGRESS WSAEINPROGRESS
+#define EALREADY WSAEALREADY
+#define EOPNOTSUPP WSAEOPNOTSUPP
+#define EWOULDBLOCK WSAEWOULDBLOCK
+#endif
 
 #ifdef USE_SNPRINTF
 #ifdef MAIN
