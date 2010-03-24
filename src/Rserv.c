@@ -376,11 +376,11 @@ rlen_t getStorageSize(SEXP x) {
     rlen_t len=4;
     
 #ifdef RSERV_DEBUG
-    printf("getStorageSize(type=%d,len=%d)\n",t,tl);
+    printf("getStorageSize(%p,type=%d,len=%d) ",x, t,tl);
 #endif
-    if (TYPEOF(ATTRIB(x)) == LISTSXP) {
-		rlen_t alen=getStorageSize(ATTRIB(x));
-		len+=alen;
+    if (t != CHARSXP && TYPEOF(ATTRIB(x)) == LISTSXP) {
+		rlen_t alen = getStorageSize(ATTRIB(x));
+		len += alen;
     }
     switch (t) {
     case LISTSXP:
@@ -427,11 +427,19 @@ rlen_t getStorageSize(SEXP x) {
 		}
 		break;
     case STRSXP:
+		{
+			int i = 0;
+			while (i < tl) {
+				len += getStorageSize(STRING_ELT(x, i));
+				i++;
+			}
+		}
+		break;
     case EXPRSXP:
     case VECSXP:
 		{
 			int i=0;
-			while(i<LENGTH(x)) {
+			while(i < tl) {
 				len+=getStorageSize(VECTOR_ELT(x,i));
 				i++;
 			}
@@ -445,6 +453,9 @@ rlen_t getStorageSize(SEXP x) {
     }
     if (len>0xfffff0) /* large types must be stored in the new format */
 		len+=4;
+#ifdef RSERV_DEBUG
+    printf("= %u\n", len);
+#endif
     return len;
 }
 
@@ -460,7 +471,8 @@ unsigned int* storeSEXP(unsigned int* buf, SEXP x) {
 		*buf=itop(XT_NULL); buf++; goto didit;
     }
     
-    if (TYPEOF(ATTRIB(x)) == LISTSXP) hasAttr=XT_HAS_ATTR;
+    if (t != CHARSXP && TYPEOF(ATTRIB(x)) == LISTSXP)
+		hasAttr = XT_HAS_ATTR;
     
     if (t==NILSXP) {
 		*buf=itop(XT_NULL|hasAttr);
@@ -654,7 +666,11 @@ unsigned int* storeSEXP(unsigned int* buf, SEXP x) {
 		preBuf[1]=itop(txlen>>24);
     } else
 		*preBuf=itop(SET_PAR(PAR_TYPE(ptoi(*preBuf)),dist(preBuf,buf)));
-    
+
+#ifdef RSERV_DEBUG
+	printf("stored %p at %p, %u bytes\n", x, preBuf, dist(preBuf, buf));
+#endif
+
     return buf;
 }
 
@@ -2262,6 +2278,10 @@ decl_sbthread newConn(void *thp) {
 							   todo: resize the buffer as necessary
 							*/
 							rlen_t rs=getStorageSize(exp);
+							/* increase the buffer by 25% for safety */
+							/* FIXME: there are issues with multi-byte strings that expand when
+							   converted. They should be convered by this margin but it is an ugly hack!! */
+							rs += (rs >> 2);
 #ifdef RSERV_DEBUG
 							printf("result storage size = %d bytes\n",(int)rs);
 #endif

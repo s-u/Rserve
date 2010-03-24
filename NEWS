@@ -2,6 +2,9 @@
 ---------------------------
 
 0.6-1	(under development)
+    o	add a safety margin to the send buffer to avoid crashes when
+	size estimates are off (e.g., due to re-coding)
+
     o	added a very primitive PHP client
 
     o	Win64 fixes by Brian Ripley
