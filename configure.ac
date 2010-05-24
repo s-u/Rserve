@@ -11,11 +11,11 @@ if test -z "${R_HOME}"; then
 fi
 
 AC_ARG_WITH([server],
-	AS_HELP_STRING(--with-server,compile Rserve server (default is @<:@yes@:>@). Given that this is the main functionality of Rserve, the only reason to disable the server is to configure R or C++ client separately.),
+	AS_HELP_STRING(--with-server,[compile Rserve server (default is @<:@yes@:>@). Given that this is the main functionality of Rserve, the only reason to disable the server is to configure R or C++ client separately.]),
 	[with_server=$withval], [with_server=yes])
 
 AC_ARG_WITH([client],
-	AS_HELP_STRING(--with-client,compile additional C/C++ Rserve client (default is @<:@no@:>@). The client can be always compiled manually regardless of this setting.),
+	AS_HELP_STRING(--with-client,[compile additional C/C++ Rserve client (default is @<:@no@:>@). The client can be always compiled manually regardless of this setting.]),
 	[with_client=$withval], [with_client=no])
 
 RLD=`${R_HOME}/bin/R CMD config --ldflags 2>/dev/null`
