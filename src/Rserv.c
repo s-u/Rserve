@@ -1116,7 +1116,10 @@ char *pwd_cache;
 #define SU_NOW    0
 #define SU_SERVER 1
 #define SU_CLIENT 2
-static int new_gid = -1, new_uid = -1, su_time = SU_NOW;
+static int su_time = SU_NOW;
+#ifdef unix
+static int new_gid = -1, new_uid = -1;
+#endif
 
 static void load_pwd_cache() {
 	FILE *f = fopen(pwdfile, "r");
@@ -1148,7 +1151,6 @@ static int loadConfig(char *fn)
 	FILE *f;
 	char buf[512];
 	char *c,*p,*c1;
-	int new_gid = -1, new_uid = -1;
     
 #ifdef RSERV_DEBUG
 	printf("Loading config file %s\n",fn);
