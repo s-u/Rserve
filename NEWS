@@ -1,7 +1,7 @@
  NEWS/Changelog for Rserve
 ---------------------------
 
-0.6-1	(under development)
+0.6-1	2010-05-24
     o	add a safety margin to the send buffer to avoid crashes when
 	size estimates are off (e.g., due to re-coding)
 
