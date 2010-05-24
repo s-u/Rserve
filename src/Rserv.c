@@ -102,20 +102,30 @@ the use of DT_LARGE/XT_LARGE.
 
    A note about security: Anyone with access to R has access to the shell
    via "system" command, so you should consider following rules:
+
    - NEVER EVER run Rserv as root (unless uid/gid is used) - this compromises
      the box totally
+
    - use "remote disable" whenever you don't need remote access.
+
    - if you need remote access use "auth required" and "plaintext disable"
      consider also that anyone with the access can decipher other's passwords
-	 if he knows how to. the authentication prevents hackers from the net
-	 to break into Rserv, but it doesn't (and cannot) protect from
-	 inside attacks (since R has no security measures).
-	 You should also use a special, restricted user for running Rserv
-	 as a public server, so noone can try to hack the box it runs on.
+     if he knows how to. the authentication prevents hackers from the net
+     to break into Rserv, but it doesn't (and cannot) protect from
+     inside attacks (since R has no security measures).
+ 
+     You should also use a special, restricted user for running Rserv 
+     as a public server, so noone can try to hack the box it runs on.
+ 
+     From 0.6-1 on you can set gid/uid and use "su client", "cachepwd yes"
+     and only a root-readable password file such that clients cannot
+     read it and also cannot affect the server process (this works on
+     unix only).
+ 
    - don't enable plaintext unless you really have to. Passing passwords
      in plain text over the net is not wise and not necessary since both
-	 Rserv and JRclient provide encrypted passwords with server-side
-	 challenge (thus safe from sniffing).
+     Rserv and JRclient provide encrypted passwords with server-side
+     challenge (thus safe from sniffing).
 */
 
 #define USE_RINTERNALS
@@ -2742,7 +2752,7 @@ int main(int argc, char **argv)
 	}
 
 #ifdef RSERV_DEBUG
-    printf("Rserve %d.%d-%d (%s) (C)Copyright 2002-8 Simon Urbanek\n%s\n\n",RSRV_VER>>16,(RSRV_VER>>8)&255,RSRV_VER&255, rserve_rev, rserve_ver_id);
+    printf("Rserve %d.%d-%d (%s) (C)Copyright 2002-2010 Simon Urbanek\n%s\n\n",RSRV_VER>>16,(RSRV_VER>>8)&255,RSRV_VER&255, rserve_rev, rserve_ver_id);
 #endif
     if (!isByteSexOk()) {
 		printf("FATAL ERROR: This program was not correctly compiled - the endianess is wrong!\nUse -DSWAPEND when compiling on PPC or similar platforms.\n");
@@ -2857,6 +2867,15 @@ int main(int argc, char **argv)
 		printf("Done with initial commands.\n");
 #endif
     }
+	
+#ifdef unix
+	/* if server su is enabled, do it now */
+	if (su_time == SU_SERVER) {
+		if (new_gid != -1) setgid(new_gid);
+		if (new_uid != -1) setuid(new_uid);
+	}
+#endif
+	
 #if defined RSERV_DEBUG || defined Win32
     printf("Rserve: Ok, ready to answer queries.\n");
 #endif      
