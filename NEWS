@@ -9,6 +9,27 @@
 
     o	Win64 fixes by Brian Ripley
 
+    o	added new configuration options:
+	su {now|server|client} - switches user either immediately
+	as the config file is loaded ("now", default and always the
+	behavior of Rserve before 0.6-1), when the server is ready
+	("server") or when a client is spawned ("client"). The
+	latter is useful to restrict clients from sending signals
+	to the server process.
+
+	uid, gid config options are interpreted accordingly to
+	the su value.
+
+	cachepwd - {no|yes|indefinitely} - allows Rserve to cache
+	the password file. "no" = read it at each authorization
+	(default and behavior before 0.6-1), "yes" = read it when
+	a client is spawned before su, "indefinitely" = read it
+	just after the config file (most efficient but changes
+	are only active after re-start). "yes" has only effect
+	in unix and can be used to restrict permissions on the
+	password file such that client code has no access to it
+	(do does "indefinitely" but can be used anywhere).
+
 
 0.6-0	2009-10-27
     o	added support for control commands CMD_ctrlEval,

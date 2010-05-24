@@ -88,9 +88,12 @@ the use of DT_LARGE/XT_LARGE.
    maxinbuf <size in kB> [262144 = 256MB]
    maxsendbuf <size in kB> [0 = no limit]
    
+   cachepwd no|yes|indefinitely
+ 
    unix only (works only if Rserve was started by root):
    uid <uid>
    gid <gid>
+   su now|server|client
 
    encoding native|latin1|utf8 [native]
 
@@ -240,24 +243,24 @@ extern __declspec(dllimport) int R_SignalHandlers;
 
 int dumpLimit=128;
 
-int port = default_Rsrv_port;
-int active = 1; /* 1=server loop is active, 0=shutdown */
-int UCIX   = 1; /* unique connection index */
+static int port = default_Rsrv_port;
+static int active = 1; /* 1=server loop is active, 0=shutdown */
+static int UCIX   = 1; /* unique connection index */
 
-char *localSocketName = 0; /* if set listen on this local (unix) socket instead of TCP/IP */
-int localSocketMode = 0;   /* if set, chmod is used on the socket when created */
+static char *localSocketName = 0; /* if set listen on this local (unix) socket instead of TCP/IP */
+static int localSocketMode = 0;   /* if set, chmod is used on the socket when created */
 
-int allowIO=1;  /* 1=allow I/O commands, 0=don't */
+static int allowIO=1;  /* 1=allow I/O commands, 0=don't */
 
-char **top_argv;
-int top_argc;
+static char **top_argv;
+static int top_argc;
 
-char *workdir="/tmp/Rserv";
-char *pwdfile=0;
+static char *workdir="/tmp/Rserv";
+static char *pwdfile=0;
 
-SOCKET csock=-1;
+static SOCKET csock=-1;
 
-int parentPID=-1;
+static int parentPID=-1;
 
 int is_child = 0;       /* 0 for parent (master), 1 for children */
 int parent_pipe = -1;   /* pipe to the master process or -1 if not available */
@@ -328,7 +331,7 @@ static int satoi(const char *str) {
 }
 
 #ifdef RSERV_DEBUG
-void printDump(void *b, int len) {
+static void printDump(void *b, int len) {
     int i=0;
     if (len<1) { printf("DUMP FAILED (len=%d)\n",len); };
     printf("DUMP [%d]:",len);
@@ -340,7 +343,7 @@ void printDump(void *b, int len) {
 }
 #endif
 
-void sendResp(int s, int rsp) {
+static void sendResp(int s, int rsp) {
     struct phdr ph;
     memset(&ph,0,sizeof(ph));
     ph.cmd=itop(rsp|CMD_RESP);
@@ -351,7 +354,7 @@ void sendResp(int s, int rsp) {
     send(s,(char*)&ph,sizeof(ph),0);
 }
 
-char *getParseName(int n) {
+static char *getParseName(int n) {
     switch(n) {
     case PARSE_NULL: return "null";
     case PARSE_OK: return "ok";
@@ -370,7 +373,7 @@ typedef unsigned long rlen_t;
 #define attrFixup if (hasAttr) buf=storeSEXP(buf,ATTRIB(x));
 #define dist(A,B) (((rlen_t)(((char*)B)-((char*)A)))-4)
 
-rlen_t getStorageSize(SEXP x) {
+static rlen_t getStorageSize(SEXP x) {
     int t=TYPEOF(x);
     unsigned int tl=LENGTH(x);
     rlen_t len=4;
@@ -454,12 +457,12 @@ rlen_t getStorageSize(SEXP x) {
     if (len>0xfffff0) /* large types must be stored in the new format */
 		len+=4;
 #ifdef RSERV_DEBUG
-    printf("= %u\n", len);
+    printf("= %u\n", (unsigned int) len);
 #endif
     return len;
 }
 
-unsigned int* storeSEXP(unsigned int* buf, SEXP x) {
+static unsigned int* storeSEXP(unsigned int* buf, SEXP x) {
     int t=TYPEOF(x);
     int i;
     int hasAttr=0;
@@ -668,13 +671,13 @@ unsigned int* storeSEXP(unsigned int* buf, SEXP x) {
 		*preBuf=itop(SET_PAR(PAR_TYPE(ptoi(*preBuf)),dist(preBuf,buf)));
 
 #ifdef RSERV_DEBUG
-	printf("stored %p at %p, %u bytes\n", x, preBuf, dist(preBuf, buf));
+	printf("stored %p at %p, %u bytes\n", x, preBuf, (unsigned int) dist(preBuf, buf));
 #endif
 
     return buf;
 }
 
-void printSEXP(SEXP e) /* merely for debugging purposes
+static void printSEXP(SEXP e) /* merely for debugging purposes
 						  in fact Rserve binary transport supports
 						  more types than this function. */
 {
@@ -807,7 +810,7 @@ void printSEXP(SEXP e) /* merely for debugging purposes
    UNPROTECT calls which will be necessary after we're done.
    The buffer position is advanced to the point where the SEXP ends
    (more precisely it points to the next stored SEXP). */
-SEXP decode_to_SEXP(unsigned int **buf, int *UPC)
+static SEXP decode_to_SEXP(unsigned int **buf, int *UPC)
 {
     unsigned int *b=*buf, *pab=*buf;
     char *c,*cc;
@@ -1064,7 +1067,7 @@ struct args {
 };
 
 /* send a response including the data part */
-void sendRespData(int s, int rsp, int len, void *buf) {
+static void sendRespData(int s, int rsp, int len, void *buf) {
     struct phdr ph;
     memset(&ph,0,sizeof(ph));
     ph.cmd=itop(rsp|CMD_RESP);
@@ -1095,58 +1098,92 @@ int usePlain=0;
 /* max. size of the input buffer (per connection) */
 int maxInBuf=256*(1024*1024); /* default is 256MB */
 
+/* if non-zero then the password file is loaded before client su so it can be unreadable by the clients */
+int cache_pwd = 0;
+char *pwd_cache;
+
+/* if client_su is set then Rserve switches uid/gid */
+#define SU_NOW    0
+#define SU_SERVER 1
+#define SU_CLIENT 2
+static int new_gid = -1, new_uid = -1, su_time = SU_NOW;
+
+static void load_pwd_cache() {
+	FILE *f = fopen(pwdfile, "r");
+	if (f) {
+		int fs = 0;
+		fseek(f, 0, SEEK_END);
+		fs = ftell(f);
+		fseek(f, 0, SEEK_SET);
+		pwd_cache = (char*) malloc(fs + 1);
+		if (pwd_cache) {
+			if (fread(pwd_cache, 1, fs, f) != fs) {
+				free(pwd_cache);
+				pwd_cache = 0;
+			} else
+				pwd_cache[fs] = 0;
+		}
+		fclose(f);
+	}
+}
+
 struct source_entry {
     struct source_entry* next;
     char line[8];
 } *src_list=0, *src_tail=0;
 
 /* load config file */
-int loadConfig(char *fn)
+static int loadConfig(char *fn)
 {
-    FILE *f;
-    char buf[512];
-    char *c,*p,*c1;
+	FILE *f;
+	char buf[512];
+	char *c,*p,*c1;
+	int new_gid = -1, new_uid = -1;
     
 #ifdef RSERV_DEBUG
-    printf("Loading config file %s\n",fn);
+	printf("Loading config file %s\n",fn);
 #endif
-    f=fopen(fn,"r");
-    if (!f) {
+	f = fopen(fn,"r");
+	if (!f) {
 #ifdef RSERV_DEBUG
 		printf("Failed to find config file %s\n",fn);
 #endif
 		return -1;
-    }
-    buf[511]=0;
-    while(!feof(f))
+	}
+	
+	buf[511] = 0;
+	while(!feof(f))
 		if (fgets(buf,511,f)) {
-			c=buf;
-			while(*c==' '||*c=='\t') c++;
-			p=c;
-			while(*p && *p!='\t' && *p!=' ' && *p!='=' && *p!=':') p++;
-			if (*p) {
-				*p=0;
+			c = buf;
+			while(*c == ' ' || *c == '\t') c++;
+			p = c;
+			while(*p && *p != '\t' && *p != ' ' && *p != '=' && *p != ':')
 				p++;
-				while(*p && (*p=='\t' || *p==' ')) p++;
+			if (*p) {
+				*p = 0;
+				p++;
+				while(*p && (*p == '\t' || *p == ' ')) p++;
 			}
-			c1=p;
-			while(*c1) if(*c1=='\n'||*c1=='\r') *c1=0; else c1++;
+			c1 = p;
+			while(*c1)
+				if(*c1 == '\n' || *c1 == '\r') *c1 = 0; else c1++;
+
 #ifdef RSERV_DEBUG
 			printf("conf> command=\"%s\", parameter=\"%s\"\n", c, p);
 #endif
 			if (!strcmp(c,"remote"))
-				localonly=(*p=='1' || *p=='y' || *p=='e')?0:1;
+				localonly = (*p == '1' || *p == 'y' || *p == 'e') ? 0 : 1;
 			if (!strcmp(c,"port")) {
 				if (*p) {
-					int np=satoi(p);
-					if (np>0) port=np;
+					int np = satoi(p);
+					if (np > 0) port = np;
 				}
 			}
 			if (!strcmp(c,"maxinbuf")) {
 				if (*p) {
-					int ns=atoi(p);
-					if (ns>32)
-						maxInBuf=ns*1024;
+					int ns = atoi(p);
+					if (ns > 32)
+						maxInBuf = ns * 1024;
 				}
 			}
 			if (!strcmp(c,"source") || !strcmp(c,"eval")) {
@@ -1178,20 +1215,26 @@ int loadConfig(char *fn)
 				}
 			}
 #ifdef unix
+			if (!strcmp(c, "su") && *p) {
+				if (*p == 'n') su_time = SU_NOW;
+				else if (*p == 's') su_time = SU_SERVER;
+				else if (*p == 'c') su_time = SU_CLIENT;
+				else fprintf(stderr, "su value invalid - must be 'now', 'server' or 'client'.\n");
+			}
 			if (!strcmp(c,"uid") && *p) {
-				int nuid=satoi(p);
-				if (setuid(nuid))
-					fprintf(stderr,"setuid(%d): failed. no user switch performed.",nuid);
+				new_uid = satoi(p);
+				if (su_time == SU_NOW && setuid(new_uid))
+					fprintf(stderr, "setuid(%d): failed. no user switch performed.\n", new_uid);
 			}
 			if (!strcmp(c,"gid") && *p) {
-				int ngid=satoi(p);
-				if (setgid(ngid))
-					fprintf(stderr,"setgid(%d): failed. no group switch performed.",ngid);
+				new_gid = satoi(p);
+				if (su_time == SU_NOW && setgid(new_gid))
+					fprintf(stderr, "setgid(%d): failed. no group switch performed.\n", new_gid);
 			}
 			if (!strcmp(c,"chroot") && *p) {
 				if (chroot(p)) {
 					perror("chroot");
-					fprintf(stderr,"chroot(\"%s\"): failed.", p);
+					fprintf(stderr,"chroot(\"%s\"): failed.\n", p);
 				}
 			}
 			if (!strcmp(c,"umask") && *p)
@@ -1226,11 +1269,13 @@ int loadConfig(char *fn)
 			if (!strcmp(c,"pwdfile"))
 				pwdfile = (*p) ? strdup(p) : 0;
 			if (!strcmp(c,"auth"))
-				authReq=(*p=='1' || *p=='y' || *p=='r' || *p=='e')?1:0;
+				authReq=(*p=='1' || *p=='y' || *p=='r' || *p=='e') ? 1 : 0;
 			if (!strcmp(c,"plaintext"))
-				usePlain=(*p=='1' || *p=='y' || *p=='e')?1:0;
+				usePlain=(*p=='1' || *p=='y' || *p=='e') ? 1 : 0;
 			if (!strcmp(c,"fileio"))
-				allowIO=(*p=='1' || *p=='y' || *p=='e')?1:0;
+				allowIO=(*p=='1' || *p=='y' || *p=='e') ? 1 : 0;
+			if (!strcmp(c, "cachepwd"))
+				cache_pwd = (*p == 'i') ? 2 : ((*p == '1' || *p == 'y' || *p == 'e') ? 1 : 0);
 		}
     fclose(f);
 #ifndef HAS_CRYPT
@@ -1242,7 +1287,10 @@ int loadConfig(char *fn)
 #ifdef RSERV_DEBUG
     printf("Loaded config file %s\n",fn);
 #endif
-    return 0;
+
+	if (cache_pwd == 2) load_pwd_cache();
+				
+	return 0;
 }
 
 /* size of the input buffer (default 512kB)
@@ -1503,6 +1551,55 @@ typedef struct child_process {
 
 child_process_t *children;
 
+/* handling of the password file - we emulate stdio API but allow both
+   file and buffer back-ends transparently */
+typedef struct pwdf {
+	FILE *f;
+	char *ptr;
+} pwdf_t;
+	
+	
+static pwdf_t *pwd_open() {
+	pwdf_t *f = malloc(sizeof(pwdf_t));
+	if (!f) return 0;
+	if (cache_pwd && pwd_cache) {
+		f->ptr = pwd_cache;
+		f->f = 0;
+		return f;
+	}
+	f->f = fopen(pwdfile, "r");
+	if (!f->f) {
+		free(f);
+		return 0;
+	}
+	return f;
+}
+	
+static char *pwd_gets(char *str, int n, pwdf_t *f) {
+	char *c, *s = str;
+	if (f->f) return fgets(str, n, f->f);
+	c = f->ptr;
+	while (*c == '\r' || *c == '\n') c++; /* skip empty lines */
+	while (*c && *c != '\r' && *c != '\n' && (--n > 0)) *(s++) = *(c++);
+	if (*c == '\n' || *c == '\r') {
+		*c = 0; c++;
+	}
+	f->ptr = c;
+	*s = 0;
+	return str;
+}
+	
+static int pwd_eof(pwdf_t *f) {
+	if (f->f) return feof(f->f);
+	return (f->ptr[0]) ? 0 : 1;
+}
+	
+static void pwd_close(pwdf_t *f) {
+	if (f->f)
+		fclose(f->f);
+	free(f);
+}
+
 /* working thread/function. the parameter is of the type struct args* */
 decl_sbthread newConn(void *thp) {
     SOCKET s;
@@ -1538,7 +1635,8 @@ decl_sbthread newConn(void *thp) {
 #endif
 
 #ifdef FORKED  
-    long rseed = random();
+
+	long rseed = random();
     rseed ^= time(0);
 	
 	parent_pipe = -1;
@@ -1578,6 +1676,16 @@ decl_sbthread newConn(void *thp) {
     
     parentPID=getppid();
     closesocket(a->ss); /* close server socket */
+
+#ifdef unix
+	if (cache_pwd)
+		load_pwd_cache();/* load pwd file into memory before su */
+	if (su_time == SU_CLIENT) { /* if requested set gid/pid as client */
+		if (new_gid != -1) setgid(new_gid);
+		if (new_uid != -1) setuid(new_uid);
+	}
+#endif
+
 #endif
     
     buf=(char*) malloc(inBuf+8);
@@ -1798,28 +1906,29 @@ decl_sbthread newConn(void *thp) {
 				printf("Authentication attempt (login='%s',pwd='%s',pwdfile='%s')\n",c,cc,pwdfile);
 #endif
 				if (pwdfile) {
+					pwdf_t *pwf;
 					int ctrl_flag = 0;
-					authed=0; /* if pwdfile exists, default is access denied */
+					authed = 0; /* if pwdfile exists, default is access denied */
 					/* TODO: opening pwd file, parsing it and responding
 					   might be a bad idea, since it allows DOS attacks as this
 					   operation is fairly costly. We should actually cache
-					   the user list and reload it only on HUP or something */
+					   the user list and reload it only on HUP or something. */
 					/* we abuse variables of other commands since we are
 					   the first command ever used so we can trash them */
-					cf=fopen(pwdfile,"r");
-					if (cf) {
-						sfbuf[sfbufSize-1]=0;
-						while(!feof(cf))
-							if (fgets(sfbuf,sfbufSize-1,cf)) {
-								c1=sfbuf;
-								while(*c1 && *c1!=' ' && *c1!='\t') c1++;
+					pwf = pwd_open();
+					if (pwf) {
+						sfbuf[sfbufSize - 1] = 0;
+						while(!pwd_eof(pwf))
+							if (pwd_gets(sfbuf, sfbufSize - 1, pwf)) {
+								c1 = sfbuf;
+								while(*c1 && *c1 != ' ' && *c1 != '\t') c1++;
 								if (*c1) {
-									*c1=0;
+									*c1 = 0;
 									c1++;
-									while(*c1==' ' || *c1=='\t') c1++;
-								};
-								c2=c1;
-								while(*c2) if (*c2=='\r'||*c2=='\n') *c2=0; else c2++;
+									while(*c1 == ' ' || *c1 == '\t') c1++;
+								}
+								c2 = c1;
+								while(*c2) if (*c2 == '\r' || *c2=='\n') *c2 = 0; else c2++;
 								ctrl_flag = 0;
 								if (*c == '@') { /* only users with @ prefix can use control commands */
 									c++;
@@ -1856,9 +1965,9 @@ decl_sbthread newConn(void *thp) {
 								}
 								if (authed) break;
 							} /* if fgets */
-						fclose(cf);
-					} /* if (cf) */
-					cf=0;
+						pwd_close(pwf);
+					} /* if (pwf) */
+					cf = 0;
 					if (authed) {
 						can_control = ctrl_flag;
 						process=1;
