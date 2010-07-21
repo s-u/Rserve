@@ -359,6 +359,30 @@ private:
 
 //===================================== Rconnection ---- Rserve interface class
 
+class Rconnection;
+
+class Rsession {
+protected:
+    char *host_;
+    int port_;
+    char key_[32];
+    
+public:
+    Rsession(const char *host, int port, const char key[32]) {
+	host_ = host ? strdup(host) : 0;
+	port_ = port;
+	memcpy(key_, key, 32);
+    }
+    
+    ~Rsession() {
+	if (host_) free(host_);
+    }
+    
+    const char *host() { return host_; }
+    int port() { return port_; }
+    const char *key() { return key_; }
+};
+
 class Rconnection {
 protected:
     char *host;
@@ -367,11 +391,13 @@ protected:
     int  family;
     int auth;
     char salt[2];
+    char *session_key;
 
 public:
     /** host - either host name or unix socket path
         port - either TCP port or -1 if unix sockets should be used */
     Rconnection(const char *host="127.0.0.1", int port=default_Rsrv_port);
+    Rconnection(Rsession *session);
     
     virtual ~Rconnection();
     
@@ -398,7 +424,12 @@ public:
     int writeFile(const char *buf, unsigned int len);
     int closeFile();
     int removeFile(const char *fn);
-	
+
+    /* session methods - results of detach [if not NULL] must be deleted by the caller when no longer needed! */
+    Rsession *detachedEval(const char *cmd, int *status = 0);
+    Rsession *detach(int *status = 0);
+    // sessions are resumed using resume() method of the Rsession object
+    
 #ifdef CMD_ctrl
     /* server control functions (need Rserve 0.6-0 or higher) */
     int serverEval(const char *cmd);

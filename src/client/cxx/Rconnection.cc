@@ -578,8 +578,22 @@ Rconnection::Rconnection(const char *host, int port) {
     s=-1;
     auth=0;
     salt[0]='.'; salt[1]='.';
+    session_key = 0;
 }
-    
+ 
+Rconnection::Rconnection(Rsession *session) {
+    const char *sHost = session->host();
+    if (!sHost) sHost="127.0.0.1";
+    this->host = strdup(sHost);
+    this->port = session->port();
+    family = AF_INET;
+    s = -1;
+    auth = 0;
+    salt[0]='.'; salt[1]='.';
+    session_key = (char*) malloc(32);
+    memcpy(session_key, session->key(), 32);
+}
+
 Rconnection::~Rconnection() {
     if (host) free(host); host=0;
     if (s!=-1) closesocket(s);
@@ -624,6 +638,18 @@ int Rconnection::connect() {
     if (i==-1) {
         closesocket(s); s=-1;
         return -1; // connect failed
+    }
+    
+    if (session_key) { // resume a session
+	int n = send(s, session_key, 32, 0);
+	if (n != 32) {
+	    closesocket(s); s = -1;
+	    return -2; // handshake failed (session key send error)
+	}
+	Rmessage *msg = new Rmessage();
+	int q = msg->read(s);
+	delete msg;
+	return q;
     }
         
     int n=recv(s,IDstring,32,0);
@@ -761,6 +787,38 @@ Rexp *Rconnection::eval(const char *cmd, int *status, int opt) { /* opt = 1 -> v
     }
     if (status) *status=0;
     return new_parsed_Rexp_from_Msg(msg);
+}
+
+/** detached eval (aka detached void eval) initiates eval and detaches the session.
+ *  @param cmd command to evaluate. If NULL equivalent to simple detach()
+ *  @param status optional status to be reported (zero on success)
+ *  @return object describintg he session.
+ *          Note that the caller is responsible for freeing the object if not needed. */
+Rsession *Rconnection::detachedEval(const char *cmd, int *status) {
+    Rmessage *msg = new Rmessage();
+    Rmessage *cmdMessage = cmd ? new Rmessage(CMD_detachedVoidEval, cmd) : new Rmessage(CMD_detachSession);
+    int res = request(msg, cmdMessage);
+    delete cmdMessage;
+    if (res) {
+	if (status) *status = res;
+	delete msg;
+	return 0;
+    }
+    if (msg->pars != 2 ||
+	PAR_TYPE(ptoi(msg->par[0][0])) != DT_INT || PAR_LEN(ptoi(msg->par[0][0])) != sizeof(int) ||
+	PAR_TYPE(ptoi(msg->par[1][0])) != DT_BYTESTREAM || PAR_LEN(ptoi(msg->par[1][0])) != 32) { // invalid contents
+	if (status) *status = -12;
+	delete msg;
+	return 0;
+    }
+    Rsession *session = new Rsession(host, ptoi(msg->par[0][1]), (const char*) (msg->par[1] + 1));
+    delete msg;
+    if (status) *status=0;
+    return session;
+}
+
+Rsession *Rconnection::detach(int *status) {
+    return detachedEval(0, status);
 }
 
 int Rconnection::openFile(const char *fn) {
