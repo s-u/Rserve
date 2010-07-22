@@ -310,6 +310,9 @@ static const char *charsxp_to_current(SEXP s) {
 }
 #endif
 
+/* this is the representation of NAs in strings. We chose 0xff since that should never occur in UTF-8 strings. If 0xff occurs in the beginning of a string anyway, it will be doubled to avoid misrepresentation. */
+static const unsigned char NaStringRepresentation[2] = { 255, 0 };
+
 static int set_string_encoding(const char *enc, int verbose) {
 #ifdef USE_ENCODING
 	if (!strcmp(enc, "native")) string_encoding = CE_NATIVE;
@@ -592,24 +595,28 @@ static unsigned int* storeSEXP(unsigned int* buf, SEXP x) {
 		goto didit;
     }
     
-	if (t==STRSXP) {
+	if (t == STRSXP) {
 		char *st;
-		*buf=itop(XT_ARRAY_STR|hasAttr);
+		int nx = LENGTH(x);
+		*buf = itop(XT_ARRAY_STR|hasAttr);
 		buf++;
 		attrFixup;
 		/* leading int n; is not needed due to the choice of padding */
 		st = (char *)buf;
-		i=0;
-		while (i < LENGTH(x)) {
+		for (i = 0; i < nx; i++) {
 			const char *cv = CHAR_FE(STRING_ELT(x, i));
 			int l = strlen(cv);
+			if (STRING_ELT(x, i) == R_NaString) {
+				cv = (const char*) NaStringRepresentation;
+				l = 1;
+			} else if ((unsigned char) cv[0] == NaStringRepresentation[0]) /* we will double the leading 0xff to avoid abiguity between NA and "\0xff" */
+				(st++)[0] = (char) NaStringRepresentation[0];
 			strcpy(st, cv);
-			st += l+1;
-			i++;
+			st += l + 1;
 		}
 		/* pad with '\01' to make sure we can determine the number of elements */
-		while ((st-(char*)buf)&3) { *st=1; st++; }
-		buf=(unsigned int*)st;
+		while ((st - (char*)buf) & 3) *(st++) = 1;
+		buf = (unsigned int*)st;
 		goto didit;
 	}
 
@@ -912,21 +919,33 @@ static SEXP decode_to_SEXP(unsigned int **buf, int *UPC)
 		*buf=b;
 		break;
     case XT_ARRAY_STR:
-		i=j=0;
-		c=(char*)(b);
-		while(i<ln) {
-			if (!*c) j++;
-			c++;
-			i++; 
-		}
-		PROTECT(val = allocVector(STRSXP, j)); (*UPC)++;
-		i=j=0; c=(char*)b; cc=c;
-		while(i<ln) {
-			if (!*c) {
-				SET_STRING_ELT(val, j, mkRChar(cc));
-				j++; cc=c+1;
+	    	{
+			/* count the number of elements */
+			char *sen = (c = (char*)(b)) + ln;
+			j = 0;
+			while (c < sen) {
+				if (!*c) j++;
+				c++;
 			}
-			c++; i++;
+			
+			PROTECT(val = allocVector(STRSXP, j));
+			(*UPC)++;
+			j = 0; cc = c = (char*)b;
+			while (c < sen) {
+				SEXP sx;
+				if (!*c) {
+					if ((unsigned char)cc[0] == NaStringRepresentation[0]) {
+						if ((unsigned char)cc[1] == NaStringRepresentation[1])
+							sx = R_NaString;
+						else
+							sx = mkRChar(cc + 1);
+					} else sx = mkRChar(cc);
+					SET_STRING_ELT(val, j, sx);
+					j++;
+					cc = c + 1;
+				}
+				c++;
+			}
 		}
 		*buf=(unsigned int*)((char*)b + ln);
 		break;
@@ -937,7 +956,6 @@ static SEXP decode_to_SEXP(unsigned int **buf, int *UPC)
 		*buf=(unsigned int*)((char*)b + ln);
 		break;
 	case XT_VECTOR:
-	case XT_VECTOR_STR: /* FIXME: really this will fail in R 2.9.0-devel because SET_ELEMENT only supports lists now. Given that XT_VECTOR_STR should not be used we may consider removing it ... */
 	case XT_VECTOR_EXP:
 		{
 			unsigned char *ie = (unsigned char*) b + ln;

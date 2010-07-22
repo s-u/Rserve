@@ -2,7 +2,15 @@
 ---------------------------
 
 0.6-2	(under development)
+    o	add support for NAs in character vectors by using a special
+	"\xff" string. Any string beginning with '\xff' is
+	prepended by additional '\xff' to remove ambiuguity and clients
+	should remove leading '\xff' accordingly.
+	(Note that UTF-8 encoded strings never contain '\xff' so
+	in most uses it never occurs).
 
+	The Java client has been updated accordingly and represents
+	NA strings with null.
 
 0.6-1	2010-05-24
     o	add a safety margin to the send buffer to avoid crashes when
