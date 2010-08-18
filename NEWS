@@ -12,6 +12,19 @@
 	The Java client has been updated accordingly and represents
 	NA strings with null.
 
+    o	add a new config file option "interactive" that allows to run
+	Rserve in interactive or non-interactive mode across platforms.
+	Previously Windows ran in non-interactive mode and unix in
+	interactive mode. Non-interactive mode is useful if you want
+	to prevent R from soliciting user input, but it requires error
+	option to be set if you don't want to quit R on all errors
+	(i.e., something like options(error=function() NULL) will do)
+
+	Note: on unix the interactivity flag can only be set *after* R
+	initialization (due to limitation in R) so you still may have
+	to pass flags like --no-save in order to appease R.
+
+
 0.6-1	2010-05-24
     o	add a safety margin to the send buffer to avoid crashes when
 	size estimates are off (e.g., due to re-coding)

@@ -46,6 +46,9 @@ __declspec(dllimport) int UserBreak;
 extern int UserBreak;
 #endif
 
+/* flag governing interactivity - from Rserv.c */
+extern int Rsrv_interactive;
+
 /* calls into the R DLL */
 extern char *getDLLVersion();
 extern void R_DefParams(Rstart);
@@ -201,7 +204,7 @@ int Rf_initEmbeddedR(int argc, char **argv)
 #endif
 
     Rp->R_Quiet = TRUE;
-    Rp->R_Interactive = FALSE;
+    Rp->R_Interactive = Rsrv_interactive;
     Rp->RestoreAction = SA_RESTORE;
     Rp->SaveAction = SA_NOSAVE;
 #if R_VERSION < 0x2000

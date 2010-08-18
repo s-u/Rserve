@@ -83,6 +83,7 @@ the use of DT_LARGE/XT_LARGE.
    auth required|disable [disable]
    plaintext enable|disable [disable] (strongly discouraged to enable)
    fileio enable|disable [enable]
+   interactive yes|no [yes] (the default may change to "no" in the future!)
 
    socket <unix-socket-name> [none]
    maxinbuf <size in kB> [262144 = 256MB]
@@ -278,6 +279,8 @@ int can_control = 0;    /* control commands will be rejected unless this flag is
 int child_control = 0;  /* enable/disable the ability of children to send commands to the master process */
 
 int maxSendBufSize = 0; /* max. sendbuf for auto-resize. 0=no limit */
+
+int Rsrv_interactive = 1; /* default for R_Interactive flag */
 
 #ifdef unix
 static int umask_value = 0;
@@ -1300,6 +1303,8 @@ static int loadConfig(char *fn)
 				pwdfile = (*p) ? strdup(p) : 0;
 			if (!strcmp(c,"auth"))
 				authReq=(*p=='1' || *p=='y' || *p=='r' || *p=='e') ? 1 : 0;
+			if (!strcmp(c,"interactive"))
+				Rsrv_interactive = (*p=='1' || *p=='y' || *p=='t' || *p=='e') ? 1 : 0;
 			if (!strcmp(c,"plaintext"))
 				usePlain=(*p=='1' || *p=='y' || *p=='e') ? 1 : 0;
 			if (!strcmp(c,"fileio"))
@@ -2837,12 +2842,12 @@ int main(int argc, char **argv)
 					loadConfig(argv[++i]);
 			}
 			if (!strcmp(argv[i]+2,"RS-settings")) {
-				printf("Rserve v%d.%d-%d\n\nconfig file: %s\nworking root: %s\nport: %d\nlocal socket: %s\nauthorization required: %s\nplain text password: %s\npasswords file: %s\nallow I/O: %s\nallow remote access: %s\ncontrol commands: %s\nmax.input buffer size: %d kB\n\n",
+				printf("Rserve v%d.%d-%d\n\nconfig file: %s\nworking root: %s\nport: %d\nlocal socket: %s\nauthorization required: %s\nplain text password: %s\npasswords file: %s\nallow I/O: %s\nallow remote access: %s\ncontrol commands: %s\ninteractive: %s\nmax.input buffer size: %d kB\n\n",
 					   RSRV_VER>>16, (RSRV_VER>>8)&255, RSRV_VER&255,
 					   CONFIG_FILE, workdir, port, localSocketName ? localSocketName : "[none, TCP/IP used]",
 					   authReq ? "yes" : "no", usePlain ? "allowed" : "not allowed", pwdfile ? pwdfile : "[none]",
 					   allowIO ? "yes" : "no", localonly ? "no" : "yes",
-					   child_control ? "yes" : "no", maxInBuf/1024);
+					   child_control ? "yes" : "no", Rsrv_interactive ? "yes" : "no", maxInBuf/1024);
 				return 0;	       
 			}
 			if (!strcmp(argv[i]+2,"version")) {
@@ -2870,6 +2875,10 @@ int main(int argc, char **argv)
 		printf("Failed to initialize embedded R! (stat=%d)\n",stat);
 		return -1;
     }
+#ifndef WIN32
+	/* windows uses this in init, unix doesn't so we set it here */
+	R_Interactive = Rsrv_interactive;
+#endif
 
     if (src_list) { /* do any sourcing if necessary */
 		struct source_entry *se=src_list;
