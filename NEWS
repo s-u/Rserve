@@ -24,6 +24,13 @@
 	initialization (due to limitation in R) so you still may have
 	to pass flags like --no-save in order to appease R.
 
+    o	more Windows fixes - Rserve uses R's own initialization in
+	recent R versions. This also fixes issues with Win64 and more
+	recent toolchains.
+	Note that both Widnows and unix now behave consistently with
+	respect to interactive mode - the default is now interactive
+	for both platforms but can be changed in the config file.
+
 
 0.6-1	2010-05-24
     o	add a safety margin to the send buffer to avoid crashes when

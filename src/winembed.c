@@ -35,19 +35,34 @@
 #include <R_ext/RStartup.h>
 #endif
 
+/* flag governing interactivity - from Rserv.c */
+extern int Rsrv_interactive;
+
+/* I didn't actually check if 2.10.x is really the point where initEmbedded was introduced but it makes pretty much all this file obsolete */
+#if R_VERSION > R_Version(2,10,0)
+
+__declspec(dllimport) int R_Interactive;
+
+int Rf_initEmbeddedR(int argc, char **argv)
+{
+	Rf_initialize_R(argc, argv);
+	R_Interactive = Rsrv_interactive;
+	setup_Rmainloop();
+	return 0;
+}
+
+#else /* otherwise we have to do all this manually ... */
+
 /* for signal-handling code */
 #include "psignal.h"
 
 /* one way to allow user interrupts: called in ProcessEvents */
-#ifdef _MSC_VER
+#if defined _MSC_VER || defined WIN64
 __declspec(dllimport) int UserBreak;
 #else
 #define UserBreak     (*_imp__UserBreak)
 extern int UserBreak;
 #endif
-
-/* flag governing interactivity - from Rserv.c */
-extern int Rsrv_interactive;
 
 /* calls into the R DLL */
 extern char *getDLLVersion();
@@ -147,6 +162,11 @@ int Rf_initEmbeddedR(int argc, char **argv)
    sprintf(Rversion, "%s.%s", R_MAJOR, R_MINOR);
    { char *c = Rversion, *d = Rversion; while (*c) { if (*c=='.') d=c; c++; }; *d=0; }
 
+
+#ifdef RSERV_DEBUG
+   printf("Windows: Rf_initEmbeddedR; compiled as %s.%s, DLL is %s\n",  R_MAJOR, R_MINOR, getDLLVersion());
+#endif
+
    if(strncmp(Rversion, getDLLVersion(), strlen(Rversion)) != 0) {
      fprintf(stderr, "Error: R.DLL version (%s) does not match (%s.%s)\n",  getDLLVersion(),
 	     R_MAJOR, R_MINOR);
@@ -173,7 +193,10 @@ int Rf_initEmbeddedR(int argc, char **argv)
     }
     /* on Win32 this should set R_Home (in R_SetParams) as well */
     Rp->rhome = RHome;
- /*
+#ifdef RSERV_DEBUG
+    printf("R_HOME: %s\n", RHome);
+#endif
+/*
  * try R_USER then HOME then working directory
  */
     if (getenv("R_USER")) {
@@ -225,3 +248,5 @@ int Rf_initEmbeddedR(int argc, char **argv)
 
     return 0;
 }
+
+#endif
