@@ -8,6 +8,8 @@ INSTDIR = ../inst
 
 MAIN_LD = $(CC)
 PKG_CPPFLAGS = -DWin32 -I. -D_R_ -Iinst/include -Iinclude -Iinclude/Win32
+R_BIN=$(R_HOME)/bin$(R_ARCH)
+ARCH=`echo $(R_ARCH) | sed 's:/:_:g'`
 
 Rserv_d.o: Rserv.c
 	$(CC) $(ALL_CPPFLAGS) $(ALL_CFLAGS) -DRSERV_DEBUG -g -c $< -o $@
@@ -16,14 +18,16 @@ instdir:
 	-@mkdir $(INSTDIR) 2>/dev/null
 
 Rserve.exe:	Rserv.o winembed.o
-	$(LINKER) -s -o $@ $^ -lws2_32 -L$(RHOME)/bin -lR
+	$(LINKER) -s -o $@ $^ -lws2_32 -L$(R_BIN) -lR
 	-cp $@ $(INSTDIR)
-	-cp $@ "$(R_HOME)/bin"
+	-cp $@ $(INSTDIR)/Rserve$(ARCH).exe
+	-cp $@ "$(R_BIN)"
 
 Rserve_d.exe:	Rserv_d.o winembed.o
-	$(LINKER) -o $@ $^ -lws2_32 -L$(RHOME)/bin -lR
+	$(LINKER) -o $@ $^ -lws2_32 -L$(R_BIN) -lR
 	-cp $@ $(INSTDIR)
-	-cp $@ "$(R_HOME)/bin"
+	-cp $@ $(INSTDIR)/Rserve_d$(ARCH).exe
+	-cp $@ "$(R_BIN)"
 
 clean: 
 	-rm -f *.o Rserve.exe Rserve_d.exe
