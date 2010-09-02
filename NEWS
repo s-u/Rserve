@@ -1,7 +1,7 @@
  NEWS/Changelog for Rserve
 ---------------------------
 
-0.6-2	(under development)
+0.6-2	2010-09-02
     o	add support for NAs in character vectors by using a special
 	"\xff" string. Any string beginning with '\xff' is
 	prepended by additional '\xff' to remove ambiuguity and clients
