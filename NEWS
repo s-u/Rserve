@@ -1,6 +1,11 @@
  NEWS/Changelog for Rserve
 ---------------------------
 
+0.6-3	(under development)
+    o	bug fix: the child process could get stuck in the server loop
+	after some abnormal return from the child connection code
+	Thanks to David Richardson for reporting.
+
 0.6-2	2010-09-02
     o	add support for NAs in character vectors by using a special
 	"\xff" string. Any string beginning with '\xff' is

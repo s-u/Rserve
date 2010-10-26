@@ -2673,6 +2673,12 @@ void serverLoop() {
 					sbthread_create(newConn,sa);
 #else
 				newConn(sa);
+#ifdef FORKED
+				/* when the child returns it means it's done (likely an error)
+				   but it is forked, so the only right thing to do is to exit */
+				if (is_child)
+					exit(2);
+#endif
 #endif
 				else
 					closesocket(sa->s);
