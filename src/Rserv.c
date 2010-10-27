@@ -2668,7 +2668,7 @@ void serverLoop() {
 					laddr=allowed_ips;
 				}
 				while (*laddr) if (sa->sa.sin_addr.s_addr==inet_addr(*(laddr++))) { allowed=1; break; };
-				if (allowed)
+				if (allowed) {
 #ifdef THREADED
 					sbthread_create(newConn,sa);
 #else
@@ -2680,13 +2680,16 @@ void serverLoop() {
 					exit(2);
 #endif
 #endif
-				else
+				} else
 					closesocket(sa->s);
-			} else
+			} else { /* ---> remote enabled */
 #ifdef THREADED
 				sbthread_create(newConn,sa); 
 #else
-			newConn(sa);
+				newConn(sa);
+				if (is_child) /* same as above */
+					exit(2);
+			}
 #endif
 #ifdef unix
 		} else if (selRet > 0 && children) { /* one of the children signalled */
