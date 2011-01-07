@@ -6,6 +6,11 @@
 	after some abnormal return from the child connection code
 	Thanks to David Richardson for reporting.
 
+    o	bug fix: C++ client did not handle new-style lists (introduced
+	in Rserve 0.5) properly. Thanks to Carl Martin Grewe for
+	reporting.
+
+
 0.6-2	2010-09-02
     o	add support for NAs in character vectors by using a special
 	"\xff" string. Any string beginning with '\xff' is
