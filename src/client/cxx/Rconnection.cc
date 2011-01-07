@@ -69,6 +69,9 @@
 // NOTE: 0103 compatibility has not been established! use at your own risk!
 static const char *myID = "Rsrv0103QAP1"; /* this client supports up to protocol version 0103 */
 
+#define IS_LIST_TYPE_(TYPE) ((TYPE) == XT_LIST || (TYPE) == XT_LIST_NOTAG || (TYPE) == XT_LIST_TAG)
+#define IS_SYMBOL_TYPE_(TYPE) ((TYPE) == XT_SYM || (TYPE) == XT_SYMNAME)
+
 static Rexp *new_parsed_Rexp(unsigned int *d, Rmessage *msg) {
     int type=ptoi(*d)&0x3f;
 #ifdef DEBUG_CXX
@@ -78,7 +81,7 @@ static Rexp *new_parsed_Rexp(unsigned int *d, Rmessage *msg) {
         return new Rinteger(d,msg);
     if (type==XT_ARRAY_DOUBLE || type==XT_DOUBLE)
         return new Rdouble(d,msg);
-    if (type==XT_LIST || type == XT_LIST_NOTAG || type == XT_LIST_TAG)
+    if (IS_LIST_TYPE_(type))
         return new Rlist(d,msg);
     if (type==XT_VECTOR)
         return new Rvector(d,msg);
@@ -352,27 +355,27 @@ void Rexp::store(char *buf) {
 }
 
 Rexp *Rexp::attribute(const char *name) {
-    return (attr && attr->type==XT_LIST)?((Rlist*)attr)->entryByTagName(name):0;
+    return (attr && IS_LIST_TYPE_(attr->type)) ? ((Rlist*)attr)->entryByTagName(name) : 0;
 }
 
 const char **Rexp::attributeNames() {
-    if (!attr || attr->type!=XT_LIST)
+    if (!attr || !IS_LIST_TYPE_(attr->type))
         return 0;
-    if (attribs==0) {
+    if (attribs == 0) {
         // let us cache attribute names
         Rlist *l = (Rlist*) attr;
-        while (l && l->type==XT_LIST) {
-            if (l->tag && l->tag->type==XT_SYM) attribs++;
-            l=l->tail;
-        }
-        attrnames=(const char**) malloc(sizeof(char*)*(attribs+1));
+        while (l && (IS_LIST_TYPE_(l->type))) {
+	    if (l->tag && IS_SYMBOL_TYPE_(l->tag->type)) attribs++;
+	    l = l->tail;
+	}
+        attrnames = (const char**) malloc(sizeof(char*)*(attribs+1));
         l = (Rlist*) attr;
-        while (l && l->type==XT_LIST) {
-            if (l->tag && l->tag->type==XT_SYM)
-                attrnames[attribs++]=((Rsymbol*)l->tag)->symbolName();
-            l=l->tail;
+        while (l && IS_LIST_TYPE_(l->type)) {
+            if (l->tag && IS_SYMBOL_TYPE_(l->tag->type))
+                attrnames[attribs++] = ((Rsymbol*)l->tag)->symbolName();
+            l = l->tail;
         }
-        attrnames[attribs]=0;
+        attrnames[attribs] = 0;
     }
     return attrnames;
 }
@@ -532,13 +535,14 @@ int Rstrings::indexOfString(const char *str) {
 }
 
 Rexp* Rvector::byName(const char *name) {
-  if (count<1 || !attr || (attr->type!=XT_LIST && attr->type != XT_LIST_TAG)) return 0;        
+    /* here we are not using IS_LIST_TYPE_() because XT_LIST_NOTAG is guaranteed to not match */
+    if (count < 1 || !attr || (attr->type!=XT_LIST && attr->type != XT_LIST_TAG)) return 0;        
     Rexp *e = ((Rlist*) attr)->head;
     if (((Rlist*) attr)->tag)
-        e=((Rlist*) attr)->entryByTagName("names");
+        e = ((Rlist*) attr)->entryByTagName("names");
     if (!e || (e->type!=XT_VECTOR && e->type!=XT_ARRAY_STR && e->type!=XT_STR))
         return 0;
-    if (e->type==XT_VECTOR) {
+    if (e->type == XT_VECTOR) {
         int pos = ((Rvector*)e)->indexOfString(name);
         if (pos>-1 && pos<count) return cont[pos];
     } else if (e->type == XT_ARRAY_STR) {
@@ -550,7 +554,7 @@ Rexp* Rvector::byName(const char *name) {
     }
     return 0;
 }
-       
+
 void Rvector::fix_content() {
     char *ptr = data;
     char *eod = data+len;
@@ -570,14 +574,13 @@ void Rvector::fix_content() {
 }
     
 Rconnection::Rconnection(const char *host, int port) {
-    if (!host) host="127.0.0.1";
-    this->host=(char*)malloc(strlen(host)+1);
-    strcpy(this->host, host);
-    this->port=port;
-    family=(port==-1)?AF_LOCAL:AF_INET;
-    s=-1;
-    auth=0;
-    salt[0]='.'; salt[1]='.';
+    if (!host) host = "127.0.0.1";
+    this->host = strdup(host);
+    this->port = port;
+    family = (port==-1) ? AF_LOCAL : AF_INET;
+    s = -1;
+    auth = 0;
+    salt[0] = '.'; salt[1] = '.';
     session_key = 0;
 }
  
@@ -595,9 +598,10 @@ Rconnection::Rconnection(Rsession *session) {
 }
 
 Rconnection::~Rconnection() {
-    if (host) free(host); host=0;
-    if (s!=-1) closesocket(s);
-    s=-1;
+    if (host) free(host);
+    host = 0;
+    if (s != -1) closesocket(s);
+    s = -1;
 }
     
 int Rconnection::connect() {
