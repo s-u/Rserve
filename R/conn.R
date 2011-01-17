@@ -1,14 +1,16 @@
 Rserve <- function(debug=FALSE, port=6311, args=NULL) {
   if (.Platform$OS.type == "windows") {
+    arch <- .Platform$r_arch
+    if (is.null(arch) || !nzchar(arch)) arch <- ""
     ffn <- if (debug) "Rserve_d.exe" else "Rserve.exe"
-    fn <- system.file(package="Rserve", ffn)
-    if (!nchar(fn) || !file.exists(fn))
+    fn <- if (nzchar(arch)) system.file("libs", arch, ffn) else system.file(package="Rserve", ffn)
+     if (!nchar(fn) || !file.exists(fn)) {
       stop("Cannot find ", ffn)
     else {
       if ( port != 6311 ) fn <- paste( fn, "--RS-port", port )
       if ( !is.null(args) ) fn <- paste(fn, paste(args, collapse=' '))
-
-      pad <- paste(R.home(),"\\bin;",sep='')
+      if (nzchar(arch)) arch <- paste("\\", arch, sep='')
+      pad <- paste(R.home(),"\\bin",arch,";",sep='')
       if (!exists("Sys.setenv")) Sys.setenv <- Sys.putenv
       if (charmatch(pad, Sys.getenv("PATH"), nomatch=0) == 0)
         Sys.setenv(PATH=paste(pad, Sys.getenv("PATH"), sep=''))

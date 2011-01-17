@@ -6,6 +6,12 @@
 	after some abnormal return from the child connection code
 	Thanks to David Richardson for reporting.
 
+    o	set R_ARCH automatically on Windows if a multi-arch R is
+	detected (such as CRAN binaries since R 2.12.0)
+
+    o	add R_ARCH support in Rserve() on Windows to locate the
+	proper binary
+
     o	bug fix: C++ client did not handle new-style lists (introduced
 	in Rserve 0.5) properly. Thanks to Carl Martin Grewe for
 	reporting.

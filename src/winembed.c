@@ -150,6 +150,8 @@ static int dir_exists(const char* dn)
   /* the last one is weird, but according to MS docs it can happen any we cannot tell whether it's a file or a directory */
 }
 
+static char tmpbuf[8192];
+
 int Rf_initEmbeddedR(int argc, char **argv)
 {
     structRstart rp;
@@ -158,6 +160,8 @@ int Rf_initEmbeddedR(int argc, char **argv)
     char rhb[MAX_PATH+10];
    DWORD t,s=MAX_PATH;
    HKEY k;
+   const char *arch = 0;
+   const char *path_suf = 0;
 
    sprintf(Rversion, "%s.%s", R_MAJOR, R_MINOR);
    { char *c = Rversion, *d = Rversion; while (*c) { if (*c=='.') d=c; c++; }; *d=0; }
@@ -196,6 +200,32 @@ int Rf_initEmbeddedR(int argc, char **argv)
 #ifdef RSERV_DEBUG
     printf("R_HOME: %s\n", RHome);
 #endif
+
+    /* check for multi-arch R */
+    if (!getenv("R_ARCH")) {
+	strcpy(tmpbuf, RHome);
+#ifdef WIN64
+	strcat(tmpbuf, "\\bin\\x64\\R.dll");
+	arch = "R_ARCH=/x64";
+#else
+	strcat(tmpbuf, "\\bin\\i386\\R.dll");
+	arch = "R_ARCH=/i386";
+#endif
+	if (GetFileAttributes(tmpbuf) != -1) { /* muti-arch R, DLL found */
+	    putenv(arch);
+#ifdef RSERV_DEBUG
+	    printf("Multi-architecture R found, setting %s\n", arch);
+#endif
+	} else
+	    arch = 0;
+    }
+    if (!arch) {
+	strcpy(tmpbuf, RHome);
+	strcat(tmpbuf, "\\bin\\R.dll");
+	if (GetFileAttributes(tmpbuf) == -1)
+	    printf("WARNING: cannot find R DDL at %s\n         check your R installation or make sure PATH is set accordingly\n");
+    }
+
 /*
  * try R_USER then HOME then working directory
  */
