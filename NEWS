@@ -1,7 +1,7 @@
  NEWS/Changelog for Rserve
 ---------------------------
 
-0.6-3	(under development)
+0.6-3	2011-01-17
     o	bug fix: the child process could get stuck in the server loop
 	after some abnormal return from the child connection code
 	Thanks to David Richardson for reporting.
