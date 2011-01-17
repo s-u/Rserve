@@ -3,7 +3,7 @@ Rserve <- function(debug=FALSE, port=6311, args=NULL) {
     arch <- .Platform$r_arch
     if (is.null(arch) || !nzchar(arch)) arch <- ""
     ffn <- if (debug) "Rserve_d.exe" else "Rserve.exe"
-    fn <- if (nzchar(arch)) system.file("libs", arch, ffn) else system.file(package="Rserve", ffn)
+    fn <- if (nzchar(arch)) system.file("libs", arch, ffn, package="Rserve") else system.file(package="Rserve", ffn)
     if (!nchar(fn) || !file.exists(fn))
       stop("Cannot find ", ffn)
     else {
