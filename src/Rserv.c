@@ -134,6 +134,20 @@ the use of DT_LARGE/XT_LARGE.
 #define LISTENQ 16
 #define MAIN
 
+/* this is the type used to calculate pointer distances */
+/* note: we may want to use size_t or something more compatible */
+typedef unsigned long rlen_t;
+
+#ifdef ULONG_MAX
+#define rlen_max ULONG_MAX
+#else
+#ifdef __LP64__
+#define rlen_max 0xffffffffffffffffL 
+#else
+#define rlen_max 0xffffffffL
+#endif /* __LP64__ */
+#endif /* ULONG_MAX */
+
 #if defined NODAEMON && defined DAEMON
 #undef DAEMON
 #endif
@@ -278,7 +292,7 @@ int parent_pipe = -1;   /* pipe to the master process or -1 if not available */
 int can_control = 0;    /* control commands will be rejected unless this flag is set */
 int child_control = 0;  /* enable/disable the ability of children to send commands to the master process */
 
-int maxSendBufSize = 0; /* max. sendbuf for auto-resize. 0=no limit */
+rlen_t maxSendBufSize = 0; /* max. sendbuf for auto-resize. 0=no limit */
 
 int Rsrv_interactive = 1; /* default for R_Interactive flag */
 
@@ -293,7 +307,7 @@ static const char *rserve_ver_id = "$Id$";
 static char rserve_rev[16]; /* this is generated from rserve_ver_id by main */
 
 #ifdef THREADED
-int localUCIX;
+static int localUCIX;
 #else
 #define localUCIX UCIX
 #endif
@@ -370,6 +384,7 @@ static void sendResp(int s, int rsp) {
     send(s,(char*)&ph,sizeof(ph),0);
 }
 
+#if 0 /* UNUSED ?? */
 static char *getParseName(int n) {
     switch(n) {
     case PARSE_NULL: return "null";
@@ -380,22 +395,19 @@ static char *getParseName(int n) {
     }
     return "<unknown>";
 }
+#endif
 
-/* this is the type used to calculate pointer distances
-   we should re-define it to 64-bit type on 64-bit archs */
-typedef unsigned long rlen_t;
-#define rlen_max 0xffffffff 
-
-#define attrFixup if (hasAttr) buf=storeSEXP(buf,ATTRIB(x));
-#define dist(A,B) (((rlen_t)(((char*)B)-((char*)A)))-4)
+#define attrFixup if (hasAttr) buf = storeSEXP(buf, ATTRIB(x), 0);
+#define dist(A,B) (((rlen_t)(((char*)B)-((char*)A))) - 4L)
+#define align(A) (((A) + 3L) & (rlen_max ^ 3L))
 
 static rlen_t getStorageSize(SEXP x) {
-    int t=TYPEOF(x);
-    unsigned int tl=LENGTH(x);
-    rlen_t len=4;
+    int t = TYPEOF(x);
+    rlen_t tl = LENGTH(x); /* although LENGTH can only be 32-bit use rlen_t to avoid downcasting */
+    rlen_t len = 4;
     
 #ifdef RSERV_DEBUG
-    printf("getStorageSize(%p,type=%d,len=%d) ",x, t,tl);
+    printf("getStorageSize(%p,type=%d,len=%ld) ", (void*)x, t, tl);
 #endif
     if (t != CHARSXP && TYPEOF(ATTRIB(x)) == LISTSXP) {
 		rlen_t alen = getStorageSize(ATTRIB(x));
@@ -406,12 +418,14 @@ static rlen_t getStorageSize(SEXP x) {
     case LANGSXP:
 		{
 			SEXP l = x;
-			int tags = 0, n = 0;
+			rlen_t tags = 0, n = 0;
 			while (l != R_NilValue) {
-				len+=getStorageSize(CAR(x)); tags+=getStorageSize(TAG(x)); n++;
+				len  += getStorageSize(CAR(x));
+				tags += getStorageSize(TAG(x));
+				n++;
 				l = CDR(l);
 			}
-			if (tags>4*n) len+=tags; /* use tagged list */
+			if (tags > 4L * n) len += tags; /* use tagged list */
 		}
 		break;
     case CLOSXP:
@@ -419,17 +433,17 @@ static rlen_t getStorageSize(SEXP x) {
 		len+=getStorageSize(BODY(x));
 		break;
 	case CPLXSXP:
-		len+=tl*16; break;
+		len += tl * 16L; break;
     case REALSXP:
-		len+=tl*8; break;
+		len += tl * 8L; break;
     case INTSXP:
-		len+=tl*4; break;
+		len += tl * 4L; break;
     case LGLSXP:
 	case RAWSXP:
-		if (tl>1)
-			len+=4+((tl+3)&0xfffffffc);
+		if (tl > 1)
+			len += 4L + align(tl);
 		else
-			len+=4;	
+			len += 4L;	
 		break;
 		
     case SYMSXP:
@@ -437,17 +451,16 @@ static rlen_t getStorageSize(SEXP x) {
 		{
 			const char *ct = ((t==CHARSXP) ? CHAR_FE(x) : CHAR_FE(PRINTNAME(x)));
 			if (!ct)
-				len += 4;
+				len += 4L;
 			else {
-				unsigned int sl = strlen(ct) + 1;
-				sl = (sl+3) & 0xfffffffc;
-				len += sl;
+				rlen_t sl = strlen(ct) + 1L;				
+				len += align(sl);
 			}
 		}
 		break;
     case STRSXP:
 		{
-			int i = 0;
+			unsigned int i = 0;
 			while (i < tl) {
 				len += getStorageSize(STRING_ELT(x, i));
 				i++;
@@ -457,9 +470,9 @@ static rlen_t getStorageSize(SEXP x) {
     case EXPRSXP:
     case VECSXP:
 		{
-			int i=0;
+			unsigned int i = 0;
 			while(i < tl) {
-				len+=getStorageSize(VECTOR_ELT(x,i));
+				len += getStorageSize(VECTOR_ELT(x,i));
 				i++;
 			}
 		}
@@ -468,61 +481,61 @@ static rlen_t getStorageSize(SEXP x) {
 		/* S4 really has the payload in attributes, so it doesn't occupy anything */
 		break;
     default:
-		len+=4; /* unknown types are simply stored as int */
+		len += 4L; /* unknown types are simply stored as int */
     }
-    if (len>0xfffff0) /* large types must be stored in the new format */
-		len+=4;
+    if (len > 0xfffff0) /* large types must be stored in the new format */
+		len += 4L;
 #ifdef RSERV_DEBUG
-    printf("= %u\n", (unsigned int) len);
+    printf("= %lu\n", len);
 #endif
     return len;
 }
 
-static unsigned int* storeSEXP(unsigned int* buf, SEXP x) {
-    int t=TYPEOF(x);
-    int i;
-    int hasAttr=0;
-    int isLarge=0;
-    unsigned int *preBuf=buf;
+/* if storage_size is > 0 then it it used instad of a call to getStorageSize() */
+static unsigned int* storeSEXP(unsigned int* buf, SEXP x, rlen_t storage_size) {
+    int t = TYPEOF(x);
+    int hasAttr = 0;
+    int isLarge = 0;
+    unsigned int *preBuf = buf;
     rlen_t txlen;
-    
+
     if (!x) { /* null pointer will be treated as XT_NULL */
-		*buf=itop(XT_NULL); buf++; goto didit;
+		*buf = itop(XT_NULL); buf++; goto didit;
     }
     
     if (t != CHARSXP && TYPEOF(ATTRIB(x)) == LISTSXP)
 		hasAttr = XT_HAS_ATTR;
     
-    if (t==NILSXP) {
-		*buf=itop(XT_NULL|hasAttr);
+    if (t == NILSXP) {
+		*buf = itop(XT_NULL | hasAttr);
 		buf++;
 		attrFixup;
 		goto didit;
     } 
     
     /* check storage size */
-    txlen=getStorageSize(x);
-    if (txlen>0xfffff0) { /* if the entry is too big, use large format */
-		isLarge=1;
+    txlen = storage_size ? storage_size : getStorageSize(x);
+    if (txlen > 0xfffff0) { /* if the entry is too big, use large format */
+		isLarge = 1;
 		buf++;
     }
     
     if (t==LISTSXP || t==LANGSXP) {
 		SEXP l = x;
-		int tags = 0;
+		rlen_t tags = 0;
 		while (l != R_NilValue) {
 			if (TAG(l) != R_NilValue) tags++;
 			l = CDR(l);
 		}
 		/* note that we are using the fact that XT_LANG_xx=XT_LIST_xx+2 */
-		*buf=itop((((t==LISTSXP)?0:2)+(tags?XT_LIST_TAG:XT_LIST_NOTAG))|hasAttr);
+		*buf = itop((((t == LISTSXP) ? 0 : 2) + (tags ? XT_LIST_TAG : XT_LIST_NOTAG)) | hasAttr);
 		buf++;
 		attrFixup;
-		l=x;
+		l = x;
 		while (l != R_NilValue) {			
-			buf = storeSEXP(buf, CAR(l));
+			buf = storeSEXP(buf, CAR(l), 0);
 			if (tags)
-				buf = storeSEXP(buf, TAG(l));
+				buf = storeSEXP(buf, TAG(l), 0);
 			l = CDR(l);
 		}
 		goto didit;
@@ -532,75 +545,76 @@ static unsigned int* storeSEXP(unsigned int* buf, SEXP x) {
 		*buf=itop(XT_CLOS|hasAttr);
 		buf++;
 		attrFixup;
-		buf=storeSEXP(buf,FORMALS(x));
-		buf=storeSEXP(buf,BODY(x));
+		buf=storeSEXP(buf, FORMALS(x), 0);
+		buf=storeSEXP(buf, BODY(x), 0);
 		goto didit;
     }
     
     if (t==REALSXP) {
+		R_len_t i = 0;
 		*buf=itop(XT_ARRAY_DOUBLE|hasAttr);
 		buf++;
 		attrFixup;
-		i=0;
-		while(i<LENGTH(x)) {
-			fixdcpy(buf,REAL(x)+i);
-			buf+=2; /* sizeof(double)=2*sizeof(int) */
+		while(i < LENGTH(x)) {
+			fixdcpy(buf, REAL(x) + i);
+			buf += 2; /* sizeof(double)=2*sizeof(int) */
 			i++;
 		}
 		goto didit;
     }
 
     if (t==CPLXSXP) {
-		*buf=itop(XT_ARRAY_CPLX|hasAttr);
+		R_len_t i = 0;
+		*buf = itop(XT_ARRAY_CPLX|hasAttr);
 		buf++;
 		attrFixup;
-		i=0;
-		while(i<LENGTH(x)) {
-			fixdcpy(buf,&(COMPLEX(x)[i].r));
-			buf+=2; /* sizeof(double)=2*sizeof(int) */
-			fixdcpy(buf,&(COMPLEX(x)[i].i));
-			buf+=2; /* sizeof(double)=2*sizeof(int) */
+		while(i < LENGTH(x)) {
+			fixdcpy(buf, &(COMPLEX(x)[i].r));
+			buf += 2; /* sizeof(double)=2*sizeof(int) */
+			fixdcpy(buf, &(COMPLEX(x)[i].i));
+			buf += 2; /* sizeof(double)=2*sizeof(int) */
 			i++;
 		}
 		goto didit;
     }
 
 	if (t==RAWSXP) {
-		int ll=LENGTH(x);
-		*buf=itop(XT_RAW|hasAttr);
+		R_len_t ll = LENGTH(x);
+		*buf = itop(XT_RAW | hasAttr);
 		buf++;
 		attrFixup;
-		*buf=itop(ll); buf++;
+		*buf = itop(ll); buf++;
 		if (ll) memcpy(buf, RAW(x), ll);
-		ll+=3; ll/=4;
-		buf+=ll;
+		ll += 3; ll /= 4;
+		buf += ll;
 		goto didit;
 	}
 		
     if (t==LGLSXP) {
-		int ll=LENGTH(x);
+		R_len_t ll = LENGTH(x), i = 0;
 		int *lgl = LOGICAL(x);
-		*buf=itop(((ll!=1)?XT_ARRAY_BOOL:XT_BOOL)|hasAttr);
+		*buf = itop(XT_ARRAY_BOOL | hasAttr);
 		buf++;
 		attrFixup;
-		if (ll!=1) {
-			*buf=itop(ll); buf++;
-		}
-		i=0;
-		while(i<ll) { /* logical values are stored as bytes of values 0/1/2 */
-			int bv=lgl[i];
-			*((unsigned char*)buf)=(bv==0)?0:(bv==1)?1:2;
-			buf=(unsigned int*)(((unsigned char*)buf)+1);
+		*buf = itop(ll); buf++;
+		while(i < ll) { /* logical values are stored as bytes of values 0/1/2 */
+			int bv = lgl[i];
+			*((unsigned char*)buf) = (bv == 0) ? 0 : (bv==1) ? 1 : 2;
+			buf = (unsigned int*)(((unsigned char*)buf) + 1);
 			i++;
 		}
 		/* pad by 0xff to a multiple of 4 */
-		while (i&3) { *((unsigned char*)buf)=0xff; i++; buf=(unsigned int*)(((unsigned char*)buf)+1); };
+		while (i & 3) {
+			*((unsigned char*)buf) = 0xff;
+			i++;
+			buf=(unsigned int*)(((unsigned char*)buf) + 1);
+		}
 		goto didit;
     }
     
 	if (t == STRSXP) {
 		char *st;
-		int nx = LENGTH(x);
+		R_len_t nx = LENGTH(x), i;
 		*buf = itop(XT_ARRAY_STR|hasAttr);
 		buf++;
 		attrFixup;
@@ -608,7 +622,7 @@ static unsigned int* storeSEXP(unsigned int* buf, SEXP x) {
 		st = (char *)buf;
 		for (i = 0; i < nx; i++) {
 			const char *cv = CHAR_FE(STRING_ELT(x, i));
-			int l = strlen(cv);
+			rlen_t l = strlen(cv);
 			if (STRING_ELT(x, i) == R_NaString) {
 				cv = (const char*) NaStringRepresentation;
 				l = 1;
@@ -624,24 +638,25 @@ static unsigned int* storeSEXP(unsigned int* buf, SEXP x) {
 	}
 
     if (t==EXPRSXP || t==VECSXP) {
-		*buf=itop(((t==EXPRSXP)?XT_VECTOR_EXP:XT_VECTOR)|hasAttr);
+		R_len_t i = 0, n = LENGTH(x);
+		*buf = itop(((t == EXPRSXP) ? XT_VECTOR_EXP : XT_VECTOR) | hasAttr);
 		buf++;
 		attrFixup;
-		i=0;
-		while(i<LENGTH(x)) {
-			buf=storeSEXP(buf,VECTOR_ELT(x,i));
+		while(i < n) {
+			buf = storeSEXP(buf, VECTOR_ELT(x, i), 0);
 			i++;
 		}
 		goto didit;
     }
 	
     if (t==INTSXP) {
-		*buf=itop(XT_ARRAY_INT|hasAttr);
+		R_len_t i = 0, n = LENGTH(x);
+		int *iptr = INTEGER(x);
+		*buf = itop(XT_ARRAY_INT | hasAttr);
 		buf++;
 		attrFixup;
-		i=0;
-		while(i<LENGTH(x)) {
-			*buf=itop(INTEGER(x)[i]);
+		while(i < n) {
+			*buf = itop(iptr[i]);
 			buf++;
 			i++;
 		}
@@ -656,42 +671,42 @@ static unsigned int* storeSEXP(unsigned int* buf, SEXP x) {
 	}
 	
     if (t==CHARSXP||t==SYMSXP) {
-		int sl;
+		rlen_t sl;
 		const char *val;
-		if (t==CHARSXP) {
-			*buf=itop(XT_STR|hasAttr);
+		if (t == CHARSXP) {
+			*buf = itop(XT_STR | hasAttr);
 			val = CHAR_FE(x);
 		} else {
-			*buf=itop(XT_SYMNAME|hasAttr);
+			*buf = itop(XT_SYMNAME | hasAttr);
 			val = CHAR_FE(PRINTNAME(x));
 		}
 		buf++;
 		attrFixup;
-		strcpy((char*)buf,val);
-		sl=strlen((char*)buf)+1;
-		while (sl&3) { /* pad by 0 to a length divisible by 4 (since 0.1-10) */
-			buf[sl]=0; sl++;
+		strcpy((char*)buf, val);
+		sl = strlen((char*)buf); sl++;
+		while (sl & 3) { /* pad by 0 to a length divisible by 4 (since 0.1-10) */
+			buf[sl] = 0; sl++;
 		}
-		buf=(unsigned int*)(((char*)buf)+sl);
+		buf = (unsigned int*)(((char*)buf) + sl);
 		goto didit;
     }
 	
-    *buf=itop(XT_UNKNOWN|hasAttr);
+    *buf = itop(XT_UNKNOWN | hasAttr);
     buf++;
     attrFixup;
-    *buf=itop(TYPEOF(x));
+    *buf = itop(TYPEOF(x));
     buf++;
     
  didit:
     if (isLarge) {
-		txlen=dist(preBuf,buf)-4;
-		preBuf[0]=itop(SET_PAR(PAR_TYPE(((unsigned char*) preBuf)[4]|XT_LARGE),txlen&0xffffff));
-		preBuf[1]=itop(txlen>>24);
+		txlen = dist(preBuf, buf) - 4L;
+		preBuf[0] = itop(SET_PAR(PAR_TYPE(((unsigned char*) preBuf)[4] | XT_LARGE), txlen & 0xffffff));
+		preBuf[1] = itop(txlen >> 24);
     } else
-		*preBuf=itop(SET_PAR(PAR_TYPE(ptoi(*preBuf)),dist(preBuf,buf)));
+		*preBuf = itop(SET_PAR(PAR_TYPE(ptoi(*preBuf)), dist(preBuf, buf)));
 
 #ifdef RSERV_DEBUG
-	printf("stored %p at %p, %u bytes\n", x, preBuf, (unsigned int) dist(preBuf, buf));
+	printf("stored %p at %p, %lu bytes\n", (void*)x, (void*)preBuf, (unsigned long) dist(preBuf, buf));
 #endif
 
     return buf;
@@ -716,7 +731,7 @@ static void printSEXP(SEXP e) /* merely for debugging purposes
 		return;
     }
     if (t==LISTSXP) {
-		SEXP l=e;
+		SEXP l = e;
 		printf("dotted-pair list:\n");
 		while (l != R_NilValue) {
 			if (dumpLimit && i>dumpLimit) { printf("..."); break; };
@@ -832,34 +847,34 @@ static void printSEXP(SEXP e) /* merely for debugging purposes
    (more precisely it points to the next stored SEXP). */
 static SEXP decode_to_SEXP(unsigned int **buf, int *UPC)
 {
-    unsigned int *b=*buf, *pab=*buf;
-    char *c,*cc;
-    SEXP val=0, vatt=0;
-    int ty=PAR_TYPE(ptoi(*b));
-    rlen_t ln=PAR_LEN(ptoi(*b));
-    int i,j,l;
+    unsigned int *b = *buf, *pab = *buf;
+    char *c, *cc;
+    SEXP val = 0, vatt = 0;
+    int ty = PAR_TYPE(ptoi(*b));
+    rlen_t ln = PAR_LEN(ptoi(*b));
+    R_len_t i, l;
     
     if (IS_LARGE(ty)) {
-		ty^=XT_LARGE;
+		ty ^= XT_LARGE;
 		b++;
-		ln|=(ptoi(*b))<<24;
+		ln |= ((rlen_t) ptoi(*b)) << 24;
     }
 #ifdef RSERV_DEBUG
     printf("decode: type=%d, len=%ld\n", ty, (long)ln);
 #endif
     b++;
-    pab=b; /* pre-attr b */
+    pab = b; /* pre-attr b */
 
-	if (ty&XT_HAS_ATTR) {
+	if (ty & XT_HAS_ATTR) {
 #ifdef RSERV_DEBUG
 		printf(" - has attributes\n");
 #endif
-		*buf=b;
-		vatt=decode_to_SEXP(buf, UPC);
-		b=*buf;
-		ty=ty^XT_HAS_ATTR;
+		*buf = b;
+		vatt = decode_to_SEXP(buf, UPC);
+		b = *buf;
+		ty = ty ^ XT_HAS_ATTR;
 #ifdef RSERV_DEBUG
-		printf(" - returned from attributes(@%x)\n", (int)&buf);
+		printf(" - returned from attributes(@%p)\n", (void*)*buf);
 #endif
 		ln -= (((char*)b) - ((char*)pab)); /* adjust length */
 	}
@@ -872,17 +887,19 @@ static SEXP decode_to_SEXP(unsigned int **buf, int *UPC)
 		val = R_NilValue;
 		*buf = b;
 		break;
+
     case XT_INT:
     case XT_ARRAY_INT:
-		l=ln/4;
+		l = ln / 4;
 		PROTECT(val = allocVector(INTSXP, l));
 		(*UPC)++;
-		i=0;
-		while (i<l) {
-			INTEGER(val)[i]=ptoi(*b); i++; b++;
+		i = 0;
+		while (i < l) {
+			INTEGER(val)[i] = ptoi(*b); i++; b++;
 		}
-		*buf=b;
+		*buf = b;
 		break;
+
     case XT_ARRAY_BOOL:
 		{
 			int vl = ptoi(*(b++));
@@ -899,41 +916,46 @@ static SEXP decode_to_SEXP(unsigned int **buf, int *UPC)
 		}
 		*buf = b;
 		break;
+
     case XT_DOUBLE:
     case XT_ARRAY_DOUBLE:
-		l=ln/8;
+		l = ln / 8;
 		PROTECT(val = allocVector(REALSXP, l)); (*UPC)++;
-		i=0;
-		while (i<l) {
-			fixdcpy(REAL(val)+i,b);
-			i++; b+=2;
+		i = 0;
+		while (i < l) {
+			fixdcpy(REAL(val) + i, b);
+			b += 2;
+			i++;
 		}
-		*buf=b;
+		*buf = b;
 		break;
+
     case XT_ARRAY_CPLX:
-		l=ln/16;
-		PROTECT(val=allocVector(CPLXSXP,l)); (*UPC)++;
-		i=0;
-		while (i<l) {
+		l = ln / 16;
+		PROTECT(val = allocVector(CPLXSXP, l));
+		(*UPC)++;
+		i = 0;
+		while (i < l) {
 			fixdcpy(&(COMPLEX(val)[i].r),b); b+=2;
 			fixdcpy(&(COMPLEX(val)[i].i),b); b+=2;
 			i++;
 		}
-		*buf=b;
+		*buf = b;
 		break;
+
     case XT_ARRAY_STR:
-	    	{
+		{
 			/* count the number of elements */
 			char *sen = (c = (char*)(b)) + ln;
-			j = 0;
+			i = 0;
 			while (c < sen) {
-				if (!*c) j++;
+				if (!*c) i++;
 				c++;
 			}
 			
-			PROTECT(val = allocVector(STRSXP, j));
+			PROTECT(val = allocVector(STRSXP, i));
 			(*UPC)++;
-			j = 0; cc = c = (char*)b;
+			i = 0; cc = c = (char*)b;
 			while (c < sen) {
 				SEXP sx;
 				if (!*c) {
@@ -943,29 +965,31 @@ static SEXP decode_to_SEXP(unsigned int **buf, int *UPC)
 						else
 							sx = mkRChar(cc + 1);
 					} else sx = mkRChar(cc);
-					SET_STRING_ELT(val, j, sx);
-					j++;
+					SET_STRING_ELT(val, i, sx);
+					i++;
 					cc = c + 1;
 				}
 				c++;
 			}
 		}
-		*buf=(unsigned int*)((char*)b + ln);
+		*buf = (unsigned int*)((char*)b + ln);
 		break;
+
 	case XT_RAW:
 		i = ptoi(*b);
 		PROTECT(val = allocVector(RAWSXP, i)); (*UPC)++;
 		memcpy(RAW(val), (b + 1), i);
-		*buf=(unsigned int*)((char*)b + ln);
+		*buf = (unsigned int*)((char*)b + ln);
 		break;
+
 	case XT_VECTOR:
 	case XT_VECTOR_EXP:
 		{
 			unsigned char *ie = (unsigned char*) b + ln;
-			int n=0;
+			R_len_t n = 0;
 			SEXP lh = R_NilValue;
-			*buf=b;
 			SEXP vr = allocVector(VECSXP, 1);
+			*buf = b;
 			PROTECT(vr);
 			while ((unsigned char*)*buf < ie) {
 				int my_upc = 0; /* unprotect all objects on the way since we're staying locked-in */
@@ -978,15 +1002,15 @@ static SEXP decode_to_SEXP(unsigned int **buf, int *UPC)
 #ifdef RSERV_DEBUG
 			printf(" vector (%s), %d elements\n", (ty==XT_VECTOR)?"generic":((ty==XT_VECTOR_EXP)?"expression":"string"), n);
 #endif
-			val = allocVector((ty==XT_VECTOR)?VECSXP:((ty==XT_VECTOR_EXP)?EXPRSXP:STRSXP), n);
+			val = allocVector((ty==XT_VECTOR) ? VECSXP : ((ty == XT_VECTOR_EXP) ? EXPRSXP : STRSXP), n);
 			PROTECT(val);
-			while (n>0) {
+			while (n > 0) {
 				n--;
 				SET_VECTOR_ELT(val, n, CAR(lh));
-				lh=CDR(lh);
+				lh = CDR(lh);
 			}
 #ifdef RSERV_DEBUG
-			printf(" end of vector %x/%x\n", (int) *buf, (int) ie);
+			printf(" end of vector %lx/%lx\n", (long) *buf, (long) ie);
 #endif
 			UNPROTECT(2); /* val and vr */
 			PROTECT(val);
@@ -1003,15 +1027,16 @@ static SEXP decode_to_SEXP(unsigned int **buf, int *UPC)
 #endif
 		{
 			char *c = (char*) b;
-			if (ty==XT_STR)
-				val=mkRChar(c);
-			else
-				val=install(c);
-			PROTECT(val);
-			(*UPC)++;
+			if (ty == XT_STR) {
+				val = mkRChar(c);
+				PROTECT(val);
+				(*UPC)++;
+			} else
+				val = install(c);
 		}
-		*buf=(unsigned int*)((char*)b + ln);
+		*buf = (unsigned int*)((char*)b + ln);
 		break;
+
 	case XT_LIST_NOTAG:
 	case XT_LIST_TAG:
 	case XT_LANG_NOTAG:
@@ -1024,13 +1049,13 @@ static SEXP decode_to_SEXP(unsigned int **buf, int *UPC)
 			while ((unsigned char*)*buf < ie) {
 				int my_upc = 0;
 #ifdef RSERV_DEBUG
-				printf(" el %08x of %08x\n", (unsigned int)*buf, (unsigned int) ie);
+				printf(" el %08lx of %08lx\n", (unsigned long)*buf, (unsigned long) ie);
 #endif
 				SEXP el = decode_to_SEXP(buf, &my_upc);
 				SEXP ea = 0;
 				if (ty==XT_LANG_TAG || ty==XT_LIST_TAG) {
 #ifdef RSERV_DEBUG
-					printf(" tag %08x of %08x\n", (unsigned int)*buf, (unsigned int) ie);
+					printf(" tag %08lx of %08lx\n", (unsigned long)*buf, (unsigned long) ie);
 #endif
 					ea = decode_to_SEXP(buf, &my_upc);
 				}
@@ -1054,8 +1079,9 @@ static SEXP decode_to_SEXP(unsigned int **buf, int *UPC)
 		}
 	default:
 		error("unsupported type %d\n", ty);
-		*buf=(unsigned int*)((char*)b + ln);
+		*buf = (unsigned int*)((char*)b + ln);
     }
+
 	if (vatt) {
 		/* if vatt contains "class" we have to set the object bit [we could use classgets(vec,kls) instead] */
 		SEXP head = vatt;
@@ -1081,10 +1107,10 @@ static SEXP decode_to_SEXP(unsigned int **buf, int *UPC)
 }
 
 /* if set Rserve doesn't accept other than local connections. */
-int localonly=1;
+static int localonly = 1;
 
 /* server socket */
-SOCKET ss;
+static SOCKET ss;
 
 /* arguments structure passed to a working thread */
 struct args {
@@ -1122,12 +1148,12 @@ char *IDstring="Rsrv0103QAP1\r\n\r\n--------------\r\n";
 #endif
 
 /* require authentication flag (default: no) */
-int authReq=0;
+int authReq = 0;
 /* use plain password flag (default: no) */
-int usePlain=0;
+int usePlain = 0;
 
 /* max. size of the input buffer (per connection) */
-int maxInBuf=256*(1024*1024); /* default is 256MB */
+rlen_t maxInBuf = 256 * (1024 * 1024); /* default is 256MB */
 
 /* if non-zero then the password file is loaded before client su so it can be unreadable by the clients */
 int cache_pwd = 0;
@@ -1214,9 +1240,11 @@ static int loadConfig(char *fn)
 			}
 			if (!strcmp(c,"maxinbuf")) {
 				if (*p) {
-					int ns = atoi(p);
-					if (ns > 32)
-						maxInBuf = ns * 1024;
+					long ns = atol(p);
+					if (ns > 32) {
+						maxInBuf = ns;
+						maxInBuf *= 1024;
+					}
 				}
 			}
 			if (!strcmp(c,"source") || !strcmp(c,"eval")) {
@@ -1242,9 +1270,11 @@ static int loadConfig(char *fn)
 			}
 			if (!strcmp(c,"maxsendbuf")) {
 				if (*p) {
-					int ns=atoi(p);
-					if (ns>32)
-						maxSendBufSize=ns*1024;
+					long ns = atol(p);
+					if (ns > 32) {
+						maxSendBufSize = ns;
+						maxSendBufSize *= 1024;
+					}
 				}
 			}
 #ifdef unix
@@ -1336,7 +1366,7 @@ static int loadConfig(char *fn)
    therefore we start with a small buffer and allocate more if necessary
 */
 
-int inBuf=32768; /* 32kB should be ok unless CMD_assign sends large data */
+static rlen_t inBuf = 32768; /* 32kB should be ok unless CMD_assign sends large data */
 
 /* static buffer size used for file transfer.
    The user is still free to allocate its own size  */
@@ -1347,19 +1377,21 @@ int inBuf=32768; /* 32kB should be ok unless CMD_assign sends large data */
 #endif
 
 /* pid of the last child (not really used ATM) */
-int lastChild;
+static int lastChild;
 
 #ifdef FORKED
-void sigHandler(int i) {
+static void sigHandler(int i) {
     if (i==SIGTERM || i==SIGHUP)
 		active=0;
 }
 
-void brkHandler(int i) {
+#ifdef RSERV_DEBUG
+static void brkHandler(int i) {
     printf("\nCaught break signal, shutting down Rserve.\n");
     active=0;
     /* kill(getpid(), SIGUSR1); */
 }
+#endif
 #endif
 
 /* used for generating salt code (2x random from this array) */
@@ -1642,11 +1674,11 @@ decl_sbthread newConn(void *thp) {
     struct phdr ph;
     char *buf, *c,*cc,*c1,*c2;
     int pars;
-    int i,j,n;
     int process;
+	int rn;
     ParseStatus stat;
     char *sendbuf;
-    int sendBufSize;
+    rlen_t sendBufSize;
     char *tail;
     char *sfbuf;
     int Rerror;
@@ -1709,7 +1741,7 @@ decl_sbthread newConn(void *thp) {
 
     srandom(rseed);
     
-    parentPID=getppid();
+    parentPID = getppid();
     closesocket(a->ss); /* close server socket */
 
 #ifdef unix
@@ -1723,17 +1755,17 @@ decl_sbthread newConn(void *thp) {
 
 #endif
     
-    buf=(char*) malloc(inBuf+8);
-    sfbuf=(char*) malloc(sfbufSize);
+    buf = (char*) malloc(inBuf + 8);
+    sfbuf = (char*) malloc(sfbufSize);
     if (!buf || !sfbuf) {
 		fprintf(stderr,"FATAL: cannot allocate initial buffers. closing client connection.\n");
-		s=a->s;
+		s = a->s;
 		free(a);
 		closesocket(s);
 		return;
     }
-    memset(buf,0,inBuf+8);
-    
+    memset(buf, 0, inBuf + 8);
+
 #ifdef unix
     if (workdir) {
 		if (chdir(workdir))
@@ -1744,9 +1776,9 @@ decl_sbthread newConn(void *thp) {
 		chdir(wdname);
     }
 #endif
-    
-    sendBufSize=sndBS;
-    sendbuf=(char*)malloc(sendBufSize);
+	
+    sendBufSize = sndBS;
+    sendbuf = (char*) malloc(sendBufSize);
 #ifdef RSERV_DEBUG
     printf("connection accepted.\n");
 #endif
@@ -1791,12 +1823,12 @@ decl_sbthread newConn(void *thp) {
 	if (!authReq && !pwdfile) /* control is allowed by default only if authentication is not required and passwd is not present. In all other cases it will be set during authentication. */
 		can_control = 1;
 
-    while((n=recv(s,(char*)&ph,sizeof(ph),0))==sizeof(ph)) {
+    while((rn = recv(s, (char*)&ph, sizeof(ph), 0)) == sizeof(ph)) {
 		size_t plen = 0;
 		SEXP pp = R_NilValue; /* packet payload (as a raw vector) for special commands */
 #ifdef RSERV_DEBUG
-		printf("\nheader read result: %d\n",n);
-		if (n>0) printDump(&ph,n);
+		printf("\nheader read result: %d\n", rn);
+		if (rn > 0) printDump(&ph, rn);
 #endif
 		ph.len=ptoi(ph.len);
 		ph.cmd=ptoi(ph.cmd);
@@ -1808,8 +1840,8 @@ decl_sbthread newConn(void *thp) {
 #else
 		plen = ph.len;
 #endif
-		process=0;
-		pars=0;
+		process = 0;
+		pars = 0;
 
 		if ((ph.cmd & CMD_SPECIAL_MASK) == CMD_SPECIAL_MASK) {
 			/* this is a very special case - we load the packet payload into a raw vector directly to prevent unnecessaru copying */
@@ -1819,23 +1851,23 @@ decl_sbthread newConn(void *thp) {
 #ifdef RSERV_DEBUG
 			printf("loading (raw) buffer (awaiting %d bytes)\n", (int)plen);
 #endif
-			while((n = recv(s,(char*)(pbuf+i),plen-i,0))) {
-				if (n > 0) i+=n;
-				if (i >= plen || n < 1) break;
+			while((rn = recv(s, pbuf + i, plen - i, 0))) {
+				if (rn > 0) i += rn;
+				if (i >= plen || rn < 1) break;
 			}
-		} else
-		if (plen>0) {
+		} else if (plen > 0) {
 			unsigned int phead;
-			int parType=0;
-			rlen_t parLen=0;
+			int parType = 0;
+			rlen_t parLen = 0;
 	    
-			if (!maxInBuf || plen<maxInBuf) {
-				if (plen>=inBuf) {
+			if (!maxInBuf || plen < maxInBuf) {
+				rlen_t i;
+				if (plen >= inBuf) {
 #ifdef RSERV_DEBUG
-					printf("resizing input buffer (was %d, need %d) to %d\n", (int)inBuf, (int) plen, (int)(((plen|0x1fff)+1)));
+					printf("resizing input buffer (was %ld, need %ld) to %ld\n", (long)inBuf, (long) plen, (long)(((plen | 0x1fffL) + 1L)));
 #endif
 					free(buf); /* the buffer is just a scratchpad, so we don't need to use realloc */
-					buf=(char*)malloc(inBuf=((plen|0x1fff)+1)); /* use 8kB granularity */
+					buf = (char*) malloc(inBuf = ((plen | 0x1fffL) + 1L)); /* use 8kB granularity */
 					if (!buf) {
 #ifdef RSERV_DEBUG
 						fprintf(stderr,"FATAL: out of memory while resizing buffer to %d,\n", (int)inBuf);
@@ -1847,33 +1879,33 @@ decl_sbthread newConn(void *thp) {
 					}	    
 				}
 #ifdef RSERV_DEBUG
-				printf("loading buffer (awaiting %d bytes)\n",(int) plen);
+				printf("loading buffer (awaiting %ld bytes)\n",(long) plen);
 #endif
-				i=0;
-				while((n=recv(s,(char*)(buf+i),plen-i,0))) {
-					if (n>0) i+=n;
-					if (i>=plen || n<1) break;
+				i = 0;
+				while ((rn = recv(s,((char*)buf) + i, plen - i, 0))) {
+					if (rn > 0) i += rn;
+					if (i >= plen || rn < 1) break;
 				}
-				if (i<plen) break;
-				memset(buf+plen,0,8);
+				if (i < plen) break;
+				memset(buf + plen, 0, 8);
 		
-				unaligned=0;
+				unaligned = 0;
 #ifdef RSERV_DEBUG
-				printf("parsing parameters (buf=%p, len=%d)\n", buf, (int) plen);
-				if (plen>0) printDump(buf,plen);
+				printf("parsing parameters (buf=%p, len=%ld)\n", buf, (long) plen);
+				if (plen > 0) printDump(buf,plen);
 #endif
-				c=buf+ph.dof;
-				while((c<buf+ph.dof+plen) && (phead=ptoi(*((unsigned int*)c)))) {
-					rlen_t headSize=4;
-					parType=PAR_TYPE(phead);
-					parLen=PAR_LEN(phead);
-					if ((parType&DT_LARGE)>0) { /* large parameter */
-						headSize+=4;
-						parLen|=((rlen_t)(ptoi(*(unsigned int*)(c+4))))<<24;
-						parType^=DT_LARGE;
+				c = buf + ph.dof;
+				while((c < buf + ph.dof + plen) && (phead = ptoi(*((unsigned int*)c)))) {
+					rlen_t headSize = 4;
+					parType = PAR_TYPE(phead);
+					parLen = PAR_LEN(phead);
+					if ((parType & DT_LARGE) > 0) { /* large parameter */
+						headSize += 4;
+						parLen |= ((rlen_t)(ptoi(*(unsigned int*)(c + 4)))) << 24;
+						parType ^= DT_LARGE;
 					} 
 #ifdef RSERV_DEBUG
-					printf("PAR[%d]: %08x (PAR_LEN=%ld, PAR_TYPE=%d, large=%s, c=%p, ptr=%p)\n", pars, i,
+					printf("PAR[%d]: %08lx (PAR_LEN=%ld, PAR_TYPE=%d, large=%s, c=%p, ptr=%p)\n", pars, i,
 						   (long)parLen, parType, (headSize==8)?"yes":"no", c, c + headSize);
 #endif
 #ifdef ALIGN_DOUBLES
@@ -1882,34 +1914,34 @@ decl_sbthread newConn(void *thp) {
 #ifdef RSERV_DEBUG
 						printf("Platform specific: last parameter resulted in unaligned stream for the current one, sending ERR_inv_par.\n");
 #endif
-						sendResp(s,SET_STAT(RESP_ERR,ERR_inv_par));
-						process=1; ph.cmd=0;
+						sendResp(s, SET_STAT(RESP_ERR, ERR_inv_par));
+						process = 1; ph.cmd = 0;
 						break;
 					}
 #endif
-					if (parLen&3) unaligned=1;         
-					parT[pars]=parType;
-					parL[pars]=parLen;
-					parP[pars]=c+headSize;
+					if (parLen & 3) unaligned=1;         
+					parT[pars] = parType;
+					parL[pars] = parLen;
+					parP[pars] = c + headSize;
 					pars++;
-					c+=parLen+headSize; /* par length plus par head */
-					if (pars>15) break;
+					c += parLen + headSize; /* par length plus par head */
+					if (pars > 15) break;
 				} /* we don't parse more than 16 parameters */
 			} else {
-				printf("discarding buffer because too big (awaiting %d bytes)\n", (int)plen);
-				size_t i=plen;
-				while((n=recv(s,(char*)buf,i>inBuf?inBuf:i,0))) {
-					if (n>0) i-=n;
-					if (i<1 || n<1) break;
+				printf("discarding buffer because too big (awaiting %ld bytes)\n", (long)plen);
+				size_t i = plen;
+				while((rn = recv(s, (char*)buf, i > inBuf ? inBuf : i, 0))) {
+					if (rn > 0) i -= rn;
+					if (i < 1 || rn < 1) break;
 				}
-				if (i>0) break;
+				if (i > 0) break;
 				/* if the pars are bigger than my buffer, send data_overflow response
 				   (since 1.23/0.1-6; was inv_par before) */
-				sendResp(s,SET_STAT(RESP_ERR,ERR_data_overflow));
-				process=1; ph.cmd=0;
+				sendResp(s, SET_STAT(RESP_ERR, ERR_data_overflow));
+				process = 1; ph.cmd = 0;
 			}
 		}
-	
+
 		/** IMPORTANT! The pointers in par[..] point to RAW data, i.e. you have
 			to use ptoi(..) in order to get the real integer value. */
 	
@@ -1922,23 +1954,23 @@ decl_sbthread newConn(void *thp) {
 		*/
 	
 #ifdef RSERV_DEBUG
-		printf("CMD=%08x, pars=%d\n",ph.cmd,pars);
+		printf("CMD=%08x, pars=%d\n", ph.cmd, pars);
 #endif
-	
+
 		if (!authed && ph.cmd==CMD_login) {
-			if (pars<1 || parT[0]!=DT_STRING) 
-				sendResp(s,SET_STAT(RESP_ERR,ERR_inv_par));
+			if (pars < 1 || parT[0] != DT_STRING) 
+				sendResp(s, SET_STAT(RESP_ERR, ERR_inv_par));
 			else {
-				c=(char*)parP[0];
-				cc=c;
-				while(*cc && *cc!='\n') cc++;
-				if (*cc) { *cc=0; cc++; };
-				c1=cc;
-				while(*c1) if(*c1=='\n'||*c1=='\r') *c1=0; else c1++;
+				c = (char*)parP[0];
+				cc = c;
+				while(*cc && *cc != '\n') cc++;
+				if (*cc) { *cc = 0; cc++; };
+				c1 = cc;
+				while(*c1) if(*c1 == '\n' || *c1 == '\r') *c1=0; else c1++;
 				/* c=login, cc=pwd */
-				authed=1;
+				authed = 1;
 #ifdef RSERV_DEBUG
-				printf("Authentication attempt (login='%s',pwd='%s',pwdfile='%s')\n",c,cc,pwdfile);
+				printf("Authentication attempt (login='%s',pwd='%s',pwdfile='%s')\n",c, cc, pwdfile);
 #endif
 				if (pwdfile) {
 					pwdf_t *pwf;
@@ -2014,7 +2046,7 @@ decl_sbthread newConn(void *thp) {
 
 		/* if not authed by now, close connection */
 		if (authReq && !authed) {
-			sendResp(s,SET_STAT(RESP_ERR,ERR_auth_failed));
+			sendResp(s, SET_STAT(RESP_ERR, ERR_auth_failed));
 			closesocket(s);
 			free(sendbuf); free(sfbuf); free(buf);
 			return;
@@ -2025,11 +2057,12 @@ decl_sbthread newConn(void *thp) {
 #ifdef RSERV_DEBUG
 			printf("initiating clean shutdown.\n");
 #endif
-			active=0;
+			active = 0;
 			closesocket(s);
 			free(sendbuf); free(sfbuf); free(buf);
 #ifdef FORKED
-			if (parentPID>0) kill(parentPID,SIGTERM);
+			if (parentPID > 0)
+				kill(parentPID, SIGTERM);
 			exit(0);
 #endif
 			return;
@@ -2097,34 +2130,35 @@ decl_sbthread newConn(void *thp) {
 			}
 		}
 
-		if (ph.cmd==CMD_setBufferSize) {
-			process=1;
-			if (pars<1 || parT[0]!=DT_INT) 
-				sendResp(s,SET_STAT(RESP_ERR,ERR_inv_par));
+		if (ph.cmd == CMD_setBufferSize) {
+			process = 1;
+			/* FIXME: configuration allows 64-bit numbers but CMD_setBufferSize does not */
+			if (pars < 1 || parT[0] != DT_INT) 
+				sendResp(s,SET_STAT(RESP_ERR, ERR_inv_par));
 			else {
-				rlen_t ns=ptoi(((unsigned int*)(parP[0]))[0]);
+				rlen_t ns = ptoi(((unsigned int*)(parP[0]))[0]);
 #ifdef RSERV_DEBUG
 				printf(">>CMD_setSendBuf to %ld bytes.\n", (long)ns);
 #endif
-				if (ns>0) { /* 0 means don't touch the buffer size */
-					if (ns<32768) ns=32768; /* we enforce a minimum of 32kB */
+				if (ns > 0) { /* 0 means don't touch the buffer size */
+					if (ns < 32768) ns = 32768; /* we enforce a minimum of 32kB */
 					free(sendbuf);
-					sendbuf=(char*)malloc(sendBufSize);
+					sendbuf = (char*)malloc(sendBufSize);
 					if (!sendbuf) {
 #ifdef RSERV_DEBUG
-						fprintf(stderr,"FATAL: out of memory while resizing send buffer to %d,\n",sendBufSize);
+						fprintf(stderr,"FATAL: out of memory while resizing send buffer to %ld,\n", sendBufSize);
 #endif
-						sendResp(s,SET_STAT(RESP_ERR,ERR_out_of_mem));
+						sendResp(s,SET_STAT(RESP_ERR, ERR_out_of_mem));
 						free(buf); free(sfbuf);
 						closesocket(s);
 						return;
 					}
-					sendBufSize=ns;
+					sendBufSize = ns;
 				}
-				sendResp(s,RESP_OK);
+				sendResp(s, RESP_OK);
 			}
 		}
-	
+
 		if (ph.cmd==CMD_openFile||ph.cmd==CMD_createFile) {
 			process=1;
 			if (!allowIO) sendResp(s,SET_STAT(RESP_ERR,ERR_accessDenied));
@@ -2185,12 +2219,12 @@ decl_sbthread newConn(void *thp) {
 				if (!cf)
 					sendResp(s,SET_STAT(RESP_ERR,ERR_notOpen));
 				else {
-					int fbufl = sfbufSize;
+					rlen_t fbufl = sfbufSize;
 					char *fbuf = sfbuf;
 					if (pars == 1 && parT[0] == DT_INT)
 						fbufl = ptoi(((unsigned int*)(parP[0]))[0]);
 #ifdef RSERV_DEBUG
-					printf(">>CMD_readFile(%d)\n", fbufl);
+					printf(">>CMD_readFile(%ld)\n", fbufl);
 #endif
 					if (fbufl < 0) fbufl = sfbufSize;
 					if (fbufl > sfbufSize) {
@@ -2203,7 +2237,7 @@ decl_sbthread newConn(void *thp) {
 					if (!fbuf) /* well, logically not clean (it's out of memory), but in practice likely true */
 						sendResp(s, SET_STAT(RESP_ERR, ERR_inv_par));
 					else {
-						i = fread(fbuf, 1, fbufl, cf);
+						size_t i = fread(fbuf, 1, fbufl, cf);
 						if (i > 0)
 							sendRespData(s, RESP_OK, i, fbuf);
 						else
@@ -2225,15 +2259,15 @@ decl_sbthread newConn(void *thp) {
 					if (pars<1 || parT[0]!=DT_BYTESTREAM)
 						sendResp(s,SET_STAT(RESP_ERR,ERR_inv_par));
 					else {
+						size_t i = 0;
 #ifdef RSERV_DEBUG
 						printf(">>CMD_writeFile(%ld,...)\n", (long) parL[0]);
 #endif
-						i=0;
-						c=(char*)parP[0];
-						if (parL[0]>0)
-							i=fwrite(c,1,parL[0],cf);
-						if (i>0 && i!=parL[0])
-							sendResp(s,SET_STAT(RESP_ERR,ERR_IOerror));
+						c = (char*)parP[0];
+						if (parL[0] > 0)
+							i = fwrite(c, 1, parL[0], cf);
+						if (i > 0 && i != parL[0])
+							sendResp(s, SET_STAT(RESP_ERR, ERR_IOerror));
 						else
 							sendResp(s,RESP_OK);
 					}
@@ -2260,8 +2294,8 @@ decl_sbthread newConn(void *thp) {
 #endif
 		
 				if (ph.cmd==CMD_assignSEXP) {
-					sym=parseExps(c,1,&stat);
-					if (stat!=1) {
+					sym = parseExps(c, 1, &stat);
+					if (stat != 1) {
 #ifdef RSERV_DEBUG
 						printf(">>CMD_assignREXP-failed to parse \"%s\", stat=%d\n",c,stat);
 #endif
@@ -2269,7 +2303,7 @@ decl_sbthread newConn(void *thp) {
 						goto respSt;
 					}
 					if (TYPEOF(sym)==EXPRSXP && LENGTH(sym)>0) {
-						sym=VECTOR_ELT(sym,0);
+						sym = VECTOR_ELT(sym,0);
 						/* we should de-allocate the vector here .. if we can .. */
 					}
 				}
@@ -2280,26 +2314,26 @@ decl_sbthread newConn(void *thp) {
 					printf("  assigning string \"%s\"\n",((char*)(parP[1])));
 #endif
 					PROTECT(val = allocVector(STRSXP,1));
-					SET_STRING_ELT(val,0,mkRChar((char*)(parP[1])));
-					defineVar((sym)?sym:install(c),val,R_GlobalEnv);
+					SET_STRING_ELT(val, 0, mkRChar((char*)(parP[1])));
+					defineVar(sym ? sym : install(c), val ,R_GlobalEnv);
 					UNPROTECT(1);
 					sendResp(s,RESP_OK);
 					break;
 				case DT_SEXP|DT_LARGE:
-					boffs=1; /* we're not using the size, so in fact we just
+					boffs = 1; /* we're not using the size, so in fact we just
 								advance the pointer and don't care about the length */
 				case DT_SEXP:
-					sptr=((unsigned int*)parP[1])+boffs;
-					val=decode_to_SEXP(&sptr,&globalUPC);
-					if (val==0)
-						sendResp(s,SET_STAT(RESP_ERR,ERR_inv_par));
+					sptr = ((unsigned int*)parP[1]) + boffs;
+					val = decode_to_SEXP(&sptr, &globalUPC);
+					if (val == 0)
+						sendResp(s,SET_STAT(RESP_ERR, ERR_inv_par));
 					else {
 #ifdef RSERV_DEBUG
 						printf("  assigning SEXP: ");
 						printSEXP(val);
 #endif
-						defineVar((sym)?sym:install(c),val,R_GlobalEnv);
-						sendResp(s,RESP_OK);
+						defineVar(sym ? sym : install(c), val, R_GlobalEnv);
+						sendResp(s, RESP_OK);
 					}
 					if (globalUPC>0) UNPROTECT(globalUPC);
 					break;
@@ -2358,15 +2392,15 @@ decl_sbthread newConn(void *thp) {
 			if (pars<1 || parT[0]!=DT_STRING) 
 				sendResp(s,SET_STAT(RESP_ERR,ERR_inv_par));
 			else {
+				int j = 0;
 				c=(char*)parP[0];
 #ifdef RSERV_DEBUG
 				printf("parseString(\"%s\")\n",c);
 #endif
-				j=0;
-				xp=parseString(c,&j,&stat);
+				xp=parseString(c, &j, &stat);
 				PROTECT(xp);
 #ifdef RSERV_DEBUG
-				printf("buffer parsed, stat=%d, parts=%d\n",stat,j);
+				printf("buffer parsed, stat=%d, parts=%d\n", stat, j);
 				if (xp)
 					printf("result type: %d, length: %d\n",TYPEOF(xp),LENGTH(xp));
 				else
@@ -2416,95 +2450,98 @@ decl_sbthread newConn(void *thp) {
 						if (ph.cmd==CMD_voidEval || ph.cmd==CMD_detachedVoidEval)
 							sendResp(s,RESP_OK);
 						else {
-							char *sendhead=0;
-							int canProceed=1;
+							char *sendhead = 0;
+							int canProceed = 1;
 							/* check buffer size vs REXP size to avoid dangerous overflows
 							   todo: resize the buffer as necessary
 							*/
-							rlen_t rs=getStorageSize(exp);
+							rlen_t rs = getStorageSize(exp);
 							/* increase the buffer by 25% for safety */
 							/* FIXME: there are issues with multi-byte strings that expand when
 							   converted. They should be convered by this margin but it is an ugly hack!! */
 							rs += (rs >> 2);
 #ifdef RSERV_DEBUG
-							printf("result storage size = %d bytes\n",(int)rs);
+							printf("result storage size = %ld bytes\n",(long)rs);
 #endif
-							if (rs>sendBufSize-64) { /* is the send buffer too small ? */
-								canProceed=0;
-								if (maxSendBufSize && rs+64>maxSendBufSize) { /* first check if we're allowed to resize */
-									unsigned int osz=(rs>0xffffffff)?0xffffffff:rs;
-									osz=itop(osz);
+							if (rs > sendBufSize - 64L) { /* is the send buffer too small ? */
+								canProceed = 0;
+								if (maxSendBufSize && rs + 64L > maxSendBufSize) { /* first check if we're allowed to resize */
+									unsigned int osz = (rs > 0xffffffff) ? 0xffffffff : rs;
+									osz = itop(osz);
 #ifdef RSERV_DEBUG
-									printf("ERROR: object too big (sendBuf=%d)\n",sendBufSize);
+									printf("ERROR: object too big (sendBuf=%ld)\n", sendBufSize);
 #endif
-									sendRespData(s,SET_STAT(RESP_ERR,ERR_object_too_big),4,&osz);
+									sendRespData(s,SET_STAT(RESP_ERR,ERR_object_too_big), 4, &osz);
 								} else { /* try to allocate a large, temporary send buffer */
-									tempSB=rs+64; tempSB&=rlen_max<<12; tempSB+=0x1000;
+									tempSB = rs + 64L;
+									tempSB &= rlen_max << 12;
+									tempSB += 0x1000;
 #ifdef RSERV_DEBUG
 									printf("Trying to allocate temporary send buffer of %ld bytes.\n", (long)tempSB);
 #endif
 									free(sendbuf);
-									sendbuf=(char*)malloc(tempSB);
+									sendbuf = (char*)malloc(tempSB);
 									if (!sendbuf) {
-										tempSB=0;
+										tempSB = 0;
 #ifdef RSERV_DEBUG
 										printf("Failed to allocate temporary send buffer of %ld bytes. Restoring old send buffer of %ld bytes.\n", (long)tempSB, (long)sendBufSize);
 #endif
-										sendbuf=(char*)malloc(sendBufSize);
+										sendbuf = (char*)malloc(sendBufSize);
 										if (!sendbuf) { /* we couldn't re-allocate the buffer */
 #ifdef RSERV_DEBUG
-											fprintf(stderr,"FATAL: out of memory while re-allocating send buffer to %d (fallback#1)\n",sendBufSize);
+											fprintf(stderr,"FATAL: out of memory while re-allocating send buffer to %ld (fallback#1)\n", sendBufSize);
 #endif
 											sendResp(s,SET_STAT(RESP_ERR,ERR_out_of_mem));
 											free(buf); free(sfbuf);
 											closesocket(s);
 											return;
 										} else {
-											unsigned int osz=(rs>0xffffffff)?0xffffffff:rs;
-											osz=itop(osz);
+											unsigned int osz = (rs > 0xffffffff) ? 0xffffffff : rs;
+											osz = itop(osz);
 #ifdef RSERV_DEBUG
-											printf("ERROR: object too big (sendBuf=%d) and couldn't allocate big enough send buffer\n",sendBufSize);
+											printf("ERROR: object too big (sendBuf=%ld) and couldn't allocate big enough send buffer\n", sendBufSize);
 #endif
-											sendRespData(s,SET_STAT(RESP_ERR,ERR_object_too_big),4,&osz);
+											sendRespData(s,SET_STAT(RESP_ERR,ERR_object_too_big), 4, &osz);
 										}
-									} else canProceed=1;
+									} else canProceed = 1;
 								}
 							}
 							if (canProceed) {
 								/* if this is defined then the old (<=0.1-9) "broken" behavior is requested where no data type header is sent */
 #ifdef FORCE_V0100 
-								tail=(char*)storeSEXP((unsigned int*)sendbuf,exp);
-								sendhead=sendbuf;
+								tail = (char*)storeSEXP((unsigned int*)sendbuf, exp, rs);
+								sendhead = sendbuf;
 #else
 								/* first we have 4 bytes of a header saying this is an encoded SEXP, then comes the SEXP */
-								char *sxh=sendbuf+8;
-								tail=(char*)storeSEXP((unsigned int*)sxh,exp);
+								char *sxh = sendbuf + 8;
+								tail = (char*)storeSEXP((unsigned int*)sxh, exp, rs);
+
 								/* set type to DT_SEXP and correct length */
-								if ((tail-sxh)>0xfffff0) { /* we must use the "long" format */
-									rlen_t ll=tail-sxh;
-									((unsigned int*)sendbuf)[0]=itop(SET_PAR(DT_SEXP|DT_LARGE,ll&0xffffff));
-									((unsigned int*)sendbuf)[1]=itop(ll>>24);
-									sendhead=sendbuf;
+								if ((tail - sxh) > 0xfffff0) { /* we must use the "long" format */
+									rlen_t ll = tail - sxh;
+									((unsigned int*)sendbuf)[0] = itop(SET_PAR(DT_SEXP | DT_LARGE, ll & 0xffffff));
+									((unsigned int*)sendbuf)[1] = itop(ll >> 24);
+									sendhead = sendbuf;
 								} else {
-									sendhead=sendbuf+4;
-									((unsigned int*)sendbuf)[1]=itop(SET_PAR(DT_SEXP,tail-sxh));
+									sendhead = sendbuf+4;
+									((unsigned int*)sendbuf)[1] = itop(SET_PAR(DT_SEXP,tail-sxh));
 								}
 #endif
 #ifdef RSERV_DEBUG
-								printf("stored SEXP; length=%d (incl. DT_SEXP header)\n",(int) (tail-sendhead));
+								printf("stored SEXP; length=%ld (incl. DT_SEXP header)\n",(long) (tail - sendhead));
 #endif
-								sendRespData(s,RESP_OK,tail-sendhead,sendhead);
+								sendRespData(s, RESP_OK, tail - sendhead, sendhead);
 								if (tempSB) { /* if this is just a temporary sendbuffer then shrink it back to normal */
 #ifdef RSERV_DEBUG
-									printf("Releasing temporary sendbuf and restoring old size of %d bytes.\n",sendBufSize);
+									printf("Releasing temporary sendbuf and restoring old size of %ld bytes.\n", sendBufSize);
 #endif
 									free(sendbuf);
-									sendbuf=(char*)malloc(sendBufSize);
+									sendbuf = (char*)malloc(sendBufSize);
 									if (!sendbuf) { /* this should be really rare since tempSB was much larger */
 #ifdef RSERV_DEBUG
-										fprintf(stderr,"FATAL: out of memory while re-allocating send buffer to %d (fallback#2),\n",sendBufSize);
+										fprintf(stderr,"FATAL: out of memory while re-allocating send buffer to %ld (fallback#2),\n", sendBufSize);
 #endif
-										sendResp(s,SET_STAT(RESP_ERR,ERR_out_of_mem));
+										sendResp(s, SET_STAT(RESP_ERR, ERR_out_of_mem));
 										free(buf); free(sfbuf);
 										closesocket(s);
 										return;		    
@@ -2523,21 +2560,21 @@ decl_sbthread newConn(void *thp) {
 		}
     respSt:
 
-		if (s==-1) { n=0; break; }
+		if (s == -1) { rn = 0; break; }
 
 		if (!process)
 			sendResp(s,SET_STAT(RESP_ERR,ERR_inv_cmd));
     }
 #ifdef RSERV_DEBUG
-    if (n==0)
+    if (rn == 0)
 		printf("Connection closed by peer.\n");
     else {
-		printf("malformed packet (n=%d). closing socket to prevent garbage.\n",n);
-		if (n>0) printDump(&ph,n);
+		printf("malformed packet (n=%d). closing socket to prevent garbage.\n", rn);
+		if (rn > 0) printDump(&ph, rn);
     }
 #endif
-    if (n>0)
-		sendResp(s,SET_STAT(RESP_ERR,ERR_conn_broken));
+    if (rn > 0)
+		sendResp(s, SET_STAT(RESP_ERR, ERR_conn_broken));
     closesocket(s);
     free(sendbuf); free(sfbuf); free(buf);
 #ifdef unix
@@ -2851,12 +2888,12 @@ int main(int argc, char **argv)
 					loadConfig(argv[++i]);
 			}
 			if (!strcmp(argv[i]+2,"RS-settings")) {
-				printf("Rserve v%d.%d-%d\n\nconfig file: %s\nworking root: %s\nport: %d\nlocal socket: %s\nauthorization required: %s\nplain text password: %s\npasswords file: %s\nallow I/O: %s\nallow remote access: %s\ncontrol commands: %s\ninteractive: %s\nmax.input buffer size: %d kB\n\n",
+				printf("Rserve v%d.%d-%d\n\nconfig file: %s\nworking root: %s\nport: %d\nlocal socket: %s\nauthorization required: %s\nplain text password: %s\npasswords file: %s\nallow I/O: %s\nallow remote access: %s\ncontrol commands: %s\ninteractive: %s\nmax.input buffer size: %ld kB\n\n",
 					   RSRV_VER>>16, (RSRV_VER>>8)&255, RSRV_VER&255,
 					   CONFIG_FILE, workdir, port, localSocketName ? localSocketName : "[none, TCP/IP used]",
 					   authReq ? "yes" : "no", usePlain ? "allowed" : "not allowed", pwdfile ? pwdfile : "[none]",
 					   allowIO ? "yes" : "no", localonly ? "no" : "yes",
-					   child_control ? "yes" : "no", Rsrv_interactive ? "yes" : "no", maxInBuf/1024);
+					   child_control ? "yes" : "no", Rsrv_interactive ? "yes" : "no", maxInBuf / 1024L);
 				return 0;	       
 			}
 			if (!strcmp(argv[i]+2,"version")) {

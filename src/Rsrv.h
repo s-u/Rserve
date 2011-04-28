@@ -32,7 +32,7 @@
 #include "config.h"
 #endif
 
-#define RSRV_VER 0x000603 /* Rserve v0.6-3 */
+#define RSRV_VER 0x000604 /* Rserve v0.6-4 */
 
 #define default_Rsrv_port 6311
 
