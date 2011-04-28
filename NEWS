@@ -3,11 +3,15 @@
 
 0.6-4	(under development)
     o	make all buffers capable of using 64-bit sizes. This means
-	that clients can use more that 4Gb of data when communicating
-	with Rserve, provided the buffer limits are either disabled or
-	configured to be high enough. Note that this does not change
- 	the limitations in R with respect to vector lengths so you
-	still can only use up to 2^31-1 elements.
+	that clients can use more that 4Gb of data on 64-bit platforms
+	when communicating with Rserve, provided the buffer limits are
+	either disabled or configured to be high enough. Note that this
+	does not change	the limitations in R with respect to vector
+	lengths so you still can only use up to 2^31-1 elements.
+   
+    o	bug fix: contrary to the documentation scalar logicals were sent
+	in the old XT_BOOL format instead of XT_ARRAY_BOOL
+
 
 0.6-3	2011-01-17
     o	bug fix: the child process could get stuck in the server loop
