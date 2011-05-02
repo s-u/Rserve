@@ -857,7 +857,7 @@ static SEXP decode_to_SEXP(unsigned int **buf, int *UPC)
     if (IS_LARGE(ty)) {
 		ty ^= XT_LARGE;
 		b++;
-		ln |= ((rlen_t) ptoi(*b)) << 24;
+		ln |= ((rlen_t) (unsigned int) ptoi(*b)) << 24;
     }
 #ifdef RSERV_DEBUG
     printf("decode: type=%d, len=%ld\n", ty, (long)ln);
@@ -1808,10 +1808,10 @@ decl_sbthread newConn(void *thp) {
 		salt[3]=' '; salt[4]=0;
 		memcpy(buf+20,salt,4);
 		/* append plaintext if enabled */
-		if (usePlain) memcpy(buf+24,"ARpt",4);
+		if (usePlain) memcpy(buf + 24,"ARpt",4);
 #else
 		/* if crypt is not an option, we may need to advertize plain text if enabled */
-		if (usePlain) memcpy(buf+16, "ARpt", 4);
+		if (usePlain) memcpy(buf + 16, "ARpt", 4);
 #endif
     }
 #ifdef RSERV_DEBUG
