@@ -101,13 +101,13 @@ struct phdr { /* always 16 bytes */
  */
 
 /* macros for handling the first int - split/combine (24-bit version only!) */
-#define PAR_TYPE(X) ((X)&255)
-#define PAR_LEN(X) ((X)>>8)
+#define PAR_TYPE(X) ((X) & 255)
+#define PAR_LEN(X) (((unsigned int)(X)) >> 8)
 #define PAR_LENGTH PAR_LEN
-#define SET_PAR(TY,LEN) ((((LEN)&0xffffff)<<8)|((TY)&255))
+#define SET_PAR(TY,LEN) ((((unsigned int) (LEN) & 0xffffff) << 8) | ((TY) & 255))
 
-#define CMD_STAT(X) (((X)>>24)&127) /* returns the stat code of the response */
-#define SET_STAT(X,s) ((X)|(((s)&127)<<24)) /* sets the stat code */
+#define CMD_STAT(X) (((X) >> 24)&127) /* returns the stat code of the response */
+#define SET_STAT(X,s) ((X) | (((s) & 127) << 24)) /* sets the stat code */
 
 #define CMD_RESP 0x10000  /* all responses have this flag set */
 

@@ -1830,13 +1830,13 @@ decl_sbthread newConn(void *thp) {
 		printf("\nheader read result: %d\n", rn);
 		if (rn > 0) printDump(&ph, rn);
 #endif
-		ph.len=ptoi(ph.len);
-		ph.cmd=ptoi(ph.cmd);
-		ph.dof=ptoi(ph.dof);
+		ph.len = ptoi(ph.len);
+		ph.cmd = ptoi(ph.cmd);
+		ph.dof = ptoi(ph.dof);
 #ifdef __LP64__
-		ph.res=ptoi(ph.res);
-		plen = ph.len;
-		plen |= (((size_t) ph.res) << 32);
+		ph.res = ptoi(ph.res);
+		plen = (unsigned int) ph.len;
+		plen |= (((size_t) (unsigned int) ph.res) << 32);
 #else
 		plen = ph.len;
 #endif
@@ -1901,7 +1901,7 @@ decl_sbthread newConn(void *thp) {
 					parLen = PAR_LEN(phead);
 					if ((parType & DT_LARGE) > 0) { /* large parameter */
 						headSize += 4;
-						parLen |= ((rlen_t)(ptoi(*(unsigned int*)(c + 4)))) << 24;
+						parLen |= ((rlen_t)((unsigned int)ptoi(*(unsigned int*)(c + 4)))) << 24;
 						parType ^= DT_LARGE;
 					} 
 #ifdef RSERV_DEBUG
@@ -2523,8 +2523,8 @@ decl_sbthread newConn(void *thp) {
 									((unsigned int*)sendbuf)[1] = itop(ll >> 24);
 									sendhead = sendbuf;
 								} else {
-									sendhead = sendbuf+4;
-									((unsigned int*)sendbuf)[1] = itop(SET_PAR(DT_SEXP,tail-sxh));
+									sendhead = sendbuf + 4;
+									((unsigned int*)sendbuf)[1] = itop(SET_PAR(DT_SEXP,tail - sxh));
 								}
 #endif
 #ifdef RSERV_DEBUG
