@@ -148,6 +148,12 @@ typedef unsigned long rlen_t;
 #endif /* __LP64__ */
 #endif /* ULONG_MAX */
 
+/* some OSes don't like too large chunks to be sent/received,
+   so we imit the socket I/O sizes by this constant.
+   It should be a 31-bit value for compatibility.
+*/
+#define max_sio_chunk 134217728
+
 #if defined NODAEMON && defined DAEMON
 #undef DAEMON
 #endif
@@ -375,13 +381,13 @@ static void printDump(void *b, int len) {
 
 static void sendResp(int s, int rsp) {
     struct phdr ph;
-    memset(&ph,0,sizeof(ph));
-    ph.cmd=itop(rsp|CMD_RESP);
+    memset(&ph, 0, sizeof(ph));
+    ph.cmd = itop(rsp | CMD_RESP);
 #ifdef RSERV_DEBUG
     printf("OUT.sendResp(void data)\n");
-    printDump(&ph,sizeof(ph));
+    printDump(&ph, sizeof(ph));
 #endif
-    send(s,(char*)&ph,sizeof(ph),0);
+    send(s, (char*)&ph, sizeof(ph), 0);
 }
 
 #if 0 /* UNUSED ?? */
@@ -1124,11 +1130,15 @@ struct args {
 };
 
 /* send a response including the data part */
-static void sendRespData(int s, int rsp, int len, void *buf) {
+static void sendRespData(int s, int rsp, rlen_t len, void *buf) {
     struct phdr ph;
-    memset(&ph,0,sizeof(ph));
-    ph.cmd=itop(rsp|CMD_RESP);
-    ph.len=itop(len);
+	rlen_t i = 0;
+    memset(&ph, 0, sizeof(ph));
+    ph.cmd = itop(rsp | CMD_RESP);	
+    ph.len = itop(len);
+#ifdef __LP64__
+	ph.res = itop(len >> 32);
+#endif
 #ifdef RSERV_DEBUG
     printf("OUT.sendRespData\nHEAD ");
     printDump(&ph,sizeof(ph));
@@ -1136,8 +1146,14 @@ static void sendRespData(int s, int rsp, int len, void *buf) {
     printDump(buf,len);
 #endif
     
-    send(s,(char*)&ph,sizeof(ph),0);
-    send(s,(char*)buf,len,0);
+    send(s, (char*)&ph, sizeof(ph), 0);
+	
+	while (i < len) {
+		int rs = send(s, (char*)buf + i, (len - i > max_sio_chunk) ? max_sio_chunk : (len - i), 0);
+		if (rs < 1)
+			break;
+		i += rs;
+	}
 }
 
 /* initial ID string */
@@ -1817,7 +1833,7 @@ decl_sbthread newConn(void *thp) {
 #ifdef RSERV_DEBUG
     printf("sending ID string.\n");
 #endif
-    send(s,(char*)buf,32,0);
+    send(s, (char*)buf, 32, 0);
 	
 	can_control = 0;
 	if (!authReq && !pwdfile) /* control is allowed by default only if authentication is not required and passwd is not present. In all other cases it will be set during authentication. */
@@ -1851,7 +1867,7 @@ decl_sbthread newConn(void *thp) {
 #ifdef RSERV_DEBUG
 			printf("loading (raw) buffer (awaiting %d bytes)\n", (int)plen);
 #endif
-			while((rn = recv(s, pbuf + i, plen - i, 0))) {
+			while((rn = recv(s, pbuf + i, (plen - i > max_sio_chunk) ? max_sio_chunk : (plen - i), 0))) {
 				if (rn > 0) i += rn;
 				if (i >= plen || rn < 1) break;
 			}
@@ -1882,7 +1898,7 @@ decl_sbthread newConn(void *thp) {
 				printf("loading buffer (awaiting %ld bytes)\n",(long) plen);
 #endif
 				i = 0;
-				while ((rn = recv(s,((char*)buf) + i, plen - i, 0))) {
+				while ((rn = recv(s, ((char*)buf) + i, (plen - i > max_sio_chunk) ? max_sio_chunk : (plen - i), 0))) {
 					if (rn > 0) i += rn;
 					if (i >= plen || rn < 1) break;
 				}
@@ -1929,8 +1945,8 @@ decl_sbthread newConn(void *thp) {
 				} /* we don't parse more than 16 parameters */
 			} else {
 				printf("discarding buffer because too big (awaiting %ld bytes)\n", (long)plen);
-				size_t i = plen;
-				while((rn = recv(s, (char*)buf, i > inBuf ? inBuf : i, 0))) {
+				size_t i = plen, chk = (inBuf < max_sio_chunk) ? inBuf : max_sio_chunk;
+				while((rn = recv(s, (char*)buf, (i < chk) ? i : chk, 0))) {
 					if (rn > 0) i -= rn;
 					if (i < 1 || rn < 1) break;
 				}
