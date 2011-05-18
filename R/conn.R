@@ -1,5 +1,6 @@
-Rserve <- function(debug=FALSE, port=6311, args=NULL) {
+Rserve <- function(debug=FALSE, port=6311, args=NULL, quote=(length(args) > 1), wait, ...) {
   args <- as.character(args)
+  if (!isTRUE(quote) && length(args) > 1) args <- paste(args, collapse=' ')
   if (.Platform$OS.type == "windows") {
     arch <- .Platform$r_arch
     if (is.null(arch) || !nzchar(arch)) arch <- ""
@@ -14,9 +15,10 @@ Rserve <- function(debug=FALSE, port=6311, args=NULL) {
       if (!exists("Sys.setenv")) Sys.setenv <- Sys.putenv
       if (charmatch(pad, Sys.getenv("PATH"), nomatch=0) == 0)
         Sys.setenv(PATH=paste(pad, Sys.getenv("PATH"), sep=''))
-      fn <- paste(shQuote(c(fn, args), "cmd"), collapse=' ')
+      fn <- if (isTRUE(quote)) paste(shQuote(c(fn, args), "cmd"), collapse=' ') else paste(shQuote(fn, "cmd"), args)
       cat("Starting Rserve...\n", fn, "\n")
-      system(fn, wait=FALSE)
+      if (missing(wait)) wait <- FALSE
+      system(fn, wait=wait, ...)
       return(invisible(NULL))
     }
   }
@@ -24,12 +26,13 @@ Rserve <- function(debug=FALSE, port=6311, args=NULL) {
   fn <- system.file(package="Rserve", "libs", .Platform$r_arch, name)
   if (!nchar(fn)) fn <- if (!debug) "Rserve" else "Rserve.dbg"
   if ( port != 6311 ) args <- c( args, "--RS-port", port )
-  if (length(args)) fn <- paste(fn, paste(shQuote(args, "sh"), collapse=' '))
+  if (length(args)) fn <- paste(fn, paste(if (isTRUE(quote)) shQuote(args, "sh") else args, collapse=' '))
   cmd <- paste(file.path(R.home(),"bin","R"), "CMD", fn)
   cat("Starting Rserve on port", port, ":\n",cmd,"\n\n")
   if (debug)
     cat("Note: debug version of Rserve doesn't daemonize so your R session will be blocked until you shut down Rserve.\n")
-  system(cmd)
+  if (missing(wait)) wait <- TRUE
+  system(cmd, wait=wait, ...)
 }
 
 RSconnect <- function(host="localhost", port=6311) {
