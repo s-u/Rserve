@@ -18,8 +18,7 @@ Rserve <- function(debug=FALSE, port=6311, args=NULL, quote=(length(args) > 1), 
       fn <- if (isTRUE(quote)) paste(shQuote(c(fn, args), "cmd"), collapse=' ') else paste(shQuote(fn, "cmd"), args)
       cat("Starting Rserve...\n", fn, "\n")
       if (missing(wait)) wait <- FALSE
-      system(fn, wait=wait, ...)
-      return(invisible(NULL))
+      return(invisible(system(fn, wait=wait, ...)))
     }
   }
   name <- if (!debug) "Rserve-bin.so" else "Rserve-dbg.so"
@@ -32,7 +31,7 @@ Rserve <- function(debug=FALSE, port=6311, args=NULL, quote=(length(args) > 1), 
   if (debug)
     cat("Note: debug version of Rserve doesn't daemonize so your R session will be blocked until you shut down Rserve.\n")
   if (missing(wait)) wait <- TRUE
-  system(cmd, wait=wait, ...)
+  invisible(system(cmd, wait=wait, ...))
 }
 
 RSconnect <- function(host="localhost", port=6311) {
