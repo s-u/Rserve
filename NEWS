@@ -1,7 +1,7 @@
  NEWS/Changelog for Rserve
 ---------------------------
 
-0.6-4	(under development)
+0.6-4	2011-05-19
     o	make all buffers capable of using 64-bit sizes. This means
 	that clients can use more that 4Gb of data on 64-bit platforms
 	when communicating with Rserve, provided the buffer limits are
@@ -11,6 +11,19 @@
    
     o	bug fix: contrary to the documentation scalar logicals were sent
 	in the old XT_BOOL format instead of XT_ARRAY_BOOL
+
+    o	work around several issues introduced in R 2.13.0 for Windows
+
+	Rserve() now also allows arguments to be passed to system() for
+	more fine-grained control of the environment, mostly to work
+	around bugs and incompatible changes to system() on Windows
+	in R 2.13.0 (commonly used options are invisible=FALSE to get
+	back to a more reasonable pre-2.13.0 behavior and wait=TRUE if
+	using R 2.13.0 that has broken wait=FALSE support).
+
+    o	In Rserve() startup wrapper, args are now quoted automatically
+	if quote=TRUE is set. For backward compatilility args are not
+	quoted by default if they consist of just one string.
 
 
 0.6-3	2011-01-17
