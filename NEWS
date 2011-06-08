@@ -1,6 +1,11 @@
  NEWS/Changelog for Rserve
 ---------------------------
 
+0.6-5	(under development)
+    o	use new install.libs.R custom installation script in R 2.13.1
+	to install binaries
+
+
 0.6-4	2011-05-19
     o	make all buffers capable of using 64-bit sizes. This means
 	that clients can use more that 4Gb of data on 64-bit platforms
