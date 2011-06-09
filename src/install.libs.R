@@ -1,4 +1,3 @@
-print(ls())
 libarch <- if (nzchar(R_ARCH)) paste("libs", R_ARCH, sep='') else "libs"
 dest <- file.path(R_PACKAGE_DIR, libarch)
 ## the last two on unix are for compatibility only
