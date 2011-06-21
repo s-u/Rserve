@@ -58,7 +58,7 @@ client: config.h
 	make -C client/cxx
 	-@mkdir ../inst 2>/dev/null
 	-rm -rf ../inst/client
-	-cp -r client ../inst/
+	-cp -R client ../inst/
 	cp Rsrv.h config.h include/sisocks.h ../inst/client/cxx/
 
 clean:

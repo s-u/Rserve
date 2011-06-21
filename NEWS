@@ -1,9 +1,17 @@
  NEWS/Changelog for Rserve
 ---------------------------
 
-0.6-5	(under development)
+0.6-5	2011-06-21
     o	use new install.libs.R custom installation script in R 2.13.1
 	to install binaries
+
+    o	install clients by default on Windows as well
+
+    o	multi-arch binaries are no longer installed with the arch suffix
+	in the package root. The canonical place is libs$(R_ARCH) instead.
+	For now Rserve.exe/Rserve_d.exe are still installed in the root
+	but they will be also removed in the future as they are not
+	multi-arch safe.
 
 
 0.6-4	2011-05-19

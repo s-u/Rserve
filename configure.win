@@ -7,3 +7,6 @@ echo '** Rserve for Windows is different in several aspects         **'
 echo '** from the unix version, see                                 **'
 echo '** http://rforge.net/Rserve/rserve-win.html                   **'
 echo ''
+
+mkdir inst 2>/dev/null
+cp -R src/client inst/ 2>/dev/null

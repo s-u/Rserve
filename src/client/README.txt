@@ -13,3 +13,5 @@ java-old  - old Java client (JRclient). This was the first
 	    compatibility with older programs, but it will be phased
 	    out eventually.
 
+php       - minimal PHP client and example code that can be used to
+	    run FastRWeb via PHP instead of CGI

@@ -42,6 +42,8 @@ fi
 rm -rf clients
 ln -s src/client clients
 
+(cd src/client/java-new; make && make -C Rserve)
+
 # no INDEX since 1.8
 #echo "Updating INDEX ..."
 #cd ..

@@ -21,16 +21,14 @@ instdir:
 Rserve.exe:	Rserv.o winembed.o
 	$(LINKER) -s -o $@ $^ -lws2_32 -L$(R_BIN) -lR
 	-cp $@ $(INSTDIR)
-	-cp $@ $(INSTDIR)/Rserve$(ARCH).exe
-	-cp $@ "$(R_BIN)"
 	-cp $@ $(INSTDIR)/libs$(R_ARCH)
+	-cp $@ "$(R_BIN)"
 
 Rserve_d.exe:	Rserv_d.o winembed.o
 	$(LINKER) -o $@ $^ -lws2_32 -L$(R_BIN) -lR
 	-cp $@ $(INSTDIR)
-	-cp $@ $(INSTDIR)/Rserve_d$(ARCH).exe
-	-cp $@ "$(R_BIN)"
 	-cp $@ $(INSTDIR)/libs$(R_ARCH)
+	-cp $@ "$(R_BIN)"
 
 clean: 
 	-rm -f *.o Rserve.exe Rserve_d.exe
