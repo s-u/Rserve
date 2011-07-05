@@ -690,9 +690,8 @@ static unsigned int* storeSEXP(unsigned int* buf, SEXP x, rlen_t storage_size) {
 		attrFixup;
 		strcpy((char*)buf, val);
 		sl = strlen((char*)buf); sl++;
-		while (sl & 3) { /* pad by 0 to a length divisible by 4 (since 0.1-10) */
-			buf[sl] = 0; sl++;
-		}
+		while (sl & 3) /* pad by 0 to a length divisible by 4 (since 0.1-10) */
+			((char*)buf)[sl++] = 0;
 		buf = (unsigned int*)(((char*)buf) + sl);
 		goto didit;
     }

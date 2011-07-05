@@ -1,6 +1,14 @@
  NEWS/Changelog for Rserve
 ---------------------------
 
+0.6-6	(under development)
+    o	fix a bug that can cause heap corruption due to incorrect
+	addressing in padding of symbols. Unless extremely long symbol
+	names are used it is unlikely to have a real effect in
+	practice, but in theory it could be used to zero targetted
+	parts of the heap. Thanks to Ralph Heinkel for reporting.
+
+
 0.6-5	2011-06-21
     o	use new install.libs.R custom installation script in R 2.13.1
 	to install binaries
