@@ -15,7 +15,7 @@ Rserve <- function(debug=FALSE, port=6311, args=NULL, quote=(length(args) > 1), 
       if (!exists("Sys.setenv")) Sys.setenv <- Sys.putenv
       if (charmatch(pad, Sys.getenv("PATH"), nomatch=0) == 0)
         Sys.setenv(PATH=paste(pad, Sys.getenv("PATH"), sep=''))
-      fn <- if (isTRUE(quote)) paste(shQuote(c(fn, args), "cmd"), collapse=' ') else paste(shQuote(fn, "cmd"), args)
+      fn <- if (isTRUE(quote)) paste(shQuote(c(fn, args), "cmd"), collapse=' ') else paste(shQuote(fn, "cmd"), paste(args, collapse=' '))
       cat("Starting Rserve...\n", fn, "\n")
       if (missing(wait)) wait <- FALSE
       return(invisible(system(fn, wait=wait, ...)))

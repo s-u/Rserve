@@ -8,6 +8,9 @@
 	practice, but in theory it could be used to zero targetted
 	parts of the heap. Thanks to Ralph Heinkel for reporting.
 
+    o	fix Rserve() call on Windows with quote=FALSE and more than
+	one argument.
+
 
 0.6-5	2011-06-21
     o	use new install.libs.R custom installation script in R 2.13.1
