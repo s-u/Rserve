@@ -11,6 +11,9 @@
     o	fix Rserve() call on Windows with quote=FALSE and more than
 	one argument.
 
+    o	clarify that sisocks.h is under LGPL 2.1 as well as the other
+	headers used by clients.
+
 
 0.6-5	2011-06-21
     o	use new install.libs.R custom installation script in R 2.13.1
