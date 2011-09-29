@@ -3,6 +3,8 @@
 // Simple Rserve client for PHP.
 // Supports Rserve protocol 0103 only (used by Rserve 0.5 and higher)
 //
+// NOTE: for a more complete PHP client see http://code.google.com/p/rserve-php
+//
 // (C)Copyright 2009 Simon Urbanek
 // Licensed under GPL v2 or at your option v3
 // 

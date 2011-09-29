@@ -15,3 +15,6 @@ java-old  - old Java client (JRclient). This was the first
 
 php       - minimal PHP client and example code that can be used to
 	    run FastRWeb via PHP instead of CGI
+	    NOTE: a more complete PHP client written by
+	    Clement Turbelin based on this minimal version is
+	    available from http://code.google.com/p/rserve-php
