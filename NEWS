@@ -19,6 +19,10 @@
 	as a base - cannot be supported properly, becasue there is no
 	way to distinguish them from S3 objects!)
 
+    o	Unsupported types in CMD_assign will no longer crash R.
+	The resulting object is always NULL and an error is printed on
+	the R side.
+
 
 0.6-5	2011-06-21
     o	use new install.libs.R custom installation script in R 2.13.1
