@@ -14,6 +14,11 @@
     o	clarify that sisocks.h is under LGPL 2.1 as well as the other
 	headers used by clients.
 
+    o	add support for plain S4 objects (S4SEXP) in assignments
+	(Note: derived S4 objects - those using other native SEXP type
+	as a base - cannot be supported properly, becasue there is no
+	way to distinguish them from S3 objects!)
+
 
 0.6-5	2011-06-21
     o	use new install.libs.R custom installation script in R 2.13.1

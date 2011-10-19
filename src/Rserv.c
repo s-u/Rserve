@@ -359,9 +359,9 @@ static int satoi(const char *str) {
 	if (!str) return 0;
 	if (str[0]=='0') {
 		if (str[1]=='x')
-			return strtol(str, 0, 16);
+			return strtol(str + 2, 0, 16);
 		if (str[1]>='0' && str[1]<='9')
-			return strtol(str, 0, 8);
+			return strtol(str + 1, 0, 8);
 	}
 	return atoi(str);
 }
@@ -1042,6 +1042,12 @@ static SEXP decode_to_SEXP(unsigned int **buf, int *UPC)
 		*buf = (unsigned int*)((char*)b + ln);
 		break;
 
+	case XT_S4:
+		val = Rf_allocS4Object();
+		PROTECT(val);
+		(*UPC)++;
+		break;
+
 	case XT_LIST_NOTAG:
 	case XT_LIST_TAG:
 	case XT_LANG_NOTAG:
@@ -1083,7 +1089,8 @@ static SEXP decode_to_SEXP(unsigned int **buf, int *UPC)
 			break;
 		}
 	default:
-		error("unsupported type %d\n", ty);
+		REprintf("Rserve SEXP parsing: unsupported type %d\n", ty);
+		val = R_NilValue;
 		*buf = (unsigned int*)((char*)b + ln);
     }
 
