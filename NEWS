@@ -1,7 +1,7 @@
  NEWS/Changelog for Rserve
 ---------------------------
 
-0.6-6	(under development)
+0.6-6	2011-12-10
     o	fix a bug that can cause heap corruption due to incorrect
 	addressing in padding of symbols. Unless extremely long symbol
 	names are used it is unlikely to have a real effect in
