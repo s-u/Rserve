@@ -1,6 +1,10 @@
  NEWS/Changelog for Rserve
 ---------------------------
 
+0.6-7	(under development)
+    o	work around broken readBin() in R 2.14.0 that errors
+	on unsigned integers (affects R client only)
+
 0.6-6	2011-12-10
     o	fix a bug that can cause heap corruption due to incorrect
 	addressing in padding of symbols. Unless extremely long symbol

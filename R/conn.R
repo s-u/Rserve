@@ -47,7 +47,7 @@ RSeval <- function(c, expr) {
   r <- if (is.character(expr)) serialize(parse(text=paste("{",paste(expr,collapse="\n"),"}"))[[1]],NULL) else serialize(expr, NULL)
   writeBin(c(0xf5L, length(r), 0L, 0L), c, endian="little")
   writeBin(r, c)
-  b <- readBin(c,"int",4,signed=FALSE,endian="little")
+  b <- readBin(c,"int",4,endian="little")
   if (length(b)<4 || b[1] != 65537L) stop("remote evaluation failed")
   unserialize(readBin(c,"raw",b[2]))
 }
@@ -56,7 +56,7 @@ RSassign <- function (c, obj, name = deparse(substitute(obj))) {
   r <- serialize(list(name, obj), NULL)
   writeBin(c(0xf6L,length(r),0L,0L), c, endian="little")
   writeBin(r, c)
-  b <- readBin(c,"int",4,signed=FALSE,endian="little")
+  b <- readBin(c,"int",4,endian="little")
   if (length(b)<4 || b[1] != 65537L)
     stop("remote assign failed")
   invisible(obj)
@@ -77,11 +77,11 @@ RSeval.old <- function(c, cmd) {
   writeBin(as.integer(c(3,l+4,0,0,4+l*256)), c, endian="little")
   writeBin(sc, c)
   writeBin(raw(1), c)
-  b <- readBin(c,"int",4,signed=FALSE,endian="little")
+  b <- readBin(c,"int",4,endian="little")
   if (!length(b)) { close(c); stop("Rserve connection timed out and closed") }
   ##cat("header: ",b[1],", ",b[2],"\n")
   if (b[1]%%256 == 2 || b[2] < 12) stop("Eval failed with error: ",b[1]%/%0x1000000)
-  a <- readBin(c,"int",3,signed=FALSE,endian="little")
+  a <- readBin(c,"int",3,endian="little")
   rawLen <- a[3]
   isLarge <- (a[1]%/%0x40000000)%%1
   prefix <- 12
@@ -158,7 +158,7 @@ RSassign.old <- function ( c, obj, name = deparse(substitute(obj)) ) {
   writeBin(so, c)
   #cat("awaiting response...\n")
   
-  b <- readBin(c,"int",4,signed=FALSE,endian="little")
+  b <- readBin(c,"int",4,endian="little")
   if (!length(b)) { close(c); stop("Rserve connection timed out and closed") }
   #cat("header: ",b[1],", ",b[2],"\n")    
   msgLen <- b[2]
@@ -177,13 +177,13 @@ RSevalDetach <- function( c, cmd="" ) {
     l <- nchar(r[1])+1
     writeBin(as.integer(c(0x031,l+4,0,0,4+l*256)), c, endian="little")
     writeBin(as.character(r[1]), c)
-    b <- readBin(c,"int",4,signed=FALSE,endian="little")
+    b <- readBin(c,"int",4,endian="little")
     if (b[1]%%256 == 2 || b[2] < 12) stop("Eval/detach failed with error: ",b[1]%/%0x1000000)
     ## We don't need "isLarge" because we never get large data back
   } else {
     l <- 0
     writeBin(as.integer(c(0x030,l+4,0,0,4+l*256)), c, endian="little")
-    b <- readBin(c,"int",4,signed=FALSE,endian="little")
+    b <- readBin(c,"int",4,endian="little")
     if (b[1]%%256 != 1) stop("Detach failed with error: ",b[1]%/%0x1000000)
   }
   msgLen <- b[1]%/%256
@@ -200,7 +200,7 @@ RSevalDetach <- function( c, cmd="" ) {
 RSattach <- function(session) {
   c <- socketConnection(session$host,session$port,open="a+b",blocking=TRUE)
   writeBin( session$key, c )
-  b <- readBin(c,"int",4,signed=FALSE,endian="little")
+  b <- readBin(c,"int",4,endian="little")
   if (!length(b)) { close(c); stop("Rserve connection timed out and closed") }
   if (b[1]%%256 != 1) stop("Attach failed with error: ",b[1]%/%0x1000000)
   c
@@ -211,7 +211,7 @@ RSlogin <- function(c, user, pwd, silent=FALSE) {
   l <- nchar(r[1])+1
   writeBin(as.integer(c(1,l+4,0,0,4+l*256)), c, endian="little")
   writeBin(as.character(r[1]), c)
-  b <- readBin(c,"int",4,signed=FALSE,endian="little")
+  b <- readBin(c,"int",4,endian="little")
   if (!length(b)) { close(c); stop("Rserve connection timed out and closed") }
   ##cat("header: ",b[1],", ",b[2],"\n")    
   msgLen <- b[2]

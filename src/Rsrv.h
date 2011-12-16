@@ -32,7 +32,7 @@
 #include "config.h"
 #endif
 
-#define RSRV_VER 0x000606 /* Rserve v0.6-6 */
+#define RSRV_VER 0x000607 /* Rserve v0.6-7 */
 
 #define default_Rsrv_port 6311
 
@@ -212,6 +212,7 @@ struct phdr { /* always 16 bytes */
 #define CMD_ctrlEval        0x42  /* string : - */
 #define CMD_ctrlSource      0x45  /* string : - */
 #define CMD_ctrlShutdown    0x44  /* - : - */
+#define CMD_cancel          0x46 /* cancel current R execution */
 
 /* 'internal' commands (since 0.1-9) */
 #define CMD_setBufferSize 0x081  /* [int sendBufSize] 
