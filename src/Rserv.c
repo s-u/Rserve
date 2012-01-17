@@ -2009,7 +2009,7 @@ decl_sbthread newConn(void *thp) {
 						sfbuf[sfbufSize - 1] = 0;
 						while(!pwd_eof(pwf))
 							if (pwd_gets(sfbuf, sfbufSize - 1, pwf)) {
-								c1 = sfbuf;
+								char *login = c1 = sfbuf;
 								while(*c1 && *c1 != ' ' && *c1 != '\t') c1++;
 								if (*c1) {
 									*c1 = 0;
@@ -2019,18 +2019,18 @@ decl_sbthread newConn(void *thp) {
 								c2 = c1;
 								while(*c2) if (*c2 == '\r' || *c2=='\n') *c2 = 0; else c2++;
 								ctrl_flag = 0;
-								if (*c == '@') { /* only users with @ prefix can use control commands */
-									c++;
+								if (*login == '@') { /* only users with @ prefix can use control commands */
+									login++;
 									ctrl_flag = 1;
 								}
-								if (*c == '*') { /* general authentication - useful to set control access but leave client access open */
+								if (*login == '*') { /* general authentication - useful to set control access but leave client access open */
 									authed = 1;
 #ifdef RSERV_DEBUG
 									printf("Public authentication enabled (found * entry), allowing login without checking.\n");
 #endif
 									break;
 								}
-								if (!strcmp(sfbuf,c)) { /* login found */
+								if (!strcmp(login, c)) { /* login found */
 #ifdef RSERV_DEBUG
 									printf("Found login '%s', checking password.\n", c);
 #endif

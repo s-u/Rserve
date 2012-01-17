@@ -5,6 +5,12 @@
     o	work around broken readBin() in R 2.14.0 that errors
 	on unsigned integers (affects R client only)
 
+    o   fix processing of login information
+    	**IMPORTANT**: this fixes a serious security hole in the 
+	remote login mechanism! If you rely on authentication,
+	please make sure you update your Rserve immediately!
+	(Thanks to Daniel Faber for reporting)
+
 0.6-6	2011-12-10
     o	fix a bug that can cause heap corruption due to incorrect
 	addressing in padding of symbols. Unless extremely long symbol
