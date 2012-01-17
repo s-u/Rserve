@@ -1,15 +1,17 @@
  NEWS/Changelog for Rserve
 ---------------------------
 
-0.6-7	(under development)
-    o	work around broken readBin() in R 2.14.0 that errors
-	on unsigned integers (affects R client only)
-
+0.6-7	2012-01-17
     o   fix processing of login information
     	**IMPORTANT**: this fixes a serious security hole in the 
 	remote login mechanism! If you rely on authentication,
 	please make sure you update your Rserve immediately!
 	(Thanks to Daniel Faber for reporting)
+
+    o	add a namespace to make R 2.14+ happy
+
+    o	work around broken readBin() in R 2.14.0 that errors
+	on unsigned integers (affects R client only)
 
 0.6-6	2011-12-10
     o	fix a bug that can cause heap corruption due to incorrect
