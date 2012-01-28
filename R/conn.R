@@ -220,7 +220,48 @@ RSlogin <- function(c, user, pwd, silent=FALSE) {
   invisible(b[1]%%256 == 1)
 }
 
-RSshutdown <- function(c, pwd=NULL) {
-  # FIXME: we ignore pwd and don't check error status
-  writeBin(as.integer(c(4, 0, 0, 0)), c, endian="little")
+RSserverEval <- function(c, expr) {
+  if (is.language(expr)) expr <- deparse(expr)
+  if (!is.character(expr)) stop("expr must me a character vector, name, call or an expression")
+  r <- charToRaw(paste(expr,collapse='\n'))
+  l <- length(r) + 1L
+  writeBin(as.integer(c(0x42L, l + 4L,0L ,0L ,4L + l * 256L)), c, endian="little")
+  writeBin(r, c)
+  writeBin(raw(1), c)
+  b <- readBin(c, "int", 4, endian="little")
+  if (!length(b)) { close(c); stop("Rserve connection timed out and closed") }
+  msgLen <- b[2]
+  if (msgLen > 0) a <- readBin(c,"raw",msgLen)
+  if (b[1]%%256 != 1) stop("RSserverEval failed with error: ",b[1]%/%0x1000000)
+  invisible(b[1]%%256 == 1)  
+}
+
+RSserverSource <- function(c, file) {
+  if (!is.character(file) || length(file) != 1) stop("`file' must be a string")
+  r <- charToRaw(file)
+  l <- length(r) + 1L
+  writeBin(as.integer(c(0x45L, l + 4L,0L ,0L ,4L + l * 256L)), c, endian="little")
+  writeBin(r, c)
+  writeBin(raw(1), c)
+  b <- readBin(c, "int", 4, endian="little")
+  if (!length(b)) { close(c); stop("Rserve connection timed out and closed") }
+  msgLen <- b[2]
+  if (msgLen > 0) a <- readBin(c,"raw",msgLen)
+  if (b[1]%%256 != 1) stop("RSserverSource failed with error: ",b[1]%/%0x1000000)
+  invisible(b[1]%%256 == 1)  
+}
+
+RSshutdown <- function(c, pwd=NULL, ctrl=FALSE) {
+  if (ctrl) {
+    writeBin(c(0x44L, 0L, 0L, 0L), c, endian="little")
+    b <- readBin(c, "int", 4, endian="little")
+    if (!length(b)) { close(c); stop("Rserve connection timed out and closed") }
+    msgLen <- b[2]
+    if (msgLen > 0) a <- readBin(c,"raw",msgLen)
+    if (b[1]%%256 != 1) stop("ctrlShutdown failed with error: ",b[1]%/%0x1000000)
+    invisible(b[1]%%256 == 1)  
+  } else {
+    # FIXME: we ignore pwd and don't check error status
+    writeBin(as.integer(c(4, 0, 0, 0)), c, endian="little")
+  }
 }

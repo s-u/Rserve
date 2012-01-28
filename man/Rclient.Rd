@@ -11,18 +11,22 @@
 \alias{RSassign}
 \alias{RSassign.old}
 \alias{RSshutdown}
+\alias{RSserverEval}
+\alias{RSserverSource}
 \usage{
 RSconnect(host = "localhost", port = 6311)
 RSlogin(c, user, pwd, silent = FALSE)
 RSeval(c, expr)
 RSeval.old(c, cmd)
 RSclose(c)
-RSshutdown(c, pwd = NULL)
+RSshutdown(c, pwd = NULL, ctrl = FALSE)
 RSdetach(c)
 RSevalDetach(c, cmd = "")
 RSattach(session)
 RSassign(c, obj, name = deparse(substitute(obj)) )
 RSassign.old(c, obj, name = deparse(substitute(obj)) )
+RSserverEval(c, expr)
+RSserverSource(c, file)
 }
 \description{
   Rserve is a server providing R functionality via sockets. The
@@ -53,6 +57,11 @@ RSassign.old(c, obj, name = deparse(substitute(obj)) )
   \item{obj}{value to assign}
   \item{name}{name to assign to on the remote side}
   \item{expr}{R expression to evaluate remotely}
+  \item{file}{path to a file on the server(!) that will be sourced into
+    the main instance}
+  \item{ctrl}{logical, if \code{TRUE} then control command
+    (\code{CMD_ctrlShutdown}) is used for shutdown, otherwise the
+    legacy \code{CMD_shutdown} is used instead.}
 }
 \details{
   \code{RSconnect} creates a connection to a Rserve. The returned handle
@@ -94,7 +103,10 @@ RSassign.old(c, obj, name = deparse(substitute(obj)) )
   connection. It can be issued only on a valid (authenticated)
   connection. The password parameter is currently ignored since
   password-protected shutdown is not yet supported. Please note that
-  you should not terminate servers that you did not start.
+  you should not terminate servers that you did not start. More recent
+  Rserve installation can disable regular shutdown and only allow
+  control shutdown (avaiable to control users only) which is invoked
+  by specifying \code{ctrl=TRUE}.
 
   \code{RSevalDetach} same as \code{RSdetach} but allows asynchronous
   evaluation of the command. The remote Rserve is instructed to evaluate
@@ -112,6 +124,19 @@ RSassign.old(c, obj, name = deparse(substitute(obj)) )
   thus allowing constructs such as \code{RSassign(c, 1:5,
   quote(a$foo))} which will result in \code{a$foo <- 1:5}
   remotely. However, character names are interpreted literarly.
+
+  \code{RSserverEval} and \code{RSserverSource} enqueue commands in the
+  server instance of Rserve, i.e. their effect will be visible for all
+  subsequent client connections. The Rserve instance must have control
+  commands enabled (not the default) in order to allow those
+  commands. \code{RSserverEval} evaluates the supplied expression and
+  \code{RSserverSource} sources the specified file - it must be a valid
+  path to a file on the server, not the client machine! Both commands
+  are executed asynchronously in the server, so the success of those
+  commands only means that they were queued on the server - they will be
+  executed between subsequent client connections. Note that only
+  subsequent connections will be affected, not the one issuing those
+  commands.
 }
 \examples{
 \dontrun{

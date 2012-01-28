@@ -1,6 +1,11 @@
  NEWS/Changelog for Rserve
 ---------------------------
 
+0.6-8	(under development)
+    o	added RSserverEval() and RSserverSource() control commands
+	in the R client as well as ctrl parameter to RSshutdown().
+
+
 0.6-7	2012-01-17
     o   fix processing of login information
     	**IMPORTANT**: this fixes a serious security hole in the 
