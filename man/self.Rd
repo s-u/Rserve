@@ -20,7 +20,7 @@ self.ctrlSource(file)
 
   \code{self.ctrlSource} issues a control command to the Rserve parent
   instance to source the given file in the server, see
-  \code{link{RSserverSource}} for details.
+  \code{\link{RSserverSource}} for details.
 }
 \arguments{
   \item{expr}{R expression to evaluate remotely}
