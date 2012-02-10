@@ -236,6 +236,9 @@ extern __declspec(dllimport) int R_SignalHandlers;
 #ifdef HAVE_CRYPT_H
 #include <crypt.h>
 #endif
+#if R_VERSION >= R_Version(2,9,0)
+#include <R_ext/Rdynload.h>
+#endif
 
 #if defined HAVE_NETINET_TCP_H && defined HAVE_NETINET_IN_H
 #define CAN_TCP_NODELAY
@@ -297,6 +300,7 @@ int is_child = 0;       /* 0 for parent (master), 1 for children */
 int parent_pipe = -1;   /* pipe to the master process or -1 if not available */
 int can_control = 0;    /* control commands will be rejected unless this flag is set */
 int child_control = 0;  /* enable/disable the ability of children to send commands to the master process */
+int self_control = 0;   /* enable/disable the ability to use control commands from within the R process */
 
 rlen_t maxSendBufSize = 0; /* max. sendbuf for auto-resize. 0=no limit */
 
@@ -332,6 +336,34 @@ static const char *charsxp_to_current(SEXP s) {
 	return Rf_reEnc(CHAR(s), getCharCE(s), string_encoding, 0);
 }
 #endif
+
+static SEXP Rserve_ctrlCMD(int command, SEXP what) {
+	long cmd[2] = { 0, 0 };
+	const char *str;
+	if (!self_control) Rf_error("R control is not premitted in this instance of Rserve");
+	if (parent_pipe == -1) Rf_error("Connection to the parent process has been lost.");
+	if (TYPEOF(what) != STRSXP || LENGTH(what) != 1) Rf_error("Invalid parameter, must be a single string.");
+	str = CHAR(STRING_ELT(what, 0)); /* FIXME: should we do some re-coding? This is not ripe for CHAR_FE since the target is our own instance and not the client ... */
+	cmd[0] = command;
+	cmd[1] = strlen(str) + 1;
+	if (write(parent_pipe, cmd, sizeof(cmd)) != sizeof(cmd) || (cmd[1] && write(parent_pipe, str, cmd[1]) != cmd[1])) {
+#ifdef RSERV_DEBUG
+		printf(" - Rserve_ctrlCMD send to parent pipe (cmd=%ld, len=%ld) failed, closing parent pipe\n", cmd[0], cmd[1]);
+#endif
+		close(parent_pipe);
+		parent_pipe = -1;
+		Rf_error("Error writing to parent pipe");
+	}
+	return ScalarLogical(1);
+}
+
+SEXP Rserve_ctrlEval(SEXP what) {
+	return Rserve_ctrlCMD(CCTL_EVAL, what);
+}
+
+SEXP Rserve_ctrlSource(SEXP what) {
+	return Rserve_ctrlCMD(CCTL_SOURCE, what);
+}	
 
 /* this is the representation of NAs in strings. We chose 0xff since that should never occur in UTF-8 strings. If 0xff occurs in the beginning of a string anyway, it will be doubled to avoid misrepresentation. */
 static const unsigned char NaStringRepresentation[2] = { 255, 0 };
@@ -1238,8 +1270,10 @@ static int loadConfig(char *fn)
 			c = buf;
 			while(*c == ' ' || *c == '\t') c++;
 			p = c;
-			while(*p && *p != '\t' && *p != ' ' && *p != '=' && *p != ':')
+			while(*p && *p != '\t' && *p != ' ' && *p != '=' && *p != ':') {
+				if (*p >= 'A' && *p <= 'Z') *p |= 0x20; /* to lower case */
 				p++;
+			}
 			if (*p) {
 				*p = 0;
 				p++;
@@ -1361,6 +1395,8 @@ static int loadConfig(char *fn)
 				usePlain=(*p=='1' || *p=='y' || *p=='e') ? 1 : 0;
 			if (!strcmp(c,"fileio"))
 				allowIO=(*p=='1' || *p=='y' || *p=='e') ? 1 : 0;
+			if (!strcmp(c,"r-control"))
+				self_control = (*p=='1' || *p=='y' || *p=='e') ? 1 : 0;
 			if (!strcmp(c, "cachepwd"))
 				cache_pwd = (*p == 'i') ? 2 : ((*p == '1' || *p == 'y' || *p == 'e') ? 1 : 0);
 		}
@@ -1732,7 +1768,7 @@ decl_sbthread newConn(void *thp) {
 	cinp[0] = -1;
 
 	/* we use the input pipe only if child control is enabled. disabled pipe means no registration */
-	if (child_control && pipe(cinp) != 0)
+	if ((child_control || self_control) && pipe(cinp) != 0)
 		cinp[0] = -1;
 
     if ((lastChild = fork()) != 0) { /* parent/master part */
@@ -2972,6 +3008,20 @@ int main(int argc, char **argv)
 		if (new_uid != -1) setuid(new_uid);
 	}
 #endif
+
+	if (self_control) { /* register routines for self-control */
+#if R_VERSION < R_Version(2,9,0)
+#include "R_ext/Rdynload.h"
+		fprintf(stderr, "WARNING: R.control is disabled becasue your R version is too old.\n");
+#else
+		R_CallMethodDef mainCallMethods[]  = {
+			{"Rserve_ctrlEval", (DL_FUNC) &Rserve_ctrlEval, 1},
+			{"Rserve_ctrlSource", (DL_FUNC) &Rserve_ctrlSource, 1},
+			{NULL, NULL, 0}
+		};
+        R_registerRoutines(R_getEmbeddingDllInfo(), 0, mainCallMethods, 0, 0);
+#endif		
+	}
 	
 #if defined RSERV_DEBUG || defined Win32
     printf("Rserve: Ok, ready to answer queries.\n");

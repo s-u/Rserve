@@ -5,6 +5,19 @@
     o	added RSserverEval() and RSserverSource() control commands
 	in the R client as well as ctrl parameter to RSshutdown().
 
+    o	added new facility that allows R scripts running in Rserve to
+	issue control commands if allowed. This feature must be
+	enabled in the Rserve configuration file using
+
+	r-control enable
+
+	This will make self.ctrlEval() and self.ctrlSource() functions
+	available to code that is running within the Rserve
+	instance. It is also possible to use this feature without
+	explicitly loading the Rserve package via
+	.Call("Rserve_ctrlEval", paste(text, collapse='\n'))
+	.Call("Rserve_ctrlSource", as.character(file))
+	although this may change in the future.
 
 0.6-7	2012-01-17
     o   fix processing of login information

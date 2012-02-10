@@ -265,3 +265,19 @@ RSshutdown <- function(c, pwd=NULL, ctrl=FALSE) {
     writeBin(as.integer(c(4, 0, 0, 0)), c, endian="little")
   }
 }
+
+self.ctrlEval <- function(expr) {
+  if (!is.loaded("Rserve_ctrlEval")) stop("This command can only be run inside Rserve with r-control enabled")
+  if (is.language(expr)) expr <- deparse(expr)
+  if (!is.character(expr)) stop("expr must me a character vector, name, call or an expression")
+  call <- getNativeSymbolInfo("Rserve_ctrlEval")
+  invisible(.Call(call, paste(expr,collapse='\n')))
+}
+
+self.ctrlSource <- function(file) {
+  if (!is.loaded("Rserve_ctrlEval")) stop("This command can only be run inside Rserve with r-control enabled")
+  if (!is.character(file) || length(file) != 1) stop("`file' must be a string")
+  call <- getNativeSymbolInfo("Rserve_ctrlSource")
+  invisible(.Call(call, file))
+}
+
