@@ -3011,7 +3011,6 @@ int main(int argc, char **argv)
 
 	if (self_control) { /* register routines for self-control */
 #if R_VERSION < R_Version(2,9,0)
-#include "R_ext/Rdynload.h"
 		fprintf(stderr, "WARNING: R.control is disabled becasue your R version is too old.\n");
 #else
 		R_CallMethodDef mainCallMethods[]  = {
