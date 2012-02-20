@@ -1,7 +1,7 @@
  NEWS/Changelog for Rserve
 ---------------------------
 
-0.6-8	(under development)
+0.6-8	2012-02-20
     o	added RSserverEval() and RSserverSource() control commands
 	in the R client as well as ctrl parameter to RSshutdown().
 
