@@ -1,1 +1,2 @@
-export(RSassign, RSassign.old, RSattach, RSclose, RSconnect, RSdetach, RSeval, RSeval.old, RSevalDetach, RSlogin, RSshutdown, Rserve, RSserverEval, RSserverSource, self.ctrlEval, self.ctrlSource)
+useDynLib(Rserve)
+export(Rserve, self.ctrlEval, self.ctrlSource, run.Rserve)

@@ -1,5 +1,5 @@
 # Process this file with autoconf to produce a configure script.
-AC_INIT([Rserve],[0.4],[Simon.Urbanek@r-project.org])
+AC_INIT([Rserve],[1.7],[Simon.Urbanek@r-project.org])
 AC_CONFIG_SRCDIR([src/Rserv.c])
 AC_CONFIG_HEADER([src/config.h])
 
@@ -146,6 +146,6 @@ fi
 # on some platforms libR expects dl code in the binary
 AC_CHECK_LIB(dl, dlopen)
 
-AC_CONFIG_FILES([src/Makefile])
+AC_CONFIG_FILES([src/Makevars])
 AC_CONFIG_FILES([src/client/cxx/Makefile])
 AC_OUTPUT

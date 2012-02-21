@@ -1,15 +1,19 @@
-#include "RSserver.h"
+#include <stdlib.h>
+
+#ifdef STANDALONE_RSERVE
+
+/* this is a bad hack for compatibility. Eventually we should have a defined layer */
+#include "Rserv.c"
 
 extern int Rf_initEmbeddedR(int, char**);
-
-static const char *rserve_ver_id = "$Id: Rserv.c 338 2012-02-11 20:52:25Z urbanek $";
-
-static char rserve_rev[16]; /* this is generated from rserve_ver_id by main */
 
 /* main function - start Rserve */
 int main(int argc, char **argv)
 {
-    int stat,i;    
+    int stat, i;
+	char **top_argv;
+	int    top_argc;
+
     rserve_rev[0] = 0;
     { /* cut out the SVN revision from the Id string */
 		const char *c = strstr(rserve_ver_id, ".c ");
@@ -178,6 +182,11 @@ int main(int argc, char **argv)
     umask(umask_value);
 #endif
     
+	if (!create_Rserve_QAP1()) {
+		fprintf(stderr, "ERROR: unable to start server\n");
+		return 1;
+	}
+
     serverLoop();
 #ifdef unix
     if (localSocketName)
@@ -189,6 +198,8 @@ int main(int argc, char **argv)
 #endif
     return 0;
 }
+
+#endif
 
 /*--- The following makes the indenting behavior of emacs compatible
       with Xcode's 4/4 setting ---*/

@@ -17,6 +17,8 @@
  *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
+#ifdef WIN32
+
 /* based on rtest.c
    implements Rf_initEmbeddedR which is missing in the Windows-version
    of R shared library */
@@ -279,4 +281,8 @@ int Rf_initEmbeddedR(int argc, char **argv)
     return 0;
 }
 
+#endif
+
+#else
+#include <R.h>
 #endif

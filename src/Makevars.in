@@ -1,0 +1,25 @@
+PKG_CPPFLAGS=-DRSERVE_PKG -I. -Iinclude
+
+all: $(SHLIB) @WITH_SERVER_TRUE@ server
+@WITH_CLIENT_TRUE@	$(MAKE) client
+
+server:	standalone.c md5.c Rserv.c session.c
+	$(CC) -DSTANDALONE_RSERVE -DDAEMON -I. -Iinclude $(ALL_CPPFLAGS) $(ALL_CFLAGS) $(CPPFLAGS) $(CFLAGS) $(PKG_CPPFLAGS) $(PKG_CFLAGS) -o Rserve standalone.c md5.c session.c $(ALL_LIBS) $(PKG_LIBS)
+	$(CC) -DSTANDALONE_RSERVE -DRSERV_DEBUG -DNODAEMON -I. -Iinclude $(ALL_CPPFLAGS) $(ALL_CFLAGS) $(PKG_CPPFLAGS) $(PKG_CFLAGS) -o Rserve.dbg standalone.c md5.c session.c $(ALL_LIBS) $(PKG_LIBS)
+
+# merging to bin/Rserve works only if installed from sources, won't work for binary
+	-./mergefat Rserve "$(R_HOME)/bin/Rserve"
+	-./mergefat Rserve.dbg "$(R_HOME)/bin/Rserve.dbg"
+
+client: config.h
+	cp config.h client/cxx/
+	make -C client/cxx
+	-@mkdir ../inst 2>/dev/null
+	-rm -rf ../inst/client
+	-cp -R client ../inst/
+	cp Rsrv.h config.h include/sisocks.h ../inst/client/cxx/
+
+clean:
+	rm -f *~ *.o *.lo *.so \#* $(XFILES)
+
+.PHONY: client clean server

@@ -23,11 +23,6 @@
    COOPERATIVE - forces cooperative version of Rserv on unix platforms
                  (default for non-unix platforms)
 
-   THREADED    - results in threaded version of this server, i.e. each
-                 new connection is run is a separate thread. Beware:
-				 this approach is not recommended since R does not support
-				 real multithreading yet
-
    FORKED      - each connection is forked to a new process. This is the
                  recommended way to use this server. The advantage is (beside
 				 the fact that this works ;)) that each client has a separate
@@ -38,20 +33,10 @@
 
    RSERV_DEBUG - if defined various verbose output is produced
 
-   NOFULL   - dumps show first 100 bytes only
-              (removed in 0.3-3 and replaced by dumpLimit variable)
-
    DAEMON      - if defined the server daemonizes (unix only)
 
    CONFIG_FILE - location of the config file (default /etc/Rserv.conf)
 
-   FORCE_V0100 - if this macro is defined then Rserve reports version 0100 and
-                 CMD_eval doesn't send data type header (DT_SEXP+length). This
-				 was a buggy behavior in versions up to 0.1-9. This feature is
-				 provided only for compatibility with old clients and should be
-				 avoided. Update the clients instead, if possible.
-				 (Warning: since 0.3 this feature is untested and not likely
-				 to work!)
 
   reported versions:
  --------------------
@@ -101,6 +86,9 @@ the use of DT_LARGE/XT_LARGE.
    source <file>
    eval <expression(s)>
 
+   control enable|disable [disable]
+   r-control enable|disable [disable]
+
    A note about security: Anyone with access to R has access to the shell
    via "system" command, so you should consider following rules:
 
@@ -129,6 +117,8 @@ the use of DT_LARGE/XT_LARGE.
      challenge (thus safe from sniffing).
 */
 
+#if defined STANDALONE_RSERVE || defined RSERVE_PKG
+
 #define USE_RINTERNALS
 #define SOCK_ERRORS
 #define LISTENQ 16
@@ -152,14 +142,17 @@ typedef unsigned long rlen_t;
    so we imit the socket I/O sizes by this constant.
    It should be a 31-bit value for compatibility.
 */
+#ifdef WIN32 /* Windows is really bad (as usual) */
+#define max_sio_chunk 1048576
+#else
 #define max_sio_chunk 134217728
+#endif
 
 #if defined NODAEMON && defined DAEMON
 #undef DAEMON
 #endif
 
-/* MacOS X hack. gcc on any (non-windows) platform is treated as unix */
-#if defined __GNUC__ && !defined unix && !defined Win32
+#if !defined WIN32 && !defined unix
 #define unix
 #endif
 
@@ -176,8 +169,8 @@ typedef unsigned long rlen_t;
 #endif
 #endif
 
-/* we have no configure for Win32 so we have to take care of socklen_t */
-#ifdef Win32
+/* we have no configure for WIN32 so we have to take care of socklen_t */
+#ifdef WIN32
 typedef int socklen_t;
 #define CAN_TCP_NODELAY
 #include <windows.h>
@@ -206,9 +199,6 @@ typedef int socklen_t;
 #include <unistd.h>
 #include <sys/un.h> /* needed for unix sockets */
 #endif
-#ifdef THREADED
-#include <sbthread.h>
-#endif
 #ifdef FORKED
 #include <sys/wait.h>
 #include <signal.h>
@@ -221,7 +211,7 @@ typedef int socklen_t;
 #include <Rdefines.h>
 #include <Rversion.h>
 #if (R_VERSION >= R_Version(2,3,0))
-#ifdef Win32 /* Windows doesn't have Rinterface */
+#ifdef WIN32 /* Windows doesn't have Rinterface */
 extern __declspec(dllimport) int R_SignalHandlers;
 #else
 #include <Rinterface.h>
@@ -284,17 +274,14 @@ static int UCIX   = 1; /* unique connection index */
 static char *localSocketName = 0; /* if set listen on this local (unix) socket instead of TCP/IP */
 static int localSocketMode = 0;   /* if set, chmod is used on the socket when created */
 
-static int allowIO=1;  /* 1=allow I/O commands, 0=don't */
+static int allowIO = 1;  /* 1=allow I/O commands, 0=don't */
 
-static char **top_argv;
-static int top_argc;
+static char *workdir = "/tmp/Rserv";
+static char *pwdfile = 0;
 
-static char *workdir="/tmp/Rserv";
-static char *pwdfile=0;
+static SOCKET csock = -1;
 
-static SOCKET csock=-1;
-
-static int parentPID=-1;
+static int parentPID = -1;
 
 int is_child = 0;       /* 0 for parent (master), 1 for children */
 int parent_pipe = -1;   /* pipe to the master process or -1 if not available */
@@ -312,15 +299,12 @@ static int umask_value = 0;
 
 static char **allowed_ips = 0;
 
+#ifdef STANDALONE_RSERVE
 static const char *rserve_ver_id = "$Id$";
-
 static char rserve_rev[16]; /* this is generated from rserve_ver_id by main */
-
-#ifdef THREADED
-static int localUCIX;
-#else
-#define localUCIX UCIX
 #endif
+
+#define localUCIX UCIX
 
 /* string encoding handling */
 #if (R_VERSION < R_Version(2,8,0)) || (defined DISABLE_ENCODING)
@@ -1153,9 +1137,6 @@ static SEXP decode_to_SEXP(unsigned int **buf, int *UPC)
 /* if set Rserve doesn't accept other than local connections. */
 static int localonly = 1;
 
-/* server socket */
-static SOCKET ss;
-
 /* arguments structure passed to a working thread */
 struct args {
     int s;
@@ -1195,11 +1176,7 @@ static void sendRespData(int s, int rsp, rlen_t len, void *buf) {
 }
 
 /* initial ID string */
-#ifdef FORCE_V0100
-char *IDstring="Rsrv0100QAP1\r\n\r\n--------------\r\n";
-#else
 char *IDstring="Rsrv0103QAP1\r\n\r\n--------------\r\n";
-#endif
 
 /* require authentication flag (default: no) */
 int authReq = 0;
@@ -1246,8 +1223,171 @@ struct source_entry {
     char line[8];
 } *src_list=0, *src_tail=0;
 
+/* attempts to set a particular configuration setting
+   returns: 1 = setting accepted, 0 = unknown setting, -1 = setting known but failed */
+static int setConfig(const char *c, const char *p) {
+	if (!strcmp(c,"remote")) {
+		localonly = (*p == '1' || *p == 'y' || *p == 'e') ? 0 : 1;
+		return 1;
+	}
+	if (!strcmp(c,"port")) {
+		if (*p) {
+			int np = satoi(p);
+			if (np > 0) port = np;
+		}
+		return 1;
+	}
+	if (!strcmp(c,"maxinbuf")) {
+		if (*p) {
+			long ns = atol(p);
+			if (ns > 32) {
+				maxInBuf = ns;
+				maxInBuf *= 1024;
+			}
+		}
+		return 1;
+	}
+	if (!strcmp(c,"source") || !strcmp(c,"eval")) {
+#ifdef RSERV_DEBUG
+		printf("Found source entry \"%s\"\n", p);
+#endif
+		if (*p) {
+			struct source_entry* se= (struct source_entry*) malloc(sizeof(struct source_entry)+strlen(p)+16);
+			if (!strcmp(c,"source")) {
+				strcpy(se->line, "try(source(\"");
+				strcat(se->line, p);
+				strcat(se->line, "\"))");
+			} else
+				strcpy(se->line, p);
+			se->next=0;
+			if (!src_tail)
+				src_tail=src_list=se;
+			else {
+				src_tail->next=se;
+				src_tail=se;
+			}
+		}
+		return 1;
+	}
+	if (!strcmp(c,"maxsendbuf")) {
+		if (*p) {
+			long ns = atol(p);
+			if (ns > 32) {
+				maxSendBufSize = ns;
+				maxSendBufSize *= 1024;
+			}
+		}
+		return 1;
+	}
+#ifdef unix
+	if (!strcmp(c, "su") && *p) {
+		if (*p == 'n') su_time = SU_NOW;
+		else if (*p == 's') su_time = SU_SERVER;
+		else if (*p == 'c') su_time = SU_CLIENT;
+		else {
+			fprintf(stderr, "su value invalid - must be 'now', 'server' or 'client'.\n");
+			return -1;
+		}
+		return 1;
+	}
+	if (!strcmp(c,"uid") && *p) {
+		new_uid = satoi(p);
+		if (su_time == SU_NOW && setuid(new_uid)) {
+			fprintf(stderr, "setuid(%d): failed. no user switch performed.\n", new_uid);
+			return -1;
+		}
+		return 1;
+	}
+	if (!strcmp(c,"gid") && *p) {
+		new_gid = satoi(p);
+		if (su_time == SU_NOW && setgid(new_gid))
+			fprintf(stderr, "setgid(%d): failed. no group switch performed.\n", new_gid);
+		return 1;
+	}
+	if (!strcmp(c,"chroot") && *p) {
+		if (chroot(p)) {
+			perror("chroot");
+			fprintf(stderr,"chroot(\"%s\"): failed.\n", p);
+			return -1;
+		}
+		return 1;
+	}
+	if (!strcmp(c,"umask") && *p) {
+		umask_value = satoi(p);
+		return 1;
+	}
+#endif
+	if (!strcmp(c,"allow") && *p) {
+		char **l;
+		if (!allowed_ips) {
+			allowed_ips = (char**) malloc(sizeof(char*)*128);
+			*allowed_ips = 0;
+		}
+		l = allowed_ips;
+		while (*l) l++;
+		if (l - allowed_ips >= 127) {
+			fprintf(stderr, "WARNING: Maximum of allowed IPs (127) exceeded, ignoring 'allow %s'\n", p);
+			return -1;
+		} else {
+			*l = strdup(p);
+			l++;
+			*l = 0;
+		}
+		return 1;
+	}
+	if (!strcmp(c, "control") && (p[0] == 'e' || p[0] == 'y' || p[1] == '1')) {
+		child_control = 1;
+		return 1;
+	}
+	if (!strcmp(c,"workdir")) {
+		workdir = (*p) ? strdup(p) : 0;
+		return 1;
+	}
+	if (!strcmp(c,"encoding") && *p) {
+		set_string_encoding(p, 1);
+		return 1;
+	}
+	if (!strcmp(c,"socket")) {
+		localSocketName = (*p) ? strdup(p) : 0;
+		return 1;
+	}
+	if (!strcmp(c,"sockmod") && *p) {
+		localSocketMode = satoi(p);
+		return 1;
+	}
+	if (!strcmp(c,"pwdfile")) {
+		pwdfile = (*p) ? strdup(p) : 0;
+		return 1;
+	}
+	if (!strcmp(c,"auth")) {
+		authReq = (*p=='1' || *p=='y' || *p=='r' || *p=='e') ? 1 : 0;
+		return 1;
+	}
+	if (!strcmp(c,"interactive")) {
+		Rsrv_interactive = (*p=='1' || *p=='y' || *p=='t' || *p=='e') ? 1 : 0;
+		return 1;
+	}
+	if (!strcmp(c,"plaintext")) {
+		usePlain = (*p=='1' || *p=='y' || *p=='e') ? 1 : 0;
+		return 1;
+	}
+	if (!strcmp(c,"fileio")) {
+		allowIO = (*p=='1' || *p=='y' || *p=='e') ? 1 : 0;
+		return 1;
+	}
+	if (!strcmp(c,"r-control")){
+		self_control = (*p=='1' || *p=='y' || *p=='e') ? 1 : 0;
+		return 1;
+	}
+	if (!strcmp(c, "cachepwd")) {
+		cache_pwd = (*p == 'i') ? 2 : ((*p == '1' || *p == 'y' || *p == 'e') ? 1 : 0);
+		return 1;
+	}
+	return 0;
+}
+
 /* load config file */
-static int loadConfig(char *fn)
+static int loadConfig(const char *fn)
 {
 	FILE *f;
 	char buf[512];
@@ -1286,119 +1426,7 @@ static int loadConfig(char *fn)
 #ifdef RSERV_DEBUG
 			printf("conf> command=\"%s\", parameter=\"%s\"\n", c, p);
 #endif
-			if (!strcmp(c,"remote"))
-				localonly = (*p == '1' || *p == 'y' || *p == 'e') ? 0 : 1;
-			if (!strcmp(c,"port")) {
-				if (*p) {
-					int np = satoi(p);
-					if (np > 0) port = np;
-				}
-			}
-			if (!strcmp(c,"maxinbuf")) {
-				if (*p) {
-					long ns = atol(p);
-					if (ns > 32) {
-						maxInBuf = ns;
-						maxInBuf *= 1024;
-					}
-				}
-			}
-			if (!strcmp(c,"source") || !strcmp(c,"eval")) {
-#ifdef RSERV_DEBUG
-				printf("Found source entry \"%s\"\n", p);
-#endif
-				if (*p) {
-					struct source_entry* se= (struct source_entry*) malloc(sizeof(struct source_entry)+strlen(p)+16);
-					if (!strcmp(c,"source")) {
-						strcpy(se->line, "try(source(\"");
-						strcat(se->line, p);
-						strcat(se->line, "\"))");
-					} else
-						strcpy(se->line, p);
-					se->next=0;
-					if (!src_tail)
-						src_tail=src_list=se;
-					else {
-						src_tail->next=se;
-						src_tail=se;
-					}
-				}
-			}
-			if (!strcmp(c,"maxsendbuf")) {
-				if (*p) {
-					long ns = atol(p);
-					if (ns > 32) {
-						maxSendBufSize = ns;
-						maxSendBufSize *= 1024;
-					}
-				}
-			}
-#ifdef unix
-			if (!strcmp(c, "su") && *p) {
-				if (*p == 'n') su_time = SU_NOW;
-				else if (*p == 's') su_time = SU_SERVER;
-				else if (*p == 'c') su_time = SU_CLIENT;
-				else fprintf(stderr, "su value invalid - must be 'now', 'server' or 'client'.\n");
-			}
-			if (!strcmp(c,"uid") && *p) {
-				new_uid = satoi(p);
-				if (su_time == SU_NOW && setuid(new_uid))
-					fprintf(stderr, "setuid(%d): failed. no user switch performed.\n", new_uid);
-			}
-			if (!strcmp(c,"gid") && *p) {
-				new_gid = satoi(p);
-				if (su_time == SU_NOW && setgid(new_gid))
-					fprintf(stderr, "setgid(%d): failed. no group switch performed.\n", new_gid);
-			}
-			if (!strcmp(c,"chroot") && *p) {
-				if (chroot(p)) {
-					perror("chroot");
-					fprintf(stderr,"chroot(\"%s\"): failed.\n", p);
-				}
-			}
-			if (!strcmp(c,"umask") && *p)
-				umask_value=satoi(p);
-#endif
-			if (!strcmp(c,"allow") && *p) {
-				char **l;
-				if (!allowed_ips) {
-					allowed_ips = (char**) malloc(sizeof(char*)*128);
-					*allowed_ips = 0;
-				}
-				l = allowed_ips;
-				while (*l) l++;
-				if (l - allowed_ips >= 127)
-					fprintf(stderr, "WARNING: Maximum of allowed IPs (127) exceeded, ignoring 'allow %s'\n", p);
-					else {
-						*l = strdup(p);
-						l++;
-						*l = 0;
-					}
-			}
-			if (!strcmp(c, "control") && (p[0] == 'e' || p[0] == 'y' || p[1] == '1'))
-				child_control = 1;
-			if (!strcmp(c,"workdir"))
-				workdir = (*p) ? strdup(p) : 0;
-			if (!strcmp(c,"encoding") && *p)
-				set_string_encoding(p, 1);
-			if (!strcmp(c,"socket"))
-				localSocketName = (*p) ? strdup(p) : 0;
-			if (!strcmp(c,"sockmod") && *p)
-					localSocketMode = satoi(p);
-			if (!strcmp(c,"pwdfile"))
-				pwdfile = (*p) ? strdup(p) : 0;
-			if (!strcmp(c,"auth"))
-				authReq=(*p=='1' || *p=='y' || *p=='r' || *p=='e') ? 1 : 0;
-			if (!strcmp(c,"interactive"))
-				Rsrv_interactive = (*p=='1' || *p=='y' || *p=='t' || *p=='e') ? 1 : 0;
-			if (!strcmp(c,"plaintext"))
-				usePlain=(*p=='1' || *p=='y' || *p=='e') ? 1 : 0;
-			if (!strcmp(c,"fileio"))
-				allowIO=(*p=='1' || *p=='y' || *p=='e') ? 1 : 0;
-			if (!strcmp(c,"r-control"))
-				self_control = (*p=='1' || *p=='y' || *p=='e') ? 1 : 0;
-			if (!strcmp(c, "cachepwd"))
-				cache_pwd = (*p == 'i') ? 2 : ((*p == '1' || *p == 'y' || *p == 'e') ? 1 : 0);
+			setConfig(c, p);
 		}
     fclose(f);
 #ifndef HAS_CRYPT
@@ -1430,23 +1458,19 @@ static rlen_t inBuf = 32768; /* 32kB should be ok unless CMD_assign sends large 
    The user is still free to allocate its own size  */
 #define sfbufSize 32768 /* static file buffer size */
 
-#ifndef decl_sbthread
-#define decl_sbthread void
-#endif
-
 /* pid of the last child (not really used ATM) */
 static int lastChild;
 
 #ifdef FORKED
 static void sigHandler(int i) {
     if (i==SIGTERM || i==SIGHUP)
-		active=0;
+		active = 0;
 }
 
 #ifdef RSERV_DEBUG
 static void brkHandler(int i) {
     printf("\nCaught break signal, shutting down Rserve.\n");
-    active=0;
+    active = 0;
     /* kill(getpid(), SIGUSR1); */
 }
 #endif
@@ -1565,7 +1589,7 @@ int detach_session(SOCKET s) {
 
     setsockopt(ss,SOL_SOCKET,SO_REUSEADDR,(const char*)&reuse,sizeof(reuse));
 
-#ifdef Win32
+#ifdef WIN32
 	while ((port = (((int) rand()) & 0x7fff)+32768)>65000) {};
 #else
 	while ((port = (((int) random()) & 0x7fff)+32768)>65000) {};
@@ -1726,11 +1750,12 @@ static void pwd_close(pwdf_t *f) {
 }
 
 /* working thread/function. the parameter is of the type struct args* */
-decl_sbthread newConn(void *thp) {
+/* This server function implements the Rserve QAP1 protocol */
+void Rserve_QAP1_connected(void *thp) {
     SOCKET s;
-    struct args *a=(struct args*)thp;
+    struct args *a = (struct args*)thp;
     struct phdr ph;
-    char *buf, *c,*cc,*c1,*c2;
+    char *buf, *c, *cc, *c1, *c2;
     int pars;
     int process;
 	int rn;
@@ -1840,13 +1865,10 @@ decl_sbthread newConn(void *thp) {
 #ifdef RSERV_DEBUG
     printf("connection accepted.\n");
 #endif
-    s=a->s;
+    s = a->s;
     free(a);
     
-#ifndef THREADED /* in all but threaded environments we can keep the
-					current socket globally for R-error handler */
-    csock=s;
-#endif
+    csock = s;
     
 #ifdef CAN_TCP_NODELAY
     {
@@ -2565,11 +2587,6 @@ decl_sbthread newConn(void *thp) {
 								}
 							}
 							if (canProceed) {
-								/* if this is defined then the old (<=0.1-9) "broken" behavior is requested where no data type header is sent */
-#ifdef FORCE_V0100 
-								tail = (char*)storeSEXP((unsigned int*)sendbuf, exp, rs);
-								sendhead = sendbuf;
-#else
 								/* first we have 4 bytes of a header saying this is an encoded SEXP, then comes the SEXP */
 								char *sxh = sendbuf + 8;
 								tail = (char*)storeSEXP((unsigned int*)sxh, exp, rs);
@@ -2584,7 +2601,6 @@ decl_sbthread newConn(void *thp) {
 									sendhead = sendbuf + 4;
 									((unsigned int*)sendbuf)[1] = itop(SET_PAR(DT_SEXP,tail - sxh));
 								}
-#endif
 #ifdef RSERV_DEBUG
 								printf("stored SEXP; length=%ld (incl. DT_SEXP header)\n",(long) (tail - sendhead));
 #endif
@@ -2651,21 +2667,28 @@ decl_sbthread newConn(void *thp) {
 #endif
 }
 
-void serverLoop() {
+typedef void (*work_fn_t)(void *par);
+typedef void (*void_fn_t)(void);
+
+typedef struct server {
+	int ss;               /* server socket */
+	int unix_socket;      /* 0 = TCP/IP, 1 = unix socket */
+	work_fn_t connected;  /* function called for each new connection */
+	void_fn_t fin;        /* optional finalization function */
+} server_t;
+
+#define MAX_SERVERS 128
+static int servers;
+static server_t *server[MAX_SERVERS];
+
+server_t *create_server(int port, const char *localSocketName) {
+	server_t *srv;
     SAIN ssa;
-    socklen_t al;
-    int reuse;
-    struct args *sa;
+    int reuse, ss;
     struct sockaddr_in lsa;
-    
-#ifdef unix
     struct sockaddr_un lusa;
-    struct timeval timv;
-    int selRet=0;
-    fd_set readfds;
-#endif
     
-    lsa.sin_addr.s_addr=inet_addr("127.0.0.1");
+    lsa.sin_addr.s_addr = inet_addr("127.0.0.1");
     
 #ifdef FORKED
     signal(SIGHUP,sigHandler);
@@ -2679,45 +2702,110 @@ void serverLoop() {
     if (localSocketName) {
 #ifndef unix
 		fprintf(stderr,"Local sockets are not supported on non-unix systems.\n");
-		return;
+		return 0;
 #else
-		ss=FCF("open socket",socket(AF_LOCAL,SOCK_STREAM,0));
-		memset(&lusa,0,sizeof(lusa));
-		lusa.sun_family=AF_LOCAL;
-		if (strlen(localSocketName)>sizeof(lusa.sun_path)-2) {
+		ss = FCF("open socket", socket(AF_LOCAL, SOCK_STREAM, 0));
+		memset(&lusa, 0, sizeof(lusa));
+		lusa.sun_family = AF_LOCAL;
+		if (strlen(localSocketName) > sizeof(lusa.sun_path) - 2) {
 			fprintf(stderr,"Local socket name is too long for this system.\n");
-			return;
+			return 0;
 		}
-		strcpy(lusa.sun_path,localSocketName);
+		strcpy(lusa.sun_path, localSocketName);
 		remove(localSocketName); /* remove existing if possible */
 #endif
 	} else
-		ss=FCF("open socket",socket(AF_INET,SOCK_STREAM,0));
-    reuse=1; /* enable socket address reusage */
-    setsockopt(ss,SOL_SOCKET,SO_REUSEADDR,(const char*)&reuse,sizeof(reuse));
+		ss = FCF("open socket", socket(AF_INET, SOCK_STREAM, 0));
+
+	srv = (server_t*) calloc(1, sizeof(server_t));
+	if (!srv) {
+		fprintf(stderr, "ERROR: cannot allocate memory for server structure\n");
+		return 0;
+	}
+
+	srv->ss = ss;
+	srv->unix_socket = localSocketName ? 1 : 0;
+
+    reuse = 1; /* enable socket address reusage */
+    setsockopt(ss, SOL_SOCKET, SO_REUSEADDR, (const char*)&reuse, sizeof(reuse));
+
 #ifdef unix
     if (localSocketName) {
-		FCF("bind",bind(ss,(SA*) &lusa, sizeof(lusa)));    
+		FCF("bind", bind(ss, (SA*) &lusa, sizeof(lusa)));    
 		if (localSocketMode)
 			chmod(localSocketName, localSocketMode);
 	} else
 #endif
-		FCF("bind",bind(ss,build_sin(&ssa,0,port),sizeof(ssa)));
+		FCF("bind", bind(ss, build_sin(&ssa, 0, port), sizeof(ssa)));
     
-    FCF("listen",listen(ss,LISTENQ));
-    while(active) { /* main serving loop */
+    FCF("listen", listen(ss, LISTENQ));
+
+	return srv;
+}
+
+int add_server(server_t *srv) {
+	if (!srv) return 0;
+	if (servers >= MAX_SERVERS) {
+		fprintf(stderr, "ERROR: too many servers\n");
+		return 0;
+	}
+	server[servers++] = srv;
+	return 1;
+}
+
+int rm_server(server_t *srv) {
+	int i = 0;
+	if (!srv) return 0;
+	while (i < servers) {
+		if (server[i] == srv) {
+			int j = i + 1;
+			while (j < servers) { server[j - 1] = server[j]; j++; }
+			servers--;
+		} else i++;
+	}
+	if (srv->fin) srv->fin();
+	return 1;
+}
+
+server_t *create_Rserve_QAP1() {
+	server_t *srv = create_server(port, localSocketName);
+	if (srv) {
+		srv->connected = Rserve_QAP1_connected;
+		add_server(srv);
+		return srv;
+	}
+	return 0;
+}
+
+void serverLoop() {
 #ifdef unix
-		int maxfd = ss;
+    struct timeval timv;
+    int selRet = 0;
+    fd_set readfds;
+#endif
+    
+    while(active && (servers || children)) { /* main serving loop */
+		int i;
+#ifdef unix
+		int maxfd = 0;
 #ifdef FORKED
-		while (waitpid(-1,0,WNOHANG)>0);
+		while (waitpid(-1, 0, WNOHANG) > 0);
 #endif
 		/* 500ms (used to be 10ms) - it shouldn't really matter since
 		   it's ok for us to sleep -- the timeout will only influence
 		   how often we collect terminated children and (maybe) how
 		   quickly we react to shutdown */
-		timv.tv_sec=0; timv.tv_usec=500000;
+		timv.tv_sec = 0; timv.tv_usec = 500000;
 		FD_ZERO(&readfds);
-		FD_SET(ss, &readfds);
+		for (i = 0; i < servers; i++)
+			if (server[i])
+				{
+					int ss = server[i]->ss;
+					if (ss > maxfd)
+						maxfd = ss;
+					FD_SET(ss, &readfds);
+				}
+		
 		if (children) {
 			child_process_t *cp = children;
 			while (cp) {
@@ -2726,143 +2814,186 @@ void serverLoop() {
 				cp = cp->next;
 			}
 		}
+
 		selRet = select(maxfd + 1, &readfds, 0, 0, &timv);
-		if (selRet > 0 && FD_ISSET(ss,&readfds)) {
+
+		if (selRet > 0) {
+			for (i = 0; i < servers; i++) {
+				socklen_t al;
+				struct args *sa;
+				server_t *srv = server[i];
+				int ss = srv->ss;
+				if (server[i] && FD_ISSET(ss, &readfds)) {
 #endif
-			sa=(struct args*)malloc(sizeof(struct args));
-			memset(sa,0,sizeof(struct args));
-			al=sizeof(sa->sa);
+					sa = (struct args*)malloc(sizeof(struct args));
+					memset(sa, 0, sizeof(struct args));
+					al = sizeof(sa->sa);
 #ifdef unix
-			if (localSocketName) {
-				al=sizeof(sa->su);
-				sa->s=CF("accept",accept(ss,(SA*)&(sa->su),&al));
-			} else
+					if (server[i]->unix_socket) {
+						al = sizeof(sa->su);
+						sa->s = CF("accept", accept(ss, (SA*)&(sa->su), &al));
+					} else
 #endif
-				sa->s=CF("accept",accept(ss,(SA*)&(sa->sa),&al));
-			sa->ucix=UCIX++;
-			sa->ss=ss;
-			/*
-			memset(sa->sk,0,16);
-			sa->sfd=-1;
-#if defined SESSIONS && defined FORKED
-			{
-				int pd[2];
-				if (!pipe(&pd)) {
-					
-				}
-			}
-#endif
-			*/
-			if (localonly && !localSocketName) {
-				char **laddr=allowed_ips;
-				int allowed=0;
-				if (!laddr) { 
-					allowed_ips = (char**) malloc(sizeof(char*)*2);
-					allowed_ips[0] = strdup("127.0.0.1");
-					allowed_ips[1] = 0;
-					laddr=allowed_ips;
-				}
-				while (*laddr) if (sa->sa.sin_addr.s_addr==inet_addr(*(laddr++))) { allowed=1; break; };
-				if (allowed) {
-#ifdef THREADED
-					sbthread_create(newConn,sa);
-#else
-				newConn(sa);
+						sa->s = CF("accept", accept(ss, (SA*)&(sa->sa), &al));
+					sa->ucix = UCIX++;
+					sa->ss = ss;
+					/*
+					  memset(sa->sk,0,16);
+					  sa->sfd=-1;
+					  #if defined SESSIONS && defined FORKED
+					  {
+					  int pd[2];
+					  if (!pipe(&pd)) {
+					  
+					  }
+					  }
+					  #endif
+					*/
+					if (localonly && !srv->unix_socket) {
+						char **laddr = allowed_ips;
+						int allowed = 0;
+						if (!laddr) { 
+							allowed_ips = (char**) malloc(sizeof(char*)*2);
+							allowed_ips[0] = strdup("127.0.0.1");
+							allowed_ips[1] = 0;
+							laddr = allowed_ips;
+						}
+						
+						while (*laddr)
+							if (sa->sa.sin_addr.s_addr==inet_addr(*(laddr++)))
+								{ allowed=1; break; };
+						if (allowed) {
+							srv->connected(sa);
 #ifdef FORKED
-				/* when the child returns it means it's done (likely an error)
-				   but it is forked, so the only right thing to do is to exit */
-				if (is_child)
-					exit(2);
+							/* when the child returns it means it's done (likely an error)
+							   but it is forked, so the only right thing to do is to exit */
+							if (is_child)
+								exit(2);
 #endif
-#endif
-				} else
-					closesocket(sa->s);
-			} else { /* ---> remote enabled */
-#ifdef THREADED
-				sbthread_create(newConn,sa); 
-#else
-				newConn(sa);
-				if (is_child) /* same as above */
-					exit(2);
-			}
-#endif
-#ifdef unix
-		} else if (selRet > 0 && children) { /* one of the children signalled */
-			child_process_t *cp = children;
-			while (cp) {
-				if (FD_ISSET(cp->inp, &readfds)) {
-					long cmd[2];
-					int n = read(cp->inp, cmd, sizeof(cmd));
-					if (n < sizeof(cmd)) { /* is anything less arrives, assume corruption and remove the child */
-						child_process_t *ncp = cp->next;
-#ifdef RSERV_DEBUG
-						printf("pipe to child %d closed (n=%d), removing child\n", (int) cp->pid, n);
-#endif
-						close(cp->inp);
-						/* remove the child from the list */
-						if (cp->prev) cp->prev->next = ncp; else children = ncp;
-						if (ncp) ncp->prev = cp->prev;
-						free(cp);
-						cp = ncp;
-					} else { /* we got a valid command */
-						/* FIXME: we should perform more rigorous checks on the protocol - we are currently ignoring anything bad */
-						char cib[256];
-						char *xb = 0;
-#ifdef RSERV_DEBUG
-						printf(" command from child %d: %ld data bytes: %ld\n", (int) cp->pid, cmd[0], cmd[1]);
-#endif
-						cib[0] = 0;
-						cib[255] = 0;
-						n = 0;
-						if (cmd[1] > 0 && cmd[1] < 256)
-							n = read(cp->inp, cib, cmd[1]);
-						else if (cmd[1] > 0 && cmd[1] < MAX_CTRL_DATA) {
-							xb = (char*) malloc(cmd[1] + 4);
-							xb[0] = 0;
-							if (xb)
-								n = read(cp->inp, xb, cmd[1]);
-							if (n > 0)
-								xb[n] = 0;
-						}
-#ifdef RSERV_DEBUG
-						printf(" - read %d bytes of %ld data from child %d\n", n, cmd[1], (int) cp->pid);
-#endif
-						if (n == cmd[1]) { /* perform commands only if we got all the data */
-							if (cmd[0] == CCTL_EVAL) {
-#ifdef RSERV_DEBUG
-								printf(" - control calling voidEval(\"%s\")\n", xb ? xb : cib);
-#endif
-								voidEval(xb ? xb : cib);
-							} else if (cmd[0] == CCTL_SOURCE) {
-								int evalRes = 0;
-								SEXP exp;
-								SEXP sfn = PROTECT(allocVector(STRSXP, 1));
-								SET_STRING_ELT(sfn, 0, mkRChar(xb ? xb : cib));
-								exp = LCONS(install("source"), CONS(sfn, R_NilValue));
-#ifdef RSERV_DEBUG
-								printf(" - control calling source(\"%s\")\n", xb ? xb : cib);
-#endif
-								R_tryEval(exp, R_GlobalEnv, &evalRes);
-#ifdef RSERV_DEBUG
-								printf(" - result: %d\n", evalRes);
-#endif
-								UNPROTECT(1);								
-							} else if (cmd[0] == CCTL_SHUTDOWN) {
-#ifdef RSERV_DEBUG
-								printf(" - shutdown via control, setting active to 0\n");
-#endif
-								active = 0;
-							}
-						}
-						cp = cp->next;
+						} else
+							closesocket(sa->s);
+					} else { /* ---> remote enabled */
+						srv->connected(sa);
+						if (is_child) /* same as above */
+							exit(2);
 					}
-				} else
-					cp = cp->next;
-			}
-		}
+#ifdef unix
+				}
+			} /* end loop over servers */
+
+			if (children) { /* one of the children signalled */
+				child_process_t *cp = children;
+				while (cp) {
+					if (FD_ISSET(cp->inp, &readfds)) {
+						long cmd[2];
+						int n = read(cp->inp, cmd, sizeof(cmd));
+						if (n < sizeof(cmd)) { /* is anything less arrives, assume corruption and remove the child */
+							child_process_t *ncp = cp->next;
+#ifdef RSERV_DEBUG
+							printf("pipe to child %d closed (n=%d), removing child\n", (int) cp->pid, n);
 #endif
-    }
+							close(cp->inp);
+							/* remove the child from the list */
+							if (cp->prev) cp->prev->next = ncp; else children = ncp;
+							if (ncp) ncp->prev = cp->prev;
+							free(cp);
+							cp = ncp;
+						} else { /* we got a valid command */
+							/* FIXME: we should perform more rigorous checks on the protocol - we are currently ignoring anything bad */
+							char cib[256];
+							char *xb = 0;
+#ifdef RSERV_DEBUG
+							printf(" command from child %d: %ld data bytes: %ld\n", (int) cp->pid, cmd[0], cmd[1]);
+#endif
+							cib[0] = 0;
+							cib[255] = 0;
+							n = 0;
+							if (cmd[1] > 0 && cmd[1] < 256)
+								n = read(cp->inp, cib, cmd[1]);
+							else if (cmd[1] > 0 && cmd[1] < MAX_CTRL_DATA) {
+								xb = (char*) malloc(cmd[1] + 4);
+								xb[0] = 0;
+								if (xb)
+									n = read(cp->inp, xb, cmd[1]);
+								if (n > 0)
+									xb[n] = 0;
+							}
+#ifdef RSERV_DEBUG
+							printf(" - read %d bytes of %ld data from child %d\n", n, cmd[1], (int) cp->pid);
+#endif
+							if (n == cmd[1]) { /* perform commands only if we got all the data */
+								if (cmd[0] == CCTL_EVAL) {
+#ifdef RSERV_DEBUG
+									printf(" - control calling voidEval(\"%s\")\n", xb ? xb : cib);
+#endif
+									voidEval(xb ? xb : cib);
+								} else if (cmd[0] == CCTL_SOURCE) {
+									int evalRes = 0;
+									SEXP exp;
+									SEXP sfn = PROTECT(allocVector(STRSXP, 1));
+									SET_STRING_ELT(sfn, 0, mkRChar(xb ? xb : cib));
+									exp = LCONS(install("source"), CONS(sfn, R_NilValue));
+#ifdef RSERV_DEBUG
+									printf(" - control calling source(\"%s\")\n", xb ? xb : cib);
+#endif
+									R_tryEval(exp, R_GlobalEnv, &evalRes);
+#ifdef RSERV_DEBUG
+									printf(" - result: %d\n", evalRes);
+#endif
+									UNPROTECT(1);								
+								} else if (cmd[0] == CCTL_SHUTDOWN) {
+#ifdef RSERV_DEBUG
+									printf(" - shutdown via control, setting active to 0\n");
+#endif
+									active = 0;
+								}
+							}
+							cp = cp->next;
+						}
+					} else
+						cp = cp->next;
+				} /* loop over children */
+			} /* end if (children) */
+		} /* end if (selRet > 0) */
+#endif
+    } /* end while(active) */
 }
+
+#ifndef STANDALONE_RSERVE
+
+/* run Rserve inside R */
+SEXP run_Rserve(SEXP cfgFile, SEXP cfgPars) {
+	server_t *srv;
+	if (TYPEOF(cfgFile) == STRSXP && LENGTH(cfgFile) > 0) {
+		int i, n = LENGTH(cfgFile);
+		for (i = 0; i < n; i++)
+			loadConfig(CHAR(STRING_ELT(cfgFile, i)));
+	}
+	if (TYPEOF(cfgPars) == VECSXP && LENGTH(cfgPars) > 0) {
+		int i, n = LENGTH(cfgPars);
+		SEXP sNam = Rf_getAttrib(cfgPars, R_NamesSymbol);
+		if (TYPEOF(sNam) != STRSXP || LENGTH(sNam) != n)
+			Rf_error("invalid configuration parameters");
+		for (i = 0; i < n; i++) {
+			const char *key = CHAR(STRING_ELT(sNam, i));
+			const char *value = CHAR(STRING_ELT(cfgPars, i));
+			int res = setConfig(key, value);
+			if (res == 0)
+				Rf_warning("Unknown configuration setting `%s`, ignored.", key);
+		}
+	}
+	srv = create_Rserve_QAP1();
+	if (!srv)
+		Rf_error("Unable to start server");
+	serverLoop();
+	rm_server(srv);
+	free(srv);
+	return ScalarLogical(TRUE);
+}
+
+#endif
+
+#endif
 
 /*--- The following makes the indenting behavior of emacs compatible
       with Xcode's 4/4 setting ---*/
