@@ -1,6 +1,15 @@
  NEWS/Changelog for Rserve
 ---------------------------
 
+1.7-0	(under development)
+
+--- In order to support new ideas a major re-organization of Rserve ---
+--- has been started - almost 10 years after the first release.     ---
+--- It is time to look ahead again with a new major version. The    ---
+--- protocol will remain compatible so 1.x series can be used to    ---
+--- replace the previous 0.x series                                 ---
+
+
 0.6-8	2012-02-20
     o	added RSserverEval() and RSserverSource() control commands
 	in the R client as well as ctrl parameter to RSshutdown().
