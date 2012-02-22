@@ -119,24 +119,10 @@ the use of DT_LARGE/XT_LARGE.
 
 #if defined STANDALONE_RSERVE || defined RSERVE_PKG
 
-#define USE_RINTERNALS
+#define USE_RINTERNALS 1
 #define SOCK_ERRORS
 #define LISTENQ 16
 #define MAIN
-
-/* this is the type used to calculate pointer distances */
-/* note: we may want to use size_t or something more compatible */
-typedef unsigned long rlen_t;
-
-#ifdef ULONG_MAX
-#define rlen_max ULONG_MAX
-#else
-#ifdef __LP64__
-#define rlen_max 0xffffffffffffffffL 
-#else
-#define rlen_max 0xffffffffL
-#endif /* __LP64__ */
-#endif /* ULONG_MAX */
 
 /* some OSes don't like too large chunks to be sent/received,
    so we imit the socket I/O sizes by this constant.
@@ -217,12 +203,12 @@ extern __declspec(dllimport) int R_SignalHandlers;
 #include <Rinterface.h>
 #endif
 #endif
-#if R_VERSION < 0x2010
-#include "Parse.h"
-#else
 #include <R_ext/Parse.h>
-#endif
+
 #include "Rsrv.h"
+#include "qap_encode.h"
+#include "qap_decode.h"
+
 #ifdef HAVE_CRYPT_H
 #include <crypt.h>
 #endif
@@ -309,16 +295,10 @@ static char rserve_rev[16]; /* this is generated from rserve_ver_id by main */
 /* string encoding handling */
 #if (R_VERSION < R_Version(2,8,0)) || (defined DISABLE_ENCODING)
 #define mkRChar(X) mkChar(X)
-#define CHAR_FE(X) CHAR(X)
 #else
 #define USE_ENCODING 1
-static cetype_t string_encoding = CE_NATIVE;  /* default is native */
+cetype_t string_encoding = CE_NATIVE;  /* default is native */
 #define mkRChar(X) mkCharCE((X), string_encoding)
-#define CHAR_FE(X) charsxp_to_current(X)
-static const char *charsxp_to_current(SEXP s) {
-	if (Rf_getCharCE(s) == string_encoding) return CHAR(s);
-	return Rf_reEnc(CHAR(s), getCharCE(s), string_encoding, 0);
-}
 #endif
 
 static SEXP Rserve_ctrlCMD(int command, SEXP what) {
@@ -418,320 +398,6 @@ static char *getParseName(int n) {
     return "<unknown>";
 }
 #endif
-
-#define attrFixup if (hasAttr) buf = storeSEXP(buf, ATTRIB(x), 0);
-#define dist(A,B) (((rlen_t)(((char*)B)-((char*)A))) - 4L)
-#define align(A) (((A) + 3L) & (rlen_max ^ 3L))
-
-static rlen_t getStorageSize(SEXP x) {
-    int t = TYPEOF(x);
-    rlen_t tl = LENGTH(x); /* although LENGTH can only be 32-bit use rlen_t to avoid downcasting */
-    rlen_t len = 4;
-    
-#ifdef RSERV_DEBUG
-    printf("getStorageSize(%p,type=%d,len=%ld) ", (void*)x, t, tl);
-#endif
-    if (t != CHARSXP && TYPEOF(ATTRIB(x)) == LISTSXP) {
-		rlen_t alen = getStorageSize(ATTRIB(x));
-		len += alen;
-    }
-    switch (t) {
-    case LISTSXP:
-    case LANGSXP:
-		{
-			SEXP l = x;
-			rlen_t tags = 0, n = 0;
-			while (l != R_NilValue) {
-				len  += getStorageSize(CAR(x));
-				tags += getStorageSize(TAG(x));
-				n++;
-				l = CDR(l);
-			}
-			if (tags > 4L * n) len += tags; /* use tagged list */
-		}
-		break;
-    case CLOSXP:
-		len+=getStorageSize(FORMALS(x));
-		len+=getStorageSize(BODY(x));
-		break;
-	case CPLXSXP:
-		len += tl * 16L; break;
-    case REALSXP:
-		len += tl * 8L; break;
-    case INTSXP:
-		len += tl * 4L; break;
-    case LGLSXP:
-	case RAWSXP:
-		if (tl > 1)
-			len += 4L + align(tl);
-		else
-			len += 4L;	
-		break;
-		
-    case SYMSXP:
-    case CHARSXP:
-		{
-			const char *ct = ((t==CHARSXP) ? CHAR_FE(x) : CHAR_FE(PRINTNAME(x)));
-			if (!ct)
-				len += 4L;
-			else {
-				rlen_t sl = strlen(ct) + 1L;				
-				len += align(sl);
-			}
-		}
-		break;
-    case STRSXP:
-		{
-			unsigned int i = 0;
-			while (i < tl) {
-				len += getStorageSize(STRING_ELT(x, i));
-				i++;
-			}
-		}
-		break;
-    case EXPRSXP:
-    case VECSXP:
-		{
-			unsigned int i = 0;
-			while(i < tl) {
-				len += getStorageSize(VECTOR_ELT(x,i));
-				i++;
-			}
-		}
-		break;
-	case S4SXP:
-		/* S4 really has the payload in attributes, so it doesn't occupy anything */
-		break;
-    default:
-		len += 4L; /* unknown types are simply stored as int */
-    }
-    if (len > 0xfffff0) /* large types must be stored in the new format */
-		len += 4L;
-#ifdef RSERV_DEBUG
-    printf("= %lu\n", len);
-#endif
-    return len;
-}
-
-/* if storage_size is > 0 then it it used instad of a call to getStorageSize() */
-static unsigned int* storeSEXP(unsigned int* buf, SEXP x, rlen_t storage_size) {
-    int t = TYPEOF(x);
-    int hasAttr = 0;
-    int isLarge = 0;
-    unsigned int *preBuf = buf;
-    rlen_t txlen;
-
-    if (!x) { /* null pointer will be treated as XT_NULL */
-		*buf = itop(XT_NULL); buf++; goto didit;
-    }
-    
-    if (t != CHARSXP && TYPEOF(ATTRIB(x)) == LISTSXP)
-		hasAttr = XT_HAS_ATTR;
-    
-    if (t == NILSXP) {
-		*buf = itop(XT_NULL | hasAttr);
-		buf++;
-		attrFixup;
-		goto didit;
-    } 
-    
-    /* check storage size */
-    txlen = storage_size ? storage_size : getStorageSize(x);
-    if (txlen > 0xfffff0) { /* if the entry is too big, use large format */
-		isLarge = 1;
-		buf++;
-    }
-    
-    if (t==LISTSXP || t==LANGSXP) {
-		SEXP l = x;
-		rlen_t tags = 0;
-		while (l != R_NilValue) {
-			if (TAG(l) != R_NilValue) tags++;
-			l = CDR(l);
-		}
-		/* note that we are using the fact that XT_LANG_xx=XT_LIST_xx+2 */
-		*buf = itop((((t == LISTSXP) ? 0 : 2) + (tags ? XT_LIST_TAG : XT_LIST_NOTAG)) | hasAttr);
-		buf++;
-		attrFixup;
-		l = x;
-		while (l != R_NilValue) {			
-			buf = storeSEXP(buf, CAR(l), 0);
-			if (tags)
-				buf = storeSEXP(buf, TAG(l), 0);
-			l = CDR(l);
-		}
-		goto didit;
-    }
-    
-    if (t==CLOSXP) { /* closures (send FORMALS and BODY) */
-		*buf=itop(XT_CLOS|hasAttr);
-		buf++;
-		attrFixup;
-		buf=storeSEXP(buf, FORMALS(x), 0);
-		buf=storeSEXP(buf, BODY(x), 0);
-		goto didit;
-    }
-    
-    if (t==REALSXP) {
-		R_len_t i = 0;
-		*buf=itop(XT_ARRAY_DOUBLE|hasAttr);
-		buf++;
-		attrFixup;
-		while(i < LENGTH(x)) {
-			fixdcpy(buf, REAL(x) + i);
-			buf += 2; /* sizeof(double)=2*sizeof(int) */
-			i++;
-		}
-		goto didit;
-    }
-
-    if (t==CPLXSXP) {
-		R_len_t i = 0;
-		*buf = itop(XT_ARRAY_CPLX|hasAttr);
-		buf++;
-		attrFixup;
-		while(i < LENGTH(x)) {
-			fixdcpy(buf, &(COMPLEX(x)[i].r));
-			buf += 2; /* sizeof(double)=2*sizeof(int) */
-			fixdcpy(buf, &(COMPLEX(x)[i].i));
-			buf += 2; /* sizeof(double)=2*sizeof(int) */
-			i++;
-		}
-		goto didit;
-    }
-
-	if (t==RAWSXP) {
-		R_len_t ll = LENGTH(x);
-		*buf = itop(XT_RAW | hasAttr);
-		buf++;
-		attrFixup;
-		*buf = itop(ll); buf++;
-		if (ll) memcpy(buf, RAW(x), ll);
-		ll += 3; ll /= 4;
-		buf += ll;
-		goto didit;
-	}
-		
-    if (t==LGLSXP) {
-		R_len_t ll = LENGTH(x), i = 0;
-		int *lgl = LOGICAL(x);
-		*buf = itop(XT_ARRAY_BOOL | hasAttr);
-		buf++;
-		attrFixup;
-		*buf = itop(ll); buf++;
-		while(i < ll) { /* logical values are stored as bytes of values 0/1/2 */
-			int bv = lgl[i];
-			*((unsigned char*)buf) = (bv == 0) ? 0 : (bv==1) ? 1 : 2;
-			buf = (unsigned int*)(((unsigned char*)buf) + 1);
-			i++;
-		}
-		/* pad by 0xff to a multiple of 4 */
-		while (i & 3) {
-			*((unsigned char*)buf) = 0xff;
-			i++;
-			buf=(unsigned int*)(((unsigned char*)buf) + 1);
-		}
-		goto didit;
-    }
-    
-	if (t == STRSXP) {
-		char *st;
-		R_len_t nx = LENGTH(x), i;
-		*buf = itop(XT_ARRAY_STR|hasAttr);
-		buf++;
-		attrFixup;
-		/* leading int n; is not needed due to the choice of padding */
-		st = (char *)buf;
-		for (i = 0; i < nx; i++) {
-			const char *cv = CHAR_FE(STRING_ELT(x, i));
-			rlen_t l = strlen(cv);
-			if (STRING_ELT(x, i) == R_NaString) {
-				cv = (const char*) NaStringRepresentation;
-				l = 1;
-			} else if ((unsigned char) cv[0] == NaStringRepresentation[0]) /* we will double the leading 0xff to avoid abiguity between NA and "\0xff" */
-				(st++)[0] = (char) NaStringRepresentation[0];
-			strcpy(st, cv);
-			st += l + 1;
-		}
-		/* pad with '\01' to make sure we can determine the number of elements */
-		while ((st - (char*)buf) & 3) *(st++) = 1;
-		buf = (unsigned int*)st;
-		goto didit;
-	}
-
-    if (t==EXPRSXP || t==VECSXP) {
-		R_len_t i = 0, n = LENGTH(x);
-		*buf = itop(((t == EXPRSXP) ? XT_VECTOR_EXP : XT_VECTOR) | hasAttr);
-		buf++;
-		attrFixup;
-		while(i < n) {
-			buf = storeSEXP(buf, VECTOR_ELT(x, i), 0);
-			i++;
-		}
-		goto didit;
-    }
-	
-    if (t==INTSXP) {
-		R_len_t i = 0, n = LENGTH(x);
-		int *iptr = INTEGER(x);
-		*buf = itop(XT_ARRAY_INT | hasAttr);
-		buf++;
-		attrFixup;
-		while(i < n) {
-			*buf = itop(iptr[i]);
-			buf++;
-			i++;
-		}
-		goto didit;
-    }
-
-    if (t==S4SXP) {
-		*buf=itop(XT_S4|hasAttr);
-		buf++;
-		attrFixup;
-		goto didit;		
-	}
-	
-    if (t==CHARSXP||t==SYMSXP) {
-		rlen_t sl;
-		const char *val;
-		if (t == CHARSXP) {
-			*buf = itop(XT_STR | hasAttr);
-			val = CHAR_FE(x);
-		} else {
-			*buf = itop(XT_SYMNAME | hasAttr);
-			val = CHAR_FE(PRINTNAME(x));
-		}
-		buf++;
-		attrFixup;
-		strcpy((char*)buf, val);
-		sl = strlen((char*)buf); sl++;
-		while (sl & 3) /* pad by 0 to a length divisible by 4 (since 0.1-10) */
-			((char*)buf)[sl++] = 0;
-		buf = (unsigned int*)(((char*)buf) + sl);
-		goto didit;
-    }
-	
-    *buf = itop(XT_UNKNOWN | hasAttr);
-    buf++;
-    attrFixup;
-    *buf = itop(TYPEOF(x));
-    buf++;
-    
- didit:
-    if (isLarge) {
-		txlen = dist(preBuf, buf) - 4L;
-		preBuf[0] = itop(SET_PAR(PAR_TYPE(((unsigned char*) preBuf)[4] | XT_LARGE), txlen & 0xffffff));
-		preBuf[1] = itop(txlen >> 24);
-    } else
-		*preBuf = itop(SET_PAR(PAR_TYPE(ptoi(*preBuf)), dist(preBuf, buf)));
-
-#ifdef RSERV_DEBUG
-	printf("stored %p at %p, %lu bytes\n", (void*)x, (void*)preBuf, (unsigned long) dist(preBuf, buf));
-#endif
-
-    return buf;
-}
 
 static void printSEXP(SEXP e) /* merely for debugging purposes
 						  in fact Rserve binary transport supports
@@ -859,279 +525,6 @@ static void printSEXP(SEXP e) /* merely for debugging purposes
 		return;
     }
     printf("Unknown type: %d\n",t);
-}
-
-/* decode_toSEXP is used to decode SEXPs from binary form and create
-   corresponding objects in R. UPC is a pointer to a counter of
-   UNPROTECT calls which will be necessary after we're done.
-   The buffer position is advanced to the point where the SEXP ends
-   (more precisely it points to the next stored SEXP). */
-static SEXP decode_to_SEXP(unsigned int **buf, int *UPC)
-{
-    unsigned int *b = *buf, *pab = *buf;
-    char *c, *cc;
-    SEXP val = 0, vatt = 0;
-    int ty = PAR_TYPE(ptoi(*b));
-    rlen_t ln = PAR_LEN(ptoi(*b));
-    R_len_t i, l;
-    
-    if (IS_LARGE(ty)) {
-		ty ^= XT_LARGE;
-		b++;
-		ln |= ((rlen_t) (unsigned int) ptoi(*b)) << 24;
-    }
-#ifdef RSERV_DEBUG
-    printf("decode: type=%d, len=%ld\n", ty, (long)ln);
-#endif
-    b++;
-    pab = b; /* pre-attr b */
-
-	if (ty & XT_HAS_ATTR) {
-#ifdef RSERV_DEBUG
-		printf(" - has attributes\n");
-#endif
-		*buf = b;
-		vatt = decode_to_SEXP(buf, UPC);
-		b = *buf;
-		ty = ty ^ XT_HAS_ATTR;
-#ifdef RSERV_DEBUG
-		printf(" - returned from attributes(@%p)\n", (void*)*buf);
-#endif
-		ln -= (((char*)b) - ((char*)pab)); /* adjust length */
-	}
-
-	/* b = beginning of the SEXP data (after attrs)
-	   pab = beginning before attrs (=just behind the heaer)
-	   ln = length of th SEX payload (w/o attr) */
-    switch(ty) {
-	case XT_NULL:
-		val = R_NilValue;
-		*buf = b;
-		break;
-
-    case XT_INT:
-    case XT_ARRAY_INT:
-		l = ln / 4;
-		PROTECT(val = allocVector(INTSXP, l));
-		(*UPC)++;
-		i = 0;
-		while (i < l) {
-			INTEGER(val)[i] = ptoi(*b); i++; b++;
-		}
-		*buf = b;
-		break;
-
-    case XT_ARRAY_BOOL:
-		{
-			int vl = ptoi(*(b++));
-			char *cb = (char*) b;
-			PROTECT(val = allocVector(LGLSXP, vl));
-			(*UPC)++;
-			i = 0;
-			while (i < vl) {
-				LOGICAL(val)[i] = cb[i];
-				i++;
-			}
-			while ((i & 3) != 0) i++;
-			b = (unsigned int*) (cb + i);
-		}
-		*buf = b;
-		break;
-
-    case XT_DOUBLE:
-    case XT_ARRAY_DOUBLE:
-		l = ln / 8;
-		PROTECT(val = allocVector(REALSXP, l)); (*UPC)++;
-		i = 0;
-		while (i < l) {
-			fixdcpy(REAL(val) + i, b);
-			b += 2;
-			i++;
-		}
-		*buf = b;
-		break;
-
-    case XT_ARRAY_CPLX:
-		l = ln / 16;
-		PROTECT(val = allocVector(CPLXSXP, l));
-		(*UPC)++;
-		i = 0;
-		while (i < l) {
-			fixdcpy(&(COMPLEX(val)[i].r),b); b+=2;
-			fixdcpy(&(COMPLEX(val)[i].i),b); b+=2;
-			i++;
-		}
-		*buf = b;
-		break;
-
-    case XT_ARRAY_STR:
-		{
-			/* count the number of elements */
-			char *sen = (c = (char*)(b)) + ln;
-			i = 0;
-			while (c < sen) {
-				if (!*c) i++;
-				c++;
-			}
-			
-			PROTECT(val = allocVector(STRSXP, i));
-			(*UPC)++;
-			i = 0; cc = c = (char*)b;
-			while (c < sen) {
-				SEXP sx;
-				if (!*c) {
-					if ((unsigned char)cc[0] == NaStringRepresentation[0]) {
-						if ((unsigned char)cc[1] == NaStringRepresentation[1])
-							sx = R_NaString;
-						else
-							sx = mkRChar(cc + 1);
-					} else sx = mkRChar(cc);
-					SET_STRING_ELT(val, i, sx);
-					i++;
-					cc = c + 1;
-				}
-				c++;
-			}
-		}
-		*buf = (unsigned int*)((char*)b + ln);
-		break;
-
-	case XT_RAW:
-		i = ptoi(*b);
-		PROTECT(val = allocVector(RAWSXP, i)); (*UPC)++;
-		memcpy(RAW(val), (b + 1), i);
-		*buf = (unsigned int*)((char*)b + ln);
-		break;
-
-	case XT_VECTOR:
-	case XT_VECTOR_EXP:
-		{
-			unsigned char *ie = (unsigned char*) b + ln;
-			R_len_t n = 0;
-			SEXP lh = R_NilValue;
-			SEXP vr = allocVector(VECSXP, 1);
-			*buf = b;
-			PROTECT(vr);
-			while ((unsigned char*)*buf < ie) {
-				int my_upc = 0; /* unprotect all objects on the way since we're staying locked-in */
-				SEXP v = decode_to_SEXP(buf, &my_upc);
-				lh = CONS(v, lh);
-				SET_VECTOR_ELT(vr, 0, lh); /* this is our way of staying protected .. maybe not optimal .. */
-				if (my_upc) UNPROTECT(my_upc);
-				n++;
-			}
-#ifdef RSERV_DEBUG
-			printf(" vector (%s), %d elements\n", (ty==XT_VECTOR)?"generic":((ty==XT_VECTOR_EXP)?"expression":"string"), n);
-#endif
-			val = allocVector((ty==XT_VECTOR) ? VECSXP : ((ty == XT_VECTOR_EXP) ? EXPRSXP : STRSXP), n);
-			PROTECT(val);
-			while (n > 0) {
-				n--;
-				SET_VECTOR_ELT(val, n, CAR(lh));
-				lh = CDR(lh);
-			}
-#ifdef RSERV_DEBUG
-			printf(" end of vector %lx/%lx\n", (long) *buf, (long) ie);
-#endif
-			UNPROTECT(2); /* val and vr */
-			PROTECT(val);
-			(*UPC)++;
-			break;
-		}
-
-	case XT_STR:
-	case XT_SYMNAME:
-		/* i=ptoi(*b);
-		   b++; */
-#ifdef RSERV_DEBUG
-		printf(" string/symbol(%d) '%s'\n", ty, (char*)b);
-#endif
-		{
-			char *c = (char*) b;
-			if (ty == XT_STR) {
-				val = mkRChar(c);
-				PROTECT(val);
-				(*UPC)++;
-			} else
-				val = install(c);
-		}
-		*buf = (unsigned int*)((char*)b + ln);
-		break;
-
-	case XT_S4:
-		val = Rf_allocS4Object();
-		PROTECT(val);
-		(*UPC)++;
-		break;
-
-	case XT_LIST_NOTAG:
-	case XT_LIST_TAG:
-	case XT_LANG_NOTAG:
-	case XT_LANG_TAG:
-		{
-			SEXP vnext = R_NilValue, vtail = 0;
-			unsigned char *ie = (unsigned char*) b + ln;
-			val = R_NilValue;
-			*buf = b;
-			while ((unsigned char*)*buf < ie) {
-				int my_upc = 0;
-#ifdef RSERV_DEBUG
-				printf(" el %08lx of %08lx\n", (unsigned long)*buf, (unsigned long) ie);
-#endif
-				SEXP el = decode_to_SEXP(buf, &my_upc);
-				SEXP ea = 0;
-				if (ty==XT_LANG_TAG || ty==XT_LIST_TAG) {
-#ifdef RSERV_DEBUG
-					printf(" tag %08lx of %08lx\n", (unsigned long)*buf, (unsigned long) ie);
-#endif
-					ea = decode_to_SEXP(buf, &my_upc);
-				}
-				if (ty==XT_LANG_TAG || ty==XT_LANG_NOTAG)
-					vnext = LCONS(el, R_NilValue);
-				else
-					vnext = CONS(el, R_NilValue);
-				if (my_upc) UNPROTECT(my_upc);
-				PROTECT(vnext);
-				if (ea) SET_TAG(vnext, ea);
-				if (vtail) {
-					SETCDR(vtail, vnext);
-					UNPROTECT(1);
-				} else {
-					val = vnext;
-					(*UPC)++;
-				}
-				vtail = vnext;				   
-			}
-			break;
-		}
-	default:
-		REprintf("Rserve SEXP parsing: unsupported type %d\n", ty);
-		val = R_NilValue;
-		*buf = (unsigned int*)((char*)b + ln);
-    }
-
-	if (vatt) {
-		/* if vatt contains "class" we have to set the object bit [we could use classgets(vec,kls) instead] */
-		SEXP head = vatt;
-		int has_class = 0;
-		SET_ATTRIB(val, vatt);
-		while (head != R_NilValue) {
-			if (TAG(head) == R_ClassSymbol) {
-				has_class = 1; break;
-			}
-			head = CDR(head);
-		}
-		if (has_class) /* if it has a class slot, we have to set the object bit */
-			SET_OBJECT(val, 1);
-#ifdef SET_S4_OBJECT
-		/* FIXME: we have currently no way of knowing whether an object
-		   derived from a non-S4 type is actually S4 object. Hence
-		   we can only flag "pure" S4 objects */
-		if (TYPEOF(val) == S4SXP)
-			SET_S4_OBJECT(val);
-#endif
-	}
-    return val;
 }
 
 /* if set Rserve doesn't accept other than local connections. */
@@ -2404,7 +1797,7 @@ void Rserve_QAP1_connected(void *thp) {
 								advance the pointer and don't care about the length */
 				case DT_SEXP:
 					sptr = ((unsigned int*)parP[1]) + boffs;
-					val = decode_to_SEXP(&sptr, &globalUPC);
+					val = QAP_decode(&sptr, &globalUPC);
 					if (val == 0)
 						sendResp(s,SET_STAT(RESP_ERR, ERR_inv_par));
 					else {
@@ -2535,7 +1928,7 @@ void Rserve_QAP1_connected(void *thp) {
 							/* check buffer size vs REXP size to avoid dangerous overflows
 							   todo: resize the buffer as necessary
 							*/
-							rlen_t rs = getStorageSize(exp);
+							rlen_t rs = QAP_getStorageSize(exp);
 							/* increase the buffer by 25% for safety */
 							/* FIXME: there are issues with multi-byte strings that expand when
 							   converted. They should be convered by this margin but it is an ugly hack!! */
@@ -2589,7 +1982,7 @@ void Rserve_QAP1_connected(void *thp) {
 							if (canProceed) {
 								/* first we have 4 bytes of a header saying this is an encoded SEXP, then comes the SEXP */
 								char *sxh = sendbuf + 8;
-								tail = (char*)storeSEXP((unsigned int*)sxh, exp, rs);
+								tail = (char*)QAP_storeSEXP((unsigned int*)sxh, exp, rs);
 
 								/* set type to DT_SEXP and correct length */
 								if ((tail - sxh) > 0xfffff0) { /* we must use the "long" format */

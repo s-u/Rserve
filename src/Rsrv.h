@@ -312,6 +312,21 @@ struct phdr { /* always 16 bytes */
 #define ALIGN_DOUBLES
 #endif
 
+/* this is the type used to calculate pointer distances */
+/* note: we may want to use size_t or something more compatible */
+typedef unsigned long rlen_t;
+
+#ifdef ULONG_MAX
+#define rlen_max ULONG_MAX
+#else
+#ifdef __LP64__
+#define rlen_max 0xffffffffffffffffL 
+#else
+#define rlen_max 0xffffffffL
+#endif /* __LP64__ */
+#endif /* ULONG_MAX */
+
+
 /* functions/macros to convert native endianess of int/double for transport
    currently ony PPC style and Intel style are supported */
 
