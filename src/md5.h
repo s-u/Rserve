@@ -1,11 +1,7 @@
 #ifndef MD5_H
 #define MD5_H
 
-#ifdef __alpha
 typedef unsigned int uint32;
-#else
-typedef unsigned long uint32;
-#endif
 
 struct MD5Context {
         uint32 buf[4];
@@ -18,9 +14,8 @@ extern void MD5Update();
 extern void MD5Final();
 extern void MD5Transform();
 
-/*
- * This is needed to make RSAREF happy on some MS-DOS compilers.
- */
 typedef struct MD5Context MD5_CTX;
+
+unsigned char *md5hash(void *buf, int len, unsigned char hash[16]);
 
 #endif /* !MD5_H */

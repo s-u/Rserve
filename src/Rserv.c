@@ -251,23 +251,8 @@ extern __declspec(dllimport) int R_SignalHandlers;
 
 #define MAX_CTRL_DATA (1024*1024) /* max. length of data for control commands - larger data will be ignored */
 
-typedef struct args args_t;
+#include "RSserver.h"
 
-typedef void (*work_fn_t)(void *par);
-typedef void (*send_fn_t)(args_t *arg, int rsp, rlen_t len, void *buf);
-typedef int  (*recv_fn_t)(args_t *arg, void *buf, rlen_t len);
-
-/* definition of a server */
-typedef struct server {
-	int ss;               /* server socket */
-	int unix_socket;      /* 0 = TCP/IP, 1 = unix socket */
-	work_fn_t connected;  /* function called for each new connection */
-	work_fn_t fin;        /* optional finalization function */
-	send_fn_t send_resp;  /* send response */
-	recv_fn_t recv;       /* receive */
-} server_t;
-
-/* arguments structure passed to a working thread */
 struct args {
 	server_t *srv; /* server that instantiated this connection */
     SOCKET s, ss;
@@ -311,6 +296,10 @@ static int umask_value = 0;
 #endif
 
 static char **allowed_ips = 0;
+
+void stop_server_loop() {
+	active = 0;
+}
 
 #ifdef STANDALONE_RSERVE
 static const char *rserve_ver_id = "$Id$";
@@ -551,7 +540,7 @@ static void printSEXP(SEXP e) /* merely for debugging purposes
 static int localonly = 1;
 
 /* send a response including the data part */
-static void Rserve_QAP1_send_resp(args_t *arg, int rsp, rlen_t len, void *buf) {
+void Rserve_QAP1_send_resp(args_t *arg, int rsp, rlen_t len, void *buf) {
     struct phdr ph;
 	int s = arg->s;
 	rlen_t i = 0;
@@ -1309,7 +1298,7 @@ void Rserve_QAP1_connected(void *thp) {
 #ifdef RSERV_DEBUG
     printf("sending ID string.\n");
 #endif
-    send(s, (char*)buf, 32, 0);
+    srv->send(a, (char*)buf, 32);
 	
 	can_control = 0;
 	if (!authReq && !pwdfile) /* control is allowed by default only if authentication is not required and passwd is not present. In all other cases it will be set during authentication. */
@@ -2153,6 +2142,10 @@ int add_server(server_t *srv) {
 		return 0;
 	}
 	server[servers++] = srv;
+#ifdef RSERV_DEBUG
+	printf("INFO: adding server %p (total %d servers)\n", (void*) srv, servers);
+#endif
+
 	return 1;
 }
 
@@ -2167,6 +2160,9 @@ int rm_server(server_t *srv) {
 		} else i++;
 	}
 	if (srv->fin) srv->fin(srv);
+#ifdef RSERV_DEBUG
+	printf("INFO: removing server %p (total %d servers left)\n", (void*) srv, servers);
+#endif
 	return 1;
 }
 
@@ -2180,6 +2176,10 @@ int server_recv(args_t *arg, void *buf, rlen_t len) {
 	return recv(arg->s, buf, len, 0);
 }
 
+int server_send(args_t *arg, void *buf, rlen_t len) {
+	return send(arg->s, buf, len, 0);
+}
+
 server_t *create_Rserve_QAP1() {
 	server_t *srv = create_server(port, localSocketName);
 	if (srv) {
@@ -2187,6 +2187,7 @@ server_t *create_Rserve_QAP1() {
 		srv->send_resp = Rserve_QAP1_send_resp;
 		srv->fin       = server_fin;
 		srv->recv      = server_recv;
+		srv->send      = server_send;
 		add_server(srv);
 		return srv;
 	}
@@ -2280,6 +2281,9 @@ void serverLoop() {
 							if (sa->sa.sin_addr.s_addr==inet_addr(*(laddr++)))
 								{ allowed=1; break; };
 						if (allowed) {
+#ifdef RSERV_DEBUG
+							printf("INFO: accepted connection for server %p, calling connected\n", (void*) srv);
+#endif
 							srv->connected(sa);
 #ifdef FORKED
 							/* when the child returns it means it's done (likely an error)
@@ -2290,6 +2294,9 @@ void serverLoop() {
 						} else
 							closesocket(sa->s);
 					} else { /* ---> remote enabled */
+#ifdef RSERV_DEBUG
+						printf("INFO: accepted connection for server %p, calling connected\n", (void*) srv);
+#endif
 						srv->connected(sa);
 						if (is_child) /* same as above */
 							exit(2);

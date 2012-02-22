@@ -8,4 +8,9 @@ files <- files[file.exists(files)]
 if (length(files)) {
   dir.create(dest, recursive = TRUE, showWarnings = FALSE)
   file.copy(files, dest, overwrite = TRUE)
+  if (length(grep("^darwin", R.version$os))) {
+    message('generating debug symbols (dSYM)')
+    dylib <- Sys.glob(paste(dest, "/*", SHLIB_EXT, sep=''))
+    if (length(dylib)) for (file in dylib) try(system(paste("dsymutil ", file, sep='')), silent=TRUE)
+  }
 }
