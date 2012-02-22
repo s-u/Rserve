@@ -251,10 +251,37 @@ extern __declspec(dllimport) int R_SignalHandlers;
 
 #define MAX_CTRL_DATA (1024*1024) /* max. length of data for control commands - larger data will be ignored */
 
+typedef struct args args_t;
+
+typedef void (*work_fn_t)(void *par);
+typedef void (*send_fn_t)(args_t *arg, int rsp, rlen_t len, void *buf);
+typedef int  (*recv_fn_t)(args_t *arg, void *buf, rlen_t len);
+
+/* definition of a server */
+typedef struct server {
+	int ss;               /* server socket */
+	int unix_socket;      /* 0 = TCP/IP, 1 = unix socket */
+	work_fn_t connected;  /* function called for each new connection */
+	work_fn_t fin;        /* optional finalization function */
+	send_fn_t send_resp;  /* send response */
+	recv_fn_t recv;       /* receive */
+} server_t;
+
+/* arguments structure passed to a working thread */
+struct args {
+	server_t *srv; /* server that instantiated this connection */
+    SOCKET s, ss;
+    SAIN sa;
+    int ucix;
+#ifdef unix
+    struct sockaddr_un su;
+#endif
+};
+
 int dumpLimit=128;
 
 static int port = default_Rsrv_port;
-static int active = 1; /* 1=server loop is active, 0=shutdown */
+static int active = 1; /* 1 = server loop is active, 0 = shutdown */
 static int UCIX   = 1; /* unique connection index */
 
 static char *localSocketName = 0; /* if set listen on this local (unix) socket instead of TCP/IP */
@@ -375,16 +402,6 @@ static void printDump(void *b, int len) {
 }
 #endif
 
-static void sendResp(int s, int rsp) {
-    struct phdr ph;
-    memset(&ph, 0, sizeof(ph));
-    ph.cmd = itop(rsp | CMD_RESP);
-#ifdef RSERV_DEBUG
-    printf("OUT.sendResp(void data)\n");
-    printDump(&ph, sizeof(ph));
-#endif
-    send(s, (char*)&ph, sizeof(ph), 0);
-}
 
 #if 0 /* UNUSED ?? */
 static char *getParseName(int n) {
@@ -398,6 +415,8 @@ static char *getParseName(int n) {
     return "<unknown>";
 }
 #endif
+
+#ifdef RSERV_DEBUG
 
 static void printSEXP(SEXP e) /* merely for debugging purposes
 						  in fact Rserve binary transport supports
@@ -526,24 +545,15 @@ static void printSEXP(SEXP e) /* merely for debugging purposes
     }
     printf("Unknown type: %d\n",t);
 }
+#endif
 
 /* if set Rserve doesn't accept other than local connections. */
 static int localonly = 1;
 
-/* arguments structure passed to a working thread */
-struct args {
-    int s;
-    int ss;
-    SAIN sa;
-    int ucix;
-#ifdef unix
-    struct sockaddr_un su;
-#endif
-};
-
 /* send a response including the data part */
-static void sendRespData(int s, int rsp, rlen_t len, void *buf) {
+static void Rserve_QAP1_send_resp(args_t *arg, int rsp, rlen_t len, void *buf) {
     struct phdr ph;
+	int s = arg->s;
 	rlen_t i = 0;
     memset(&ph, 0, sizeof(ph));
     ph.cmd = itop(rsp | CMD_RESP);	
@@ -554,8 +564,12 @@ static void sendRespData(int s, int rsp, rlen_t len, void *buf) {
 #ifdef RSERV_DEBUG
     printf("OUT.sendRespData\nHEAD ");
     printDump(&ph,sizeof(ph));
-    printf("BODY ");
-    printDump(buf,len);
+	if (len == 0)
+		printf("(no body)\n");
+	else {
+		printf("BODY ");
+		printDump(buf, len);
+	}
 #endif
     
     send(s, (char*)&ph, sizeof(ph), 0);
@@ -620,7 +634,7 @@ struct source_entry {
    returns: 1 = setting accepted, 0 = unknown setting, -1 = setting known but failed */
 static int setConfig(const char *c, const char *p) {
 	if (!strcmp(c,"remote")) {
-		localonly = (*p == '1' || *p == 'y' || *p == 'e') ? 0 : 1;
+		localonly = (*p == '1' || *p == 'y' || *p == 'e' || *p == 'T') ? 0 : 1;
 		return 1;
 	}
 	if (!strcmp(c,"port")) {
@@ -728,7 +742,7 @@ static int setConfig(const char *c, const char *p) {
 		}
 		return 1;
 	}
-	if (!strcmp(c, "control") && (p[0] == 'e' || p[0] == 'y' || p[1] == '1')) {
+	if (!strcmp(c, "control") && (p[0] == 'e' || p[0] == 'y' || p[0] == '1' || p[0] == 'T')) {
 		child_control = 1;
 		return 1;
 	}
@@ -753,27 +767,27 @@ static int setConfig(const char *c, const char *p) {
 		return 1;
 	}
 	if (!strcmp(c,"auth")) {
-		authReq = (*p=='1' || *p=='y' || *p=='r' || *p=='e') ? 1 : 0;
+		authReq = (*p=='1' || *p=='y' || *p=='r' || *p=='e' || *p == 'T') ? 1 : 0;
 		return 1;
 	}
 	if (!strcmp(c,"interactive")) {
-		Rsrv_interactive = (*p=='1' || *p=='y' || *p=='t' || *p=='e') ? 1 : 0;
+		Rsrv_interactive = (*p=='1' || *p=='y' || *p=='t' || *p=='e' || *p == 'T') ? 1 : 0;
 		return 1;
 	}
 	if (!strcmp(c,"plaintext")) {
-		usePlain = (*p=='1' || *p=='y' || *p=='e') ? 1 : 0;
+		usePlain = (*p=='1' || *p=='y' || *p=='e' || *p == 'T') ? 1 : 0;
 		return 1;
 	}
 	if (!strcmp(c,"fileio")) {
-		allowIO = (*p=='1' || *p=='y' || *p=='e') ? 1 : 0;
+		allowIO = (*p=='1' || *p=='y' || *p=='e' || *p == 'T') ? 1 : 0;
 		return 1;
 	}
 	if (!strcmp(c,"r-control")){
-		self_control = (*p=='1' || *p=='y' || *p=='e') ? 1 : 0;
+		self_control = (*p=='1' || *p=='y' || *p=='e' || *p == 'T') ? 1 : 0;
 		return 1;
 	}
 	if (!strcmp(c, "cachepwd")) {
-		cache_pwd = (*p == 'i') ? 2 : ((*p == '1' || *p == 'y' || *p == 'e') ? 1 : 0);
+		cache_pwd = (*p == 'i') ? 2 : ((*p == '1' || *p == 'y' || *p == 'e' || *p == 'T') ? 1 : 0);
 		return 1;
 	}
 	return 0;
@@ -875,25 +889,25 @@ const char *code64="./0123456789ABCDEFGHIJKLMNOPQRSTUVWYXZabcdefghijklmnopqrstuv
 /** parses a string, stores the number of expressions in parts and the resulting statis in status.
     the returned SEXP may contain multiple expressions */ 
 SEXP parseString(char *s, int *parts, ParseStatus *status) {
-    int maxParts=1;
-    char *c=s;
+    int maxParts = 1;
+    char *c = s;
     SEXP cv, pr = R_NilValue;
     
     while (*c) {
-		if (*c=='\n' || *c==';') maxParts++;
+		if (*c == '\n' || *c == ';') maxParts++;
 		c++;
     }
     
-    PROTECT(cv=allocVector(STRSXP, 1));
+    PROTECT(cv = allocVector(STRSXP, 1));
     SET_STRING_ELT(cv, 0, mkRChar(s));  
     
-    while (maxParts>0) {
-		pr=RS_ParseVector(cv, maxParts, status);
-		if (*status!=PARSE_INCOMPLETE && *status!=PARSE_EOF) break;
+    while (maxParts > 0) {
+		pr = RS_ParseVector(cv, maxParts, status);
+		if (*status != PARSE_INCOMPLETE && *status != PARSE_EOF) break;
 		maxParts--;
     }
     UNPROTECT(1);
-    *parts=maxParts;
+    *parts = maxParts;
     
     return pr;
 }
@@ -902,7 +916,7 @@ SEXP parseString(char *s, int *parts, ParseStatus *status) {
 SEXP parseExps(char *s, int exps, ParseStatus *status) {
     SEXP cv, pr;
     
-    PROTECT(cv=allocVector(STRSXP, 1));
+    PROTECT(cv = allocVector(STRSXP, 1));
     SET_STRING_ELT(cv, 0, mkRChar(s));  
     pr = RS_ParseVector(cv, 1, status);
     UNPROTECT(1);
@@ -912,8 +926,8 @@ SEXP parseExps(char *s, int exps, ParseStatus *status) {
 void voidEval(char *cmd) {
     ParseStatus stat;
     int Rerror;
-    int j=0;
-    SEXP xp=parseString(cmd,&j,&stat);
+    int j = 0;
+    SEXP xp = parseString(cmd,&j,&stat);
     
     PROTECT(xp);
 #ifdef RSERV_DEBUG
@@ -927,46 +941,50 @@ void voidEval(char *cmd) {
 		UNPROTECT(1);
 		return;
     } else {
-		SEXP exp=R_NilValue;
+		SEXP exp = R_NilValue;
 #ifdef RSERV_DEBUG
 		printf("R_tryEval(xp,R_GlobalEnv,&Rerror);\n");
 #endif
-		if (TYPEOF(xp)==EXPRSXP && LENGTH(xp)>0) {
-			int bi=0;
-			while (bi<LENGTH(xp)) {
-				SEXP pxp=VECTOR_ELT(xp, bi);
-				Rerror=0;
+		if (TYPEOF(xp) == EXPRSXP && LENGTH(xp) > 0) {
+			int bi = 0;
+			while (bi < LENGTH(xp)) {
+				SEXP pxp = VECTOR_ELT(xp, bi);
+				Rerror = 0;
 #ifdef RSERV_DEBUG
-				printf("Calling R_tryEval for expression %d [type=%d] ...\n",bi+1,TYPEOF(pxp));
+				printf("Calling R_tryEval for expression %d [type=%d] ...\n", bi+1, TYPEOF(pxp));
 #endif
-				exp=R_tryEval(pxp, R_GlobalEnv, &Rerror);
+				exp = R_tryEval(pxp, R_GlobalEnv, &Rerror);
 				bi++;
 #ifdef RSERV_DEBUG
-				printf("Expression %d, error code: %d\n",bi, Rerror);
+				printf("Expression %d, error code: %d\n", bi, Rerror);
 				if (Rerror) printf(">> early error, aborting further evaluations\n");
 #endif
 				if (Rerror) break;
 			}
 		} else {
-			Rerror=0;
-			exp=R_tryEval(xp, R_GlobalEnv, &Rerror);
+			Rerror = 0;
+			exp = R_tryEval(xp, R_GlobalEnv, &Rerror);
 		}
 		UNPROTECT(1);
     }
     return;
 }
 
+#define sendRespData(A, C, L, D) srv->send_resp(A, C, L, D)
+#define sendResp(A,C) srv->send_resp(A, C, 0, 0)
 
 struct sockaddr_in session_peer_sa;
 SOCKET session_socket;
 unsigned char session_key[32];
 
 /* detach session and setup everything such that in can be resumed at some point */
-int detach_session(SOCKET s) {
+int detach_session(args_t *arg) {
     SAIN ssa;
-	int port=32768;
-	SOCKET ss=FCF("open socket",socket(AF_INET,SOCK_STREAM,0));
-    int reuse=1; /* enable socket address reusage */
+	SOCKET s = arg->s;
+	server_t *srv = arg->srv;
+	int port = 32768;
+	SOCKET ss = FCF("open socket",socket(AF_INET,SOCK_STREAM,0));
+    int reuse = 1; /* enable socket address reusage */
 	socklen_t sl = sizeof(session_peer_sa);
 	struct dsresp {
 		int pt1;
@@ -976,7 +994,7 @@ int detach_session(SOCKET s) {
 	} dsr;
 
 	if (getpeername(s, (SA*) &session_peer_sa, &sl)) {
-		sendResp(s,SET_STAT(RESP_ERR,ERR_detach_failed));
+		sendResp(arg, SET_STAT(RESP_ERR,ERR_detach_failed));
 		return -1;
 	}
 
@@ -994,7 +1012,7 @@ int detach_session(SOCKET s) {
 			printf("session: error in bind other than EADDRINUSE (0x%x)",  errno);
 #endif
 			closesocket(ss);
-			sendResp(s,SET_STAT(RESP_ERR,ERR_detach_failed));
+			sendResp(arg, SET_STAT(RESP_ERR,ERR_detach_failed));
 			return -1;
 		}
 		port++;
@@ -1003,7 +1021,7 @@ int detach_session(SOCKET s) {
 			printf("session: can't find available prot to listed on.\n");
 #endif
 			closesocket(ss);
-			sendResp(s,SET_STAT(RESP_ERR,ERR_detach_failed));
+			sendResp(arg, SET_STAT(RESP_ERR,ERR_detach_failed));
 			return -1;
 		}
 	}
@@ -1013,7 +1031,7 @@ int detach_session(SOCKET s) {
 		printf("session: cannot listen.\n");
 #endif
 		closesocket(ss);
-		sendResp(s,SET_STAT(RESP_ERR,ERR_detach_failed));
+		sendResp(arg, SET_STAT(RESP_ERR,ERR_detach_failed));
 		return -1;
 	}
 
@@ -1031,12 +1049,12 @@ int detach_session(SOCKET s) {
 	dsr.pt2  = itop(SET_PAR(DT_BYTESTREAM,32));
 	memcpy(dsr.key, session_key, 32);							
 	
-	sendRespData(s, RESP_OK, 3*sizeof(int)+32, &dsr);
+	sendRespData(arg, RESP_OK, 3*sizeof(int)+32, &dsr);
 	closesocket(s);
 #ifdef RSERV_DEBUG
 	printf("session: detached, closing connection.\n");
 #endif
-	session_socket=ss;
+	session_socket = ss;
 	return 0;
 }
 
@@ -1148,6 +1166,7 @@ void Rserve_QAP1_connected(void *thp) {
     SOCKET s;
     struct args *a = (struct args*)thp;
     struct phdr ph;
+	server_t *srv = a->srv;
     char *buf, *c, *cc, *c1, *c2;
     int pars;
     int process;
@@ -1259,7 +1278,7 @@ void Rserve_QAP1_connected(void *thp) {
     printf("connection accepted.\n");
 #endif
     s = a->s;
-    free(a);
+	/* FIXME: we used to free a here, but now that we use it we have to defer that ... */
     
     csock = s;
     
@@ -1296,7 +1315,7 @@ void Rserve_QAP1_connected(void *thp) {
 	if (!authReq && !pwdfile) /* control is allowed by default only if authentication is not required and passwd is not present. In all other cases it will be set during authentication. */
 		can_control = 1;
 
-    while((rn = recv(s, (char*)&ph, sizeof(ph), 0)) == sizeof(ph)) {
+    while((rn = srv->recv(a, (char*)&ph, sizeof(ph))) == sizeof(ph)) {
 		size_t plen = 0;
 		SEXP pp = R_NilValue; /* packet payload (as a raw vector) for special commands */
 #ifdef RSERV_DEBUG
@@ -1324,7 +1343,7 @@ void Rserve_QAP1_connected(void *thp) {
 #ifdef RSERV_DEBUG
 			printf("loading (raw) buffer (awaiting %d bytes)\n", (int)plen);
 #endif
-			while((rn = recv(s, pbuf + i, (plen - i > max_sio_chunk) ? max_sio_chunk : (plen - i), 0))) {
+			while((rn = srv->recv(a, pbuf + i, (plen - i > max_sio_chunk) ? max_sio_chunk : (plen - i)))) {
 				if (rn > 0) i += rn;
 				if (i >= plen || rn < 1) break;
 			}
@@ -1345,7 +1364,7 @@ void Rserve_QAP1_connected(void *thp) {
 #ifdef RSERV_DEBUG
 						fprintf(stderr,"FATAL: out of memory while resizing buffer to %d,\n", (int)inBuf);
 #endif
-						sendResp(s,SET_STAT(RESP_ERR,ERR_out_of_mem));
+						sendResp(a, SET_STAT(RESP_ERR,ERR_out_of_mem));
 						free(sendbuf); free(sfbuf);
 						closesocket(s);
 						return;
@@ -1355,7 +1374,7 @@ void Rserve_QAP1_connected(void *thp) {
 				printf("loading buffer (awaiting %ld bytes)\n",(long) plen);
 #endif
 				i = 0;
-				while ((rn = recv(s, ((char*)buf) + i, (plen - i > max_sio_chunk) ? max_sio_chunk : (plen - i), 0))) {
+				while ((rn = srv->recv(a, ((char*)buf) + i, (plen - i > max_sio_chunk) ? max_sio_chunk : (plen - i)))) {
 					if (rn > 0) i += rn;
 					if (i >= plen || rn < 1) break;
 				}
@@ -1387,7 +1406,7 @@ void Rserve_QAP1_connected(void *thp) {
 #ifdef RSERV_DEBUG
 						printf("Platform specific: last parameter resulted in unaligned stream for the current one, sending ERR_inv_par.\n");
 #endif
-						sendResp(s, SET_STAT(RESP_ERR, ERR_inv_par));
+						sendResp(a, SET_STAT(RESP_ERR, ERR_inv_par));
 						process = 1; ph.cmd = 0;
 						break;
 					}
@@ -1403,14 +1422,14 @@ void Rserve_QAP1_connected(void *thp) {
 			} else {
 				printf("discarding buffer because too big (awaiting %ld bytes)\n", (long)plen);
 				size_t i = plen, chk = (inBuf < max_sio_chunk) ? inBuf : max_sio_chunk;
-				while((rn = recv(s, (char*)buf, (i < chk) ? i : chk, 0))) {
+				while((rn = srv->recv(a, (char*)buf, (i < chk) ? i : chk))) {
 					if (rn > 0) i -= rn;
 					if (i < 1 || rn < 1) break;
 				}
 				if (i > 0) break;
 				/* if the pars are bigger than my buffer, send data_overflow response
 				   (since 1.23/0.1-6; was inv_par before) */
-				sendResp(s, SET_STAT(RESP_ERR, ERR_data_overflow));
+				sendResp(a, SET_STAT(RESP_ERR, ERR_data_overflow));
 				process = 1; ph.cmd = 0;
 			}
 		}
@@ -1432,7 +1451,7 @@ void Rserve_QAP1_connected(void *thp) {
 
 		if (!authed && ph.cmd==CMD_login) {
 			if (pars < 1 || parT[0] != DT_STRING) 
-				sendResp(s, SET_STAT(RESP_ERR, ERR_inv_par));
+				sendResp(a, SET_STAT(RESP_ERR, ERR_inv_par));
 			else {
 				c = (char*)parP[0];
 				cc = c;
@@ -1511,7 +1530,7 @@ void Rserve_QAP1_connected(void *thp) {
 					if (authed) {
 						can_control = ctrl_flag;
 						process=1;
-						sendResp(s,RESP_OK);
+						sendResp(a, RESP_OK);
 					}
 				}
 			}
@@ -1519,14 +1538,14 @@ void Rserve_QAP1_connected(void *thp) {
 
 		/* if not authed by now, close connection */
 		if (authReq && !authed) {
-			sendResp(s, SET_STAT(RESP_ERR, ERR_auth_failed));
+			sendResp(a, SET_STAT(RESP_ERR, ERR_auth_failed));
 			closesocket(s);
 			free(sendbuf); free(sfbuf); free(buf);
 			return;
 		}
 
 		if (ph.cmd==CMD_shutdown) { /* FIXME: now that we have control commands we may rethink this ... */
-			sendResp(s,RESP_OK);
+			sendResp(a, RESP_OK);
 #ifdef RSERV_DEBUG
 			printf("initiating clean shutdown.\n");
 #endif
@@ -1547,14 +1566,14 @@ void Rserve_QAP1_connected(void *thp) {
 			printf("control command: %s [can control: %s, pipe: %d]\n", (ph.cmd == CMD_ctrlEval) ? "eval" : ((ph.cmd == CMD_ctrlSource) ? "source" : "shutdown"), can_control ? "yes" : "no", parent_pipe);
 #endif
 			if (!can_control) /* no right to do this */
-				sendResp(s, SET_STAT(RESP_ERR, ERR_accessDenied));
+				sendResp(a, SET_STAT(RESP_ERR, ERR_accessDenied));
 			else {
 				/* source and eval require a parameter */
 				if ((ph.cmd == CMD_ctrlEval || ph.cmd == CMD_ctrlSource) && (pars < 1 || parT[0] != DT_STRING))
-					sendResp(s, SET_STAT(RESP_ERR, ERR_inv_par));
+					sendResp(a, SET_STAT(RESP_ERR, ERR_inv_par));
 				else {
 					if (parent_pipe == -1)
-						sendResp(s, SET_STAT(RESP_ERR, ERR_ctrl_closed));
+						sendResp(a, SET_STAT(RESP_ERR, ERR_ctrl_closed));
 					else {
 						long cmd[2] = { 0, 0 };
 						if (ph.cmd == CMD_ctrlEval) { cmd[0] = CCTL_EVAL; cmd[1] = strlen(parP[0]) + 1; }
@@ -1566,7 +1585,7 @@ void Rserve_QAP1_connected(void *thp) {
 #endif
 							close(parent_pipe);
 							parent_pipe = -1;
-							sendResp(s, SET_STAT(RESP_ERR, ERR_ctrl_closed));
+							sendResp(a, SET_STAT(RESP_ERR, ERR_ctrl_closed));
 						} else {
 							if (cmd[1] && write(parent_pipe, parP[0], cmd[1]) != cmd[1]) {
 #ifdef RSERV_DEBUG
@@ -1574,9 +1593,9 @@ void Rserve_QAP1_connected(void *thp) {
 #endif
 								close(parent_pipe);
 								parent_pipe = 01;
-								sendResp(s, SET_STAT(RESP_ERR, ERR_ctrl_closed));
+								sendResp(a, SET_STAT(RESP_ERR, ERR_ctrl_closed));
 							} else
-								sendResp(s, RESP_OK);
+								sendResp(a, RESP_OK);
 						}
 					}
 				}
@@ -1586,7 +1605,7 @@ void Rserve_QAP1_connected(void *thp) {
 		if (ph.cmd == CMD_setEncoding) { /* set string encoding */
 			process = 1;
 			if (pars<1 || parT[0] != DT_STRING) 
-				sendResp(s, SET_STAT(RESP_ERR, ERR_inv_par));
+				sendResp(a, SET_STAT(RESP_ERR, ERR_inv_par));
 			else {
 				char *c = (char*) parP[0];
 #ifdef RSERV_DEBUG
@@ -1594,11 +1613,11 @@ void Rserve_QAP1_connected(void *thp) {
 #endif
 #ifdef USE_ENCODING
 				if (c && set_string_encoding(c, 0))
-					sendResp(s, RESP_OK);
+					sendResp(a, RESP_OK);
 				else
-					sendResp(s, SET_STAT(RESP_ERR, ERR_inv_par));
+					sendResp(a, SET_STAT(RESP_ERR, ERR_inv_par));
 #else
-				sendResp(s, SET_STAT(RESP_ERR, ERR_unsupportedCmd));
+				sendResp(a, SET_STAT(RESP_ERR, ERR_unsupportedCmd));
 #endif
 			}
 		}
@@ -1607,7 +1626,7 @@ void Rserve_QAP1_connected(void *thp) {
 			process = 1;
 			/* FIXME: configuration allows 64-bit numbers but CMD_setBufferSize does not */
 			if (pars < 1 || parT[0] != DT_INT) 
-				sendResp(s,SET_STAT(RESP_ERR, ERR_inv_par));
+				sendResp(a, SET_STAT(RESP_ERR, ERR_inv_par));
 			else {
 				rlen_t ns = ptoi(((unsigned int*)(parP[0]))[0]);
 #ifdef RSERV_DEBUG
@@ -1621,23 +1640,23 @@ void Rserve_QAP1_connected(void *thp) {
 #ifdef RSERV_DEBUG
 						fprintf(stderr,"FATAL: out of memory while resizing send buffer to %ld,\n", sendBufSize);
 #endif
-						sendResp(s,SET_STAT(RESP_ERR, ERR_out_of_mem));
+						sendResp(a, SET_STAT(RESP_ERR, ERR_out_of_mem));
 						free(buf); free(sfbuf);
 						closesocket(s);
 						return;
 					}
 					sendBufSize = ns;
 				}
-				sendResp(s, RESP_OK);
+				sendResp(a, RESP_OK);
 			}
 		}
 
 		if (ph.cmd==CMD_openFile||ph.cmd==CMD_createFile) {
 			process=1;
-			if (!allowIO) sendResp(s,SET_STAT(RESP_ERR,ERR_accessDenied));
+			if (!allowIO) sendResp(a, SET_STAT(RESP_ERR,ERR_accessDenied));
 			else {
 				if (pars<1 || parT[0]!=DT_STRING) 
-					sendResp(s,SET_STAT(RESP_ERR,ERR_inv_par));
+					sendResp(a, SET_STAT(RESP_ERR,ERR_inv_par));
 				else {
 					c=(char*)(parP[0]);
 					if (cf) fclose(cf);
@@ -1646,51 +1665,52 @@ void Rserve_QAP1_connected(void *thp) {
 #endif
 					cf=fopen(c,(ph.cmd==CMD_openFile)?"rb":"wb");
 					if (!cf)
-						sendResp(s,SET_STAT(RESP_ERR,ERR_IOerror));
+						sendResp(a, SET_STAT(RESP_ERR, ERR_IOerror));
 					else
-						sendResp(s,RESP_OK);
+						sendResp(a, RESP_OK);
 				}
 			}
 		}
 	
 		if (ph.cmd==CMD_removeFile) {
 			process=1;
-			if (!allowIO) sendResp(s,SET_STAT(RESP_ERR,ERR_accessDenied));
+			if (!allowIO) sendResp(a, SET_STAT(RESP_ERR, ERR_accessDenied));
 			else {
 				if (pars<1 || parT[0]!=DT_STRING) 
-					sendResp(s,SET_STAT(RESP_ERR,ERR_inv_par));
+					sendResp(a, SET_STAT(RESP_ERR,ERR_inv_par));
 				else {
 					c=(char*)parP[0];
 #ifdef RSERV_DEBUG
 					printf(">>CMD_removeFile(%s)\n",c);
 #endif
 					if (remove(c))
-						sendResp(s,SET_STAT(RESP_ERR,ERR_IOerror));
+						sendResp(a, SET_STAT(RESP_ERR, ERR_IOerror));
 					else
-						sendResp(s,RESP_OK);
+						sendResp(a, RESP_OK);
 				}
 			}
 		}
 	
-		if (ph.cmd==CMD_closeFile) {
-			process=1;
-			if (!allowIO) sendResp(s,SET_STAT(RESP_ERR,ERR_accessDenied));
+		if (ph.cmd == CMD_closeFile) {
+			process = 1;
+			if (!allowIO)
+				sendResp(a, SET_STAT(RESP_ERR, ERR_accessDenied));
 			else {
 				if (cf) fclose(cf);
 #ifdef RSERV_DEBUG
 				printf(">>CMD_closeFile\n");
 #endif
-				cf=0;
-				sendResp(s,RESP_OK);
+				cf = 0;
+				sendResp(a, RESP_OK);
 			}
 		}
 	
 		if (ph.cmd==CMD_readFile) {
-			process=1;
-			if (!allowIO) sendResp(s,SET_STAT(RESP_ERR,ERR_accessDenied));
+			process = 1;
+			if (!allowIO) sendResp(a, SET_STAT(RESP_ERR, ERR_accessDenied));
 			else {
 				if (!cf)
-					sendResp(s,SET_STAT(RESP_ERR,ERR_notOpen));
+					sendResp(a, SET_STAT(RESP_ERR, ERR_notOpen));
 				else {
 					rlen_t fbufl = sfbufSize;
 					char *fbuf = sfbuf;
@@ -1708,13 +1728,13 @@ void Rserve_QAP1_connected(void *thp) {
 						fbuf = (char*)malloc(fbufl);
 					}
 					if (!fbuf) /* well, logically not clean (it's out of memory), but in practice likely true */
-						sendResp(s, SET_STAT(RESP_ERR, ERR_inv_par));
+						sendResp(a, SET_STAT(RESP_ERR, ERR_inv_par));
 					else {
 						size_t i = fread(fbuf, 1, fbufl, cf);
 						if (i > 0)
-							sendRespData(s, RESP_OK, i, fbuf);
+							sendRespData(a, RESP_OK, i, fbuf);
 						else
-							sendResp(s, RESP_OK);
+							sendResp(a, RESP_OK);
 						if (fbuf != sfbuf)
 							free(fbuf);
 					}
@@ -1724,13 +1744,13 @@ void Rserve_QAP1_connected(void *thp) {
 	
 		if (ph.cmd==CMD_writeFile) {
 			process=1;
-			if (!allowIO) sendResp(s,SET_STAT(RESP_ERR,ERR_accessDenied));
+			if (!allowIO) sendResp(a, SET_STAT(RESP_ERR, ERR_accessDenied));
 			else {
 				if (!cf)
-					sendResp(s,SET_STAT(RESP_ERR,ERR_notOpen));
+					sendResp(a, SET_STAT(RESP_ERR, ERR_notOpen));
 				else {
-					if (pars<1 || parT[0]!=DT_BYTESTREAM)
-						sendResp(s,SET_STAT(RESP_ERR,ERR_inv_par));
+					if (pars < 1 || parT[0] != DT_BYTESTREAM)
+						sendResp(a, SET_STAT(RESP_ERR, ERR_inv_par));
 					else {
 						size_t i = 0;
 #ifdef RSERV_DEBUG
@@ -1740,9 +1760,9 @@ void Rserve_QAP1_connected(void *thp) {
 						if (parL[0] > 0)
 							i = fwrite(c, 1, parL[0], cf);
 						if (i > 0 && i != parL[0])
-							sendResp(s, SET_STAT(RESP_ERR, ERR_IOerror));
+							sendResp(a, SET_STAT(RESP_ERR, ERR_IOerror));
 						else
-							sendResp(s,RESP_OK);
+							sendResp(a, RESP_OK);
 					}
 				}
 			}
@@ -1752,14 +1772,14 @@ void Rserve_QAP1_connected(void *thp) {
 	
 		if (ph.cmd==CMD_setSEXP || ph.cmd==CMD_assignSEXP) {
 			process=1;
-			if (pars<2 || parT[0]!=DT_STRING) 
-				sendResp(s,SET_STAT(RESP_ERR,ERR_inv_par));
+			if (pars < 2 || parT[0] != DT_STRING) 
+				sendResp(a, SET_STAT(RESP_ERR, ERR_inv_par));
 			else {
 				SEXP val, sym=0;
 				unsigned int *sptr;
-				int parType=parT[1];
-				int globalUPC=0;
-				int boffs=0;
+				int parType = parT[1];
+				int globalUPC = 0;
+				int boffs = 0;
 		
 				c=(char*)parP[0]; /* name of the symbol */
 #ifdef RSERV_DEBUG
@@ -1772,7 +1792,7 @@ void Rserve_QAP1_connected(void *thp) {
 #ifdef RSERV_DEBUG
 						printf(">>CMD_assignREXP-failed to parse \"%s\", stat=%d\n",c,stat);
 #endif
-						sendResp(s,SET_STAT(RESP_ERR,stat));
+						sendResp(a, SET_STAT(RESP_ERR, stat));
 						goto respSt;
 					}
 					if (TYPEOF(sym)==EXPRSXP && LENGTH(sym)>0) {
@@ -1790,7 +1810,7 @@ void Rserve_QAP1_connected(void *thp) {
 					SET_STRING_ELT(val, 0, mkRChar((char*)(parP[1])));
 					defineVar(sym ? sym : install(c), val ,R_GlobalEnv);
 					UNPROTECT(1);
-					sendResp(s,RESP_OK);
+					sendResp(a, RESP_OK);
 					break;
 				case DT_SEXP|DT_LARGE:
 					boffs = 1; /* we're not using the size, so in fact we just
@@ -1799,28 +1819,28 @@ void Rserve_QAP1_connected(void *thp) {
 					sptr = ((unsigned int*)parP[1]) + boffs;
 					val = QAP_decode(&sptr, &globalUPC);
 					if (val == 0)
-						sendResp(s,SET_STAT(RESP_ERR, ERR_inv_par));
+						sendResp(a, SET_STAT(RESP_ERR, ERR_inv_par));
 					else {
 #ifdef RSERV_DEBUG
 						printf("  assigning SEXP: ");
 						printSEXP(val);
 #endif
 						defineVar(sym ? sym : install(c), val, R_GlobalEnv);
-						sendResp(s, RESP_OK);
+						sendResp(a, RESP_OK);
 					}
 					if (globalUPC>0) UNPROTECT(globalUPC);
 					break;
 				default:
-					sendResp(s,SET_STAT(RESP_ERR,ERR_inv_par));
+					sendResp(a, SET_STAT(RESP_ERR, ERR_inv_par));
 				}
 			}
 		}
 	
 		if (ph.cmd==CMD_detachSession) {
 			process=1;
-			if (!detach_session(s)) {
-				s=resume_session();
-				sendResp(s,RESP_OK);
+			if (!detach_session(a)) {
+				s = resume_session();
+				sendResp(a, RESP_OK);
 			}
 		}
 		
@@ -1832,13 +1852,13 @@ void Rserve_QAP1_connected(void *thp) {
 			if (Rerr == 0) {
 				if (ph.cmd == CMD_serAssign) {
 					if (TYPEOF(us) != VECSXP || LENGTH(us) < 2) {
-						sendResp(s, SET_STAT(RESP_ERR, ERR_inv_par));
+						sendResp(a, SET_STAT(RESP_ERR, ERR_inv_par));
 					} else {
 						R_tryEval(LCONS(install("<-"),CONS(VECTOR_ELT(us, 0), CONS(VECTOR_ELT(us, 1), R_NilValue))), R_GlobalEnv, &Rerr);
 						if (Rerr == 0)
-							sendResp(s, RESP_OK);
+							sendResp(a, RESP_OK);
 						else
-							sendResp(s, SET_STAT(RESP_ERR, Rerr));
+							sendResp(a, SET_STAT(RESP_ERR, Rerr));
 					}
 				} else {
 					SEXP ev = R_tryEval(us, R_GlobalEnv, &Rerr);
@@ -1848,22 +1868,22 @@ void Rserve_QAP1_connected(void *thp) {
 					if (Rerr == 0) {
 						SEXP sr = R_tryEval(LCONS(install("serialize"),CONS(ev, CONS(R_NilValue, R_NilValue))), R_GlobalEnv, &Rerr);
 						if (Rerr == 0 && TYPEOF(sr) == RAWSXP) {
-							sendRespData(s, RESP_OK, LENGTH(sr), RAW(sr));
+							sendRespData(a, RESP_OK, LENGTH(sr), RAW(sr));
 						} else if (Rerr == 0) Rerr = -2;
 					}
 					UNPROTECT(1);
 				}
 				UNPROTECT(1);
 				if (Rerr) {
-					sendResp(s, SET_STAT(RESP_ERR, Rerr));
+					sendResp(a, SET_STAT(RESP_ERR, Rerr));
 				}
 			}
 		}
 
-		if (ph.cmd==CMD_voidEval || ph.cmd==CMD_eval || ph.cmd==CMD_detachedVoidEval) {
+		if (ph.cmd == CMD_voidEval || ph.cmd == CMD_eval || ph.cmd == CMD_detachedVoidEval) {
 			process=1;
-			if (pars<1 || parT[0]!=DT_STRING) 
-				sendResp(s,SET_STAT(RESP_ERR,ERR_inv_par));
+			if (pars < 1 || parT[0] != DT_STRING) 
+				sendResp(a, SET_STAT(RESP_ERR, ERR_inv_par));
 			else {
 				int j = 0;
 				c=(char*)parP[0];
@@ -1879,10 +1899,10 @@ void Rserve_QAP1_connected(void *thp) {
 				else
 					printf("result is <null>\n");
 #endif				
-				if (stat==1 && ph.cmd==CMD_detachedVoidEval && detach_session(s))
-					sendResp(s,SET_STAT(RESP_ERR,ERR_detach_failed));
-				else if (stat!=1)
-					sendResp(s,SET_STAT(RESP_ERR,stat));
+				if (stat == 1 && ph.cmd==CMD_detachedVoidEval && detach_session(a))
+					sendResp(a, SET_STAT(RESP_ERR, ERR_detach_failed));
+				else if (stat != 1)
+					sendResp(a, SET_STAT(RESP_ERR, stat));
 				else {
 #ifdef RSERV_DEBUG
 					printf("R_tryEval(xp,R_GlobalEnv,&Rerror);\n");
@@ -1918,10 +1938,10 @@ void Rserve_QAP1_connected(void *thp) {
 					if (ph.cmd==CMD_detachedVoidEval && s==-1)
 						s=resume_session();
 					if (Rerror) {
-						sendResp(s,SET_STAT(RESP_ERR,(Rerror<0)?Rerror:-Rerror));
+						sendResp(a, SET_STAT(RESP_ERR, (Rerror < 0) ? Rerror : -Rerror));
 					} else {
-						if (ph.cmd==CMD_voidEval || ph.cmd==CMD_detachedVoidEval)
-							sendResp(s,RESP_OK);
+						if (ph.cmd == CMD_voidEval || ph.cmd == CMD_detachedVoidEval)
+							sendResp(a, RESP_OK);
 						else {
 							char *sendhead = 0;
 							int canProceed = 1;
@@ -1944,7 +1964,7 @@ void Rserve_QAP1_connected(void *thp) {
 #ifdef RSERV_DEBUG
 									printf("ERROR: object too big (sendBuf=%ld)\n", sendBufSize);
 #endif
-									sendRespData(s,SET_STAT(RESP_ERR,ERR_object_too_big), 4, &osz);
+									sendRespData(a, SET_STAT(RESP_ERR, ERR_object_too_big), 4, &osz);
 								} else { /* try to allocate a large, temporary send buffer */
 									tempSB = rs + 64L;
 									tempSB &= rlen_max << 12;
@@ -1964,7 +1984,7 @@ void Rserve_QAP1_connected(void *thp) {
 #ifdef RSERV_DEBUG
 											fprintf(stderr,"FATAL: out of memory while re-allocating send buffer to %ld (fallback#1)\n", sendBufSize);
 #endif
-											sendResp(s,SET_STAT(RESP_ERR,ERR_out_of_mem));
+											sendResp(a, SET_STAT(RESP_ERR, ERR_out_of_mem));
 											free(buf); free(sfbuf);
 											closesocket(s);
 											return;
@@ -1974,7 +1994,7 @@ void Rserve_QAP1_connected(void *thp) {
 #ifdef RSERV_DEBUG
 											printf("ERROR: object too big (sendBuf=%ld) and couldn't allocate big enough send buffer\n", sendBufSize);
 #endif
-											sendRespData(s,SET_STAT(RESP_ERR,ERR_object_too_big), 4, &osz);
+											sendRespData(a, SET_STAT(RESP_ERR, ERR_object_too_big), 4, &osz);
 										}
 									} else canProceed = 1;
 								}
@@ -1997,7 +2017,7 @@ void Rserve_QAP1_connected(void *thp) {
 #ifdef RSERV_DEBUG
 								printf("stored SEXP; length=%ld (incl. DT_SEXP header)\n",(long) (tail - sendhead));
 #endif
-								sendRespData(s, RESP_OK, tail - sendhead, sendhead);
+								sendRespData(a, RESP_OK, tail - sendhead, sendhead);
 								if (tempSB) { /* if this is just a temporary sendbuffer then shrink it back to normal */
 #ifdef RSERV_DEBUG
 									printf("Releasing temporary sendbuf and restoring old size of %ld bytes.\n", sendBufSize);
@@ -2008,7 +2028,7 @@ void Rserve_QAP1_connected(void *thp) {
 #ifdef RSERV_DEBUG
 										fprintf(stderr,"FATAL: out of memory while re-allocating send buffer to %ld (fallback#2),\n", sendBufSize);
 #endif
-										sendResp(s, SET_STAT(RESP_ERR, ERR_out_of_mem));
+										sendResp(a, SET_STAT(RESP_ERR, ERR_out_of_mem));
 										free(buf); free(sfbuf);
 										closesocket(s);
 										return;		    
@@ -2030,7 +2050,7 @@ void Rserve_QAP1_connected(void *thp) {
 		if (s == -1) { rn = 0; break; }
 
 		if (!process)
-			sendResp(s,SET_STAT(RESP_ERR,ERR_inv_cmd));
+			sendResp(a, SET_STAT(RESP_ERR, ERR_inv_cmd));
     }
 #ifdef RSERV_DEBUG
     if (rn == 0)
@@ -2041,7 +2061,7 @@ void Rserve_QAP1_connected(void *thp) {
     }
 #endif
     if (rn > 0)
-		sendResp(s, SET_STAT(RESP_ERR, ERR_conn_broken));
+		sendResp(a, SET_STAT(RESP_ERR, ERR_conn_broken));
     closesocket(s);
     free(sendbuf); free(sfbuf); free(buf);
 #ifdef unix
@@ -2059,16 +2079,6 @@ void Rserve_QAP1_connected(void *thp) {
     exit(0);
 #endif
 }
-
-typedef void (*work_fn_t)(void *par);
-typedef void (*void_fn_t)(void);
-
-typedef struct server {
-	int ss;               /* server socket */
-	int unix_socket;      /* 0 = TCP/IP, 1 = unix socket */
-	work_fn_t connected;  /* function called for each new connection */
-	void_fn_t fin;        /* optional finalization function */
-} server_t;
 
 #define MAX_SERVERS 128
 static int servers;
@@ -2156,14 +2166,27 @@ int rm_server(server_t *srv) {
 			servers--;
 		} else i++;
 	}
-	if (srv->fin) srv->fin();
+	if (srv->fin) srv->fin(srv);
 	return 1;
+}
+
+void server_fin(void *x) {
+	server_t *srv = (server_t*) x;
+	if (srv)
+		closesocket(srv->ss);
+}
+
+int server_recv(args_t *arg, void *buf, rlen_t len) {
+	return recv(arg->s, buf, len, 0);
 }
 
 server_t *create_Rserve_QAP1() {
 	server_t *srv = create_server(port, localSocketName);
 	if (srv) {
 		srv->connected = Rserve_QAP1_connected;
+		srv->send_resp = Rserve_QAP1_send_resp;
+		srv->fin       = server_fin;
+		srv->recv      = server_recv;
 		add_server(srv);
 		return srv;
 	}
@@ -2230,6 +2253,7 @@ void serverLoop() {
 						sa->s = CF("accept", accept(ss, (SA*)&(sa->sa), &al));
 					sa->ucix = UCIX++;
 					sa->ss = ss;
+					sa->srv = srv;
 					/*
 					  memset(sa->sk,0,16);
 					  sa->sfd=-1;
@@ -2354,15 +2378,25 @@ void serverLoop() {
 
 #ifndef STANDALONE_RSERVE
 
+#ifdef unix
+typedef void (*sig_fn_t)(int);
+
+static void brkHandler_R(int i) {
+    Rprintf("\nCaught break signal, shutting down Rserve.\n");
+    active = 0;
+}
+#endif
+
 /* run Rserve inside R */
 SEXP run_Rserve(SEXP cfgFile, SEXP cfgPars) {
+	sig_fn_t old;
 	server_t *srv;
 	if (TYPEOF(cfgFile) == STRSXP && LENGTH(cfgFile) > 0) {
 		int i, n = LENGTH(cfgFile);
 		for (i = 0; i < n; i++)
 			loadConfig(CHAR(STRING_ELT(cfgFile, i)));
 	}
-	if (TYPEOF(cfgPars) == VECSXP && LENGTH(cfgPars) > 0) {
+	if (TYPEOF(cfgPars) == STRSXP && LENGTH(cfgPars) > 0) {
 		int i, n = LENGTH(cfgPars);
 		SEXP sNam = Rf_getAttrib(cfgPars, R_NamesSymbol);
 		if (TYPEOF(sNam) != STRSXP || LENGTH(sNam) != n)
@@ -2378,7 +2412,15 @@ SEXP run_Rserve(SEXP cfgFile, SEXP cfgPars) {
 	srv = create_Rserve_QAP1();
 	if (!srv)
 		Rf_error("Unable to start server");
+	Rprintf("-- running Rserve in this R session (pid=%d) --\n(This session will block until Rserve is shut down)\n", getpid());
+	active = 1;
+#ifdef unix
+    old = signal(SIGINT, brkHandler_R);
+#endif
 	serverLoop();
+#ifdef unix
+	signal(SIGINT, old);
+#endif
 	rm_server(srv);
 	free(srv);
 	return ScalarLogical(TRUE);
