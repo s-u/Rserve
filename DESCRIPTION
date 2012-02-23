@@ -4,6 +4,7 @@ Title: Binary R server
 Author: Simon Urbanek <Simon.Urbanek@r-project.org>
 Maintainer: Simon Urbanek <Simon.Urbanek@r-project.org>
 Depends: R (>= 1.5.0)
+Suggests: RSclient
 SystemRequirements: R must be compiled with --enable-R-shlib if the server is to be built
 Description: Rserve acts as a socket server (TCP/IP or local sockets) 
 	     which allows binary requests to be sent to R. Every
