@@ -255,7 +255,13 @@ extern __declspec(dllimport) int R_SignalHandlers;
 
 struct args {
 	server_t *srv; /* server that instantiated this connection */
-    SOCKET s, ss;
+    SOCKET s;
+	SOCKET ss;
+	/* the following entries are not populated by Rserve but can be used by server implemetations */
+	char *buf, *sbuf;
+	int   ver, bp, bl, sp, sl, flags;
+	long  l1, l2;
+	/* The following fields are informational, populated by Rserve */
     SAIN sa;
     int ucix;
 #ifdef unix
@@ -1149,6 +1155,69 @@ static void pwd_close(pwdf_t *f) {
 	free(f);
 }
 
+/* return 0 if the child was prepared. Returns the result of fork() is forked and this is the parent */
+int Rserve_prepare_child(args_t *arg) {
+#ifdef FORKED  
+#ifdef unix
+	int cinp[2];
+#endif
+	long rseed = random();
+    rseed ^= time(0);
+	
+	parent_pipe = -1;
+	cinp[0] = -1;
+
+#if 0 /* currenlty we disable controls in sub-protocols */
+	/* we use the input pipe only if child control is enabled. disabled pipe means no registration */
+	if ((child_control || self_control) && pipe(cinp) != 0)
+		cinp[0] = -1;
+#endif
+
+    if ((lastChild = fork()) != 0) { /* parent/master part */
+		/* close the connection socket - the child has it already */
+		closesocket(arg->s);
+		if (cinp[0] != -1) { /* if we have a valid pipe register the child */
+			child_process_t *cp = (child_process_t*) malloc(sizeof(child_process_t));
+			close(cinp[1]); /* close the write end which is what the child will be using */
+#ifdef RSERV_DEBUG
+			printf("child %d was spawned, registering input pipe\n", (int)lastChild);
+#endif
+			cp->inp = cinp[0];
+			cp->pid = lastChild;
+			cp->next = children;
+			if (children) children->prev = cp;
+			cp->prev = 0;
+			children = cp;
+		}
+		return lastChild;
+    }
+
+	/* child part */
+	is_child = 1;
+	if (cinp[0] != -1) { /* if we have a vaild pipe to the parent set it up */
+		parent_pipe = cinp[1];
+		close(cinp[0]);
+	}
+
+    srandom(rseed);
+    
+    parentPID = getppid();
+    closesocket(arg->ss); /* close server socket */
+
+#ifdef unix
+	if (cache_pwd)
+		load_pwd_cache();/* load pwd file into memory before su */
+	if (su_time == SU_CLIENT) { /* if requested set gid/pid as client */
+		if (new_gid != -1) setgid(new_gid);
+		if (new_uid != -1) setuid(new_uid);
+	}
+#endif
+
+#endif
+
+	return 0;
+}
+
 /* working thread/function. the parameter is of the type struct args* */
 /* This server function implements the Rserve QAP1 protocol */
 void Rserve_QAP1_connected(void *thp) {
@@ -1190,55 +1259,59 @@ void Rserve_QAP1_connected(void *thp) {
 	long rseed = random();
     rseed ^= time(0);
 	
-	parent_pipe = -1;
-	cinp[0] = -1;
-
-	/* we use the input pipe only if child control is enabled. disabled pipe means no registration */
-	if ((child_control || self_control) && pipe(cinp) != 0)
+	if (!is_child) { /* in case we get called from a child (e.g. other server has spawned us)
+						we perform the following only as parent - assuming it has been done already */
+		parent_pipe = -1;
 		cinp[0] = -1;
 
-    if ((lastChild = fork()) != 0) { /* parent/master part */
-		/* close the connection socket - the child has it already */
-		closesocket(a->s);
-		if (cinp[0] != -1) { /* if we have a valid pipe register the child */
-			child_process_t *cp = (child_process_t*) malloc(sizeof(child_process_t));
-			close(cinp[1]); /* close the write end which is what the child will be using */
+		/* we use the input pipe only if child control is enabled. disabled pipe means no registration */
+		if ((child_control || self_control) && pipe(cinp) != 0)
+			cinp[0] = -1;
+
+		if ((lastChild = fork()) != 0) { /* parent/master part */
+			/* close the connection socket - the child has it already */
+			closesocket(a->s);
+			if (cinp[0] != -1) { /* if we have a valid pipe register the child */
+				child_process_t *cp = (child_process_t*) malloc(sizeof(child_process_t));
+				close(cinp[1]); /* close the write end which is what the child will be using */
 #ifdef RSERV_DEBUG
-			printf("child %d was spawned, registering input pipe\n", (int)lastChild);
+				printf("child %d was spawned, registering input pipe\n", (int)lastChild);
 #endif
-			cp->inp = cinp[0];
-			cp->pid = lastChild;
-			cp->next = children;
-			if (children) children->prev = cp;
-			cp->prev = 0;
-			children = cp;
+				cp->inp = cinp[0];
+				cp->pid = lastChild;
+				cp->next = children;
+				if (children) children->prev = cp;
+				cp->prev = 0;
+				children = cp;
+			}
+			free(a); /* release the args */
+			return;
 		}
-		free(a); /* release the args */
-		return;
-    }
-	/* child part */
-	is_child = 1;
-	if (cinp[0] != -1) { /* if we have a vaild pipe to the parent set it up */
-		parent_pipe = cinp[1];
-		close(cinp[0]);
-	}
 
-    srandom(rseed);
+		/* child part */
+		is_child = 1;
+		if (cinp[0] != -1) { /* if we have a vaild pipe to the parent set it up */
+			parent_pipe = cinp[1];
+			close(cinp[0]);
+		}
+		
+		srandom(rseed);
     
-    parentPID = getppid();
-    closesocket(a->ss); /* close server socket */
-
+		parentPID = getppid();
+		closesocket(a->ss); /* close server socket */
+		
 #ifdef unix
-	if (cache_pwd)
-		load_pwd_cache();/* load pwd file into memory before su */
-	if (su_time == SU_CLIENT) { /* if requested set gid/pid as client */
-		if (new_gid != -1) setgid(new_gid);
-		if (new_uid != -1) setuid(new_uid);
-	}
+		if (cache_pwd)
+			load_pwd_cache();/* load pwd file into memory before su */
+		if (su_time == SU_CLIENT) { /* if requested set gid/pid as client */
+			if (new_gid != -1) setgid(new_gid);
+			if (new_uid != -1) setuid(new_uid);
+		}
 #endif
+    }
 
 #endif
-    
+
     buf = (char*) malloc(inBuf + 8);
     sfbuf = (char*) malloc(sfbufSize);
     if (!buf || !sfbuf) {

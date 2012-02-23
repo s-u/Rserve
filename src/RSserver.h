@@ -30,4 +30,11 @@ int server_send(args_t *arg, void *buf, rlen_t len);
 void stop_server_loop();
 void serverLoop();
 
+/* helper function that prepares the process just like Rserve
+   internal impleemntation - forking when desired, establishing
+   pipes, setting see, uid/gid, cwd etc.
+   returns 0 for the child */
+int Rserve_prepare_child(args_t *arg);
+
 #endif
+
