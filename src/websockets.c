@@ -5,6 +5,7 @@
 #include <sisocks.h>
 #include <string.h>
 #include <stdio.h>
+#include <signal.h>
 
 struct args {
 	server_t *srv; /* server that instantiated this connection */
