@@ -17,12 +17,13 @@ struct args {
 	long  l1, l2;
 };
 
-static void do_mask(char *msg, int len, char *key) {
+static int do_mask(char *msg, int len, int koff, char *key) {
 	int i = 0;
 	while (i < len) {
-		msg[i] ^= key[i & 3];
+		msg[i] ^= key[(i + koff) & 3];
 		i++;
     }
+	return (i + koff) & 3;
 }
 
 #define LINE_BUF_SIZE 4096
@@ -62,7 +63,7 @@ void Rserve_QAP1_connected(args_t *arg);
 
 static void WS_connected(void *parg) {
 	args_t *arg = (args_t*) parg;
-	server_t *srv = arg->srv;
+	/* server_t *srv = arg->srv; */
 	SOCKET s = arg->s;
 	int n, bp = 0, empty_lines = 0, request_line = 1;
 
@@ -265,13 +266,17 @@ static void WS_connected(void *parg) {
 }
 
 #define F_INFRAME 0x10
+#define F_MASK    0x20
+#define GET_MASK_ID(X) ((X) & 3)
+#define SET_F_MASK(X, M) X = (((X) & 0xfffc) | F_MASK | ((M) & 3))
 
 static void WS_send_resp(args_t *arg, int rsp, rlen_t len, void *buf) {
 	unsigned char *sbuf = (unsigned char*) arg->sbuf;
 	if (arg->ver == 0) {
+		/* FIXME: we can't really tunnel QAP1 without some encoding ... */
 	} else {
 		struct phdr ph;
-		rlen_t i = 0;
+		int pl = 0;
 		long flen = len + sizeof(ph);
 		memset(&ph, 0, sizeof(ph));
 		ph.cmd = itop(rsp | CMD_RESP);	
@@ -280,30 +285,42 @@ static void WS_send_resp(args_t *arg, int rsp, rlen_t len, void *buf) {
 		ph.res = itop(len >> 32);
 #endif
 
-		if (flen < arg->sl - 8 && len < 65536) {
-			int n, pl = 0;
-			sbuf[pl++] = (arg->ver < 4) ? 0x05 : 0x82; /* binary, 4+ has inverted FIN bit */
-			if (flen < 126) /* short length */
-				sbuf[pl++] = flen;
-			else if (flen < 65536) { /* 16-bit */
-				sbuf[pl++] = 126;
-				sbuf[pl++] = flen >> 8;
-				sbuf[pl++] = flen & 255;
+		sbuf[pl++] = (arg->ver < 4) ? 0x05 : 0x82; /* binary, 4+ has inverted FIN bit */
+		if (flen < 126) /* short length */
+			sbuf[pl++] = flen;
+		else if (flen < 65536) { /* 16-bit */
+			sbuf[pl++] = 126;
+			sbuf[pl++] = flen >> 8;
+			sbuf[pl++] = flen & 255;
+		} else { /* 64-bit */
+			sbuf[pl++] = 127;
+			{ int i = 8; long l = flen; while (i--) { sbuf[pl + i] = l & 255; l >>= 8; } }
+			pl += 8;
+		}	
+		memcpy(sbuf + pl, &ph, sizeof(ph));
+		pl += sizeof(ph);
+		while (len + pl) {
+			int n, send_here = (len + pl > arg->sl) ? arg->sl : (len + pl);
+			if (send_here > pl)
+				memcpy(sbuf + pl, buf, send_here - pl);
+			n = send(arg->s, sbuf, send_here, 0);
+			if (pl) {
+				fprintf(stderr, "WS_send_resp: sending 4+ frame (ver %02d), n = %d / %d (of total %ld)\n", arg->ver, n, send_here, flen);
+				{ int i, m = send_here; if (m > 100) m = 100; for (i = 0; i < m; i++) fprintf(stderr, " %02x", (int) sbuf[i]); fprintf(stderr,"\n"); }
+			} else
+				fprintf(stderr, "WS_send_resp: continuation (%d bytes)\n", n);
+			if (n != send_here) {
+				fprintf(stderr, "WS_send_resp: write failed (%d expected, got %d)\n", send_here, n);
+				return;
 			}
-			memcpy(sbuf + pl, &ph, sizeof(ph));
-			pl += sizeof(ph);
-			/* no masking or other stuff */
-			if (len) memcpy(sbuf + pl, buf, len);
-			n = send(arg->s, sbuf, len + pl, 0);
-			fprintf(stderr, "WS_send_dresp: sending 4+ frame (ver %02d), n = %d / %d\n", arg->ver, n, (int) len + pl);
-			{ int i; for (i = 0; i < len + pl; i++) fprintf(stderr, " %02x", (int) sbuf[i]); fprintf(stderr,"\n"); }
-
-		} else {
-			fprintf(stderr, "ERROR in WS_send_data: data too large\n");
-		}		
+			buf = ((char*)buf) + send_here - pl;
+			len -= send_here - pl;
+			pl = 0;
+		}
 	}
 }
 
+/* we use send_data only to send the ID string so we don't bother supporting frames bigger than the buffer */
 static int  WS_send_data(args_t *arg, void *buf, rlen_t len) {
 	unsigned char *sbuf = (unsigned char*) arg->sbuf;
 	if (arg->ver == 0) {
@@ -349,17 +366,22 @@ static int  WS_send_data(args_t *arg, void *buf, rlen_t len) {
 
 static int  WS_recv_data(args_t *arg, void *buf, rlen_t read_len) {
 	fprintf(stderr, "WS_recv_data for %d (bp = %d)\n", (int) read_len, arg->bp);
-	if (arg->flags & F_INFRAME && arg->bp > 0) { /* do we have content of a frame what has not been picked up yet? */
+	/* first check if we can satify any need by using contents of the buffer */
+	if (arg->ver > 0 && arg->flags & F_INFRAME && arg->bp > 0) { /* do we have content of a frame what has not been picked up yet? */
 		fprintf(stderr, "WS_recv_data: have %d bytes of a frame, requested %d, returning what we have\n", arg->bp, (int) read_len);
-		if (read_len > arg->bp) read_len = arg->bp;
+		if (read_len > arg->bp) read_len = arg->bp; /* at most all buffer */
+		if (read_len > arg->l1) read_len = arg->l1; /* and not beyond the current frame */
 		memcpy(buf, arg->buf, read_len);
 		if (arg->bp > read_len)
 			memmove(arg->buf, arg->buf + read_len, arg->bp - read_len);
 		arg->bp -= read_len;
 		arg->l1 -= read_len;
-		if (arg->l1 == 0) arg->flags ^= F_INFRAME;
+		/* if the whole frame was consumed, flag out-of-frame for the next run */
+		if (arg->l1 == 0)
+			arg->flags ^= F_INFRAME;
 		return read_len;
 	}
+	/* make sure we have at least one byte in the buffer */
 	if (arg->bp == 0) {
 		int n = recv(arg->s, arg->buf, arg->bl, 0);
 		if (n < 1) return n;
@@ -367,13 +389,24 @@ static int  WS_recv_data(args_t *arg, void *buf, rlen_t read_len) {
 		fprintf(stderr, "INFO: WS_recv_data: read %d bytes:\n", n);
 		{ int i; for (i = 0; i < n; i++) fprintf(stderr, " %02x", (int) (unsigned char) arg->buf[i]); fprintf(stderr,"\n"); }
 	}
-	if (arg->ver > 3) {
-		if (arg->flags & F_INFRAME) {
-			
-		} else {
+	if (arg->ver > 0) {
+		if (arg->flags & F_INFRAME) { /* in frame with new content */
+			if (read_len > arg->l1) /* we can do at most the end of the frame */
+				read_len = arg->l1;
+			if (read_len > arg->bp) /* and at most what we got in the buffer */
+				read_len = arg->bp;
+			memcpy(buf, arg->buf, read_len);
+			if (arg->flags & F_MASK)
+				SET_F_MASK(arg->flags, do_mask(buf, read_len, GET_MASK_ID(arg->flags), (char*)&arg->l2));
+			arg->bp -= read_len;
+			arg->l1 -= read_len;
+			if (arg->l1 == 0) /* was that the entire frame? */
+				arg->flags ^= F_INFRAME;
+			return read_len;
+		} else { /* not in frame - interpret a new frame */
 			unsigned char *fr = (unsigned char*) arg->buf;
 			int more = (arg->ver < 4) ? ((fr[0] & 0x80) == 0x80) : ((fr[0] & 0x80) == 0), mask = 0;
-			int need = 0, ct = fr[0] & 127;
+			int need = 0, ct = fr[0] & 127, at_least, payload;
 			long len = 0;
 			if (arg->bp == 1) {
 				int n = recv(arg->s, arg->buf + 1, arg->bl - 1, 0);
@@ -399,35 +432,52 @@ static int  WS_recv_data(args_t *arg, void *buf, rlen_t read_len) {
 				len = SH(fr[4], 48) | SH(fr[5], 40) | SH(fr[5], 32) | SH(fr[6], 24) | SH(fr[7], 16) | SH(fr[8], 8) | (long)fr[9];
 			}
 			fprintf(stderr, "INFO: WS_recv_data frame type=%02x, len=%d, more=%d, mask=%d (need=%d)\n", ct, (int) len, more, mask, need);
-			if (arg->bp + need + len <= arg->bl) { /* we can slurp it */
-				while (arg->bp < need + len) {
-					int n = recv(arg->s, arg->buf + arg->bp, arg->bl - arg->bp, 0);
-					fprintf(stderr, "INFO: read extra %d bytes in addition to %d (need %d)\n", n, arg->bp, need);
-					if (n < 1) return n;
-					arg->bp += n;
-				}
-				if (mask) {
-					{ int i; for (i = 0; i < len; i++) fprintf(stderr, " %02x", (int) (unsigned char) arg->buf[need + i]); fprintf(stderr,"\n"); }
-					do_mask(arg->buf + need, len, arg->buf + need - 4);
-					{ int i; for (i = 0; i < len; i++) fprintf(stderr, " %02x", (int) (unsigned char) arg->buf[need + i]); fprintf(stderr,"\n"); }
-				}
-				if (len <= read_len) {
-					fprintf(stderr, "INFO: WS_recv_data frame has %d bytes, requested %d, returning entire frame\n", (int) len, (int) read_len);
-					memcpy(buf, arg->buf + need, len);
-					return len;
-				}
-				/* left-over */
-				fprintf(stderr, "INFO: WS_recv_data frame has %d bytes, requested %d, returning partial frame\n", (int) len, (int) read_len);
-				memcpy(buf, arg->buf + need, read_len);
-				len -= read_len;
-				memmove(arg->buf, arg->buf + need + read_len, len);
-				arg->l1 = len;
-				arg->flags |= F_INFRAME;
-				arg->bp = len;
-				return read_len;
-			} else { /* FIXME */
+			at_least = need + len;
+			if (at_least > arg->bl)
+				at_least = arg->bl;
+			payload = at_least - need;
+
+			while (arg->bp < at_least) {
+				int n = recv(arg->s, arg->buf + arg->bp, at_least - arg->bp, 0);
+				fprintf(stderr, "INFO: read extra %d bytes in addition to %d (need %d)\n", n, arg->bp, need);
+				if (n < 1) return n;
+				arg->bp += n;
 			}
-		}
+			/* FIXME: more recent protocols require MASK at all times */
+			if (mask) {
+				{ int i; for (i = 0; i < payload; i++) fprintf(stderr, " %02x", (int) (unsigned char) arg->buf[need + i]); fprintf(stderr,"\n"); }
+				SET_F_MASK(arg->flags, do_mask(arg->buf + need, payload, 0, arg->buf + need - 4));
+				memcpy(&arg->l2, arg->buf + need - 4, 4);
+				{ int i; for (i = 0; i < payload; i++) fprintf(stderr, " %02x", (int) (unsigned char) arg->buf[need + i]); fprintf(stderr,"\n"); }
+			} else arg->flags &= ~ F_MASK;
+			
+			/* if the frame fits in the buffer (payload == len) and the read will read it all, we can deliver the whole frame */
+			if (payload == len && read_len >= payload) {
+				fprintf(stderr, "INFO: WS_recv_data frame has %d bytes, requested %d, returning entire frame\n", (int) len, (int) read_len);
+				memcpy(buf, arg->buf + need, len);
+				if (arg->bp > at_least) { /* this is unlikely but possible if we got multiple frames in the first read */
+					memmove(arg->buf, arg->buf + at_least, arg->bp - at_least);
+					arg->bp -= at_least;
+				}
+				return len;
+			}
+			
+			/* left-over */
+			fprintf(stderr, "INFO: WS_recv_data frame has %d bytes (of %ld frame), requested %d, returning partial frame\n", payload, len, (int) read_len);
+			/* we can only read all we got */
+			if (read_len > payload) read_len = payload;
+			memcpy(buf, arg->buf + need, read_len);
+			if (arg->bp > need + read_len) /* if there is any data beyond what we will deliver, we need to move it */
+				memmove(arg->buf, arg->buf + need + read_len, arg->bp - need - read_len);
+			len -= read_len; /* left in the frame is total minus delivered - we only get here if the frame did not fit, so len > 0 */
+			arg->l1 = len;
+			arg->flags |= F_INFRAME;
+			arg->bp -= need + read_len;
+			return read_len;
+		} /* in frame */
+	} else { /* ver 00 */
+		/* FIXME: no text support in QAP1 */
+		return -1;
 	}
 }
 
