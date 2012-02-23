@@ -9,4 +9,5 @@ void base64encode(const unsigned char *src, int len, char *dst) {
 	src += 3;
 	len -= 3;
     }
+    *dst = 0;
 }
