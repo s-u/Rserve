@@ -69,6 +69,7 @@ void sha1hash(const char *buf, int len, unsigned char hash[20]);
 void base64encode(const unsigned char *src, int len, char *dst);
 /* from Rserve.c */
 void Rserve_QAP1_connected(args_t *arg);
+void Rserve_text_connected(args_t *arg);
 
 #define FRAME_BUFFER_SIZE 65536
 
@@ -279,14 +280,15 @@ static void WS_connected(void *parg) {
 	arg->sl = FRAME_BUFFER_SIZE;
 	arg->sbuf = (char*) malloc(FRAME_BUFFER_SIZE);
 
+	/* textual protocol */
+	if (h.protocol && strstr(h.protocol, "text")) {
+		Rserve_text_connected(arg);
+		return;
+	}
+
 	/* switch to underlying QAP1 */
 	Rserve_QAP1_connected(arg);
 }
-
-#define F_INFRAME 0x10
-#define F_MASK    0x20
-#define GET_MASK_ID(X) ((X) & 3)
-#define SET_F_MASK(X, M) X = (((X) & 0xfffc) | F_MASK | ((M) & 3))
 
 static void WS_send_resp(args_t *arg, int rsp, rlen_t len, void *buf) {
 	unsigned char *sbuf = (unsigned char*) arg->sbuf;
@@ -303,7 +305,7 @@ static void WS_send_resp(args_t *arg, int rsp, rlen_t len, void *buf) {
 		ph.res = itop(len >> 32);
 #endif
 
-		sbuf[pl++] = (arg->ver < 4) ? 0x05 : 0x82; /* binary, 4+ has inverted FIN bit */
+		sbuf[pl++] = ((arg->flags & F_OUT_BIN) ? 1 : 0) + (arg->ver < 4) ? 0x04 : 0x81; /* text/binary, 4+ has inverted FIN bit */
 		if (flen < 126) /* short length */
 			sbuf[pl++] = flen;
 		else if (flen < 65536) { /* 16-bit */
@@ -359,7 +361,7 @@ static int  WS_send_data(args_t *arg, void *buf, rlen_t len) {
 	} else {
 		if (len < arg->sl - 8 && len < 65536) {
 			int n, pl = 0;
-			sbuf[pl++] = (arg->ver < 4) ? 0x04 : 0x81; /* text, 4+ has inverted FIN bit */
+			sbuf[pl++] =  ((arg->flags & F_OUT_BIN) ? 1 : 0) + (arg->ver < 4) ? 0x04 : 0x81; /* text, 4+ has inverted FIN bit */
 			if (len < 126) /* short length */
 				sbuf[pl++] = len;
 			else if (len < 65536) { /* 16-bit */
@@ -426,6 +428,13 @@ static int  WS_recv_data(args_t *arg, void *buf, rlen_t read_len) {
 			int more = (arg->ver < 4) ? ((fr[0] & 0x80) == 0x80) : ((fr[0] & 0x80) == 0), mask = 0;
 			int need = 0, ct = fr[0] & 127, at_least, payload;
 			long len = 0;
+			/* set the F_IN_BIN flag according to the frame type */
+			if ((arg->ver < 4 && ct == 5) ||
+				(arg->ver >= 4 && ct == 2))
+				arg->flags |= F_IN_BIN;
+			else
+				arg->flags &= ~ F_IN_BIN;
+			SET_F_FT(arg->flags, ct);
 			if (arg->bp == 1) {
 				int n = recv(arg->s, arg->buf + 1, arg->bl - 1, 0);
 				if (n < 1) return n;
@@ -476,7 +485,7 @@ static int  WS_recv_data(args_t *arg, void *buf, rlen_t read_len) {
 				if (arg->bp > at_least) { /* this is unlikely but possible if we got multiple frames in the first read */
 					memmove(arg->buf, arg->buf + at_least, arg->bp - at_least);
 					arg->bp -= at_least;
-				}
+				} else arg->bp = 0;
 				return len;
 			}
 			

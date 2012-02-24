@@ -399,7 +399,6 @@ static void printDump(void *b, int len) {
 #endif
 
 
-#if 0 /* UNUSED ?? */
 static char *getParseName(int n) {
     switch(n) {
     case PARSE_NULL: return "null";
@@ -410,7 +409,6 @@ static char *getParseName(int n) {
     }
     return "<unknown>";
 }
-#endif
 
 #ifdef RSERV_DEBUG
 
@@ -1243,6 +1241,100 @@ int Rserve_prepare_child(args_t *arg) {
 #endif
 
 	return 0;
+}
+
+/* text protocol (exposed by WS) */
+void Rserve_text_connected(void *thp) {
+	args_t *arg = (args_t*) thp;
+	server_t *srv = arg->srv;
+	int bl = 1024*1024, bp = 0, n;
+    ParseStatus stat;
+
+	char *buf = (char*) malloc(bl--);
+	if (!buf) {
+		fprintf(stderr, "ERROR: cannot allocate buffer\n");
+		return;
+	}
+
+	snprintf(buf, bl, "OK\n");
+	srv->send(arg, buf, strlen(buf));
+
+	while ((n = srv->recv(arg, buf + bp, bl - bp)) > 0) {
+		bp += n;
+		if (!(arg->flags & F_INFRAME)) { /* end of frame */
+			SEXP xp;
+			int parts;
+			buf[bp] = 0;
+			xp = parseString(buf, &parts, &stat);
+			if (stat != PARSE_OK) {
+				snprintf(buf, bl, "ERROR: Parse error: %s\n", getParseName(stat));
+				srv->send(arg, buf, strlen(buf));
+			} else {
+				SEXP exp = R_NilValue;
+				int err = 0;
+				PROTECT(xp);
+				if (TYPEOF(xp) == EXPRSXP && LENGTH(xp) > 0) {
+					int bi = 0;
+					while (bi < LENGTH(xp)) {
+						SEXP pxp = VECTOR_ELT(xp, bi);
+#ifdef RSERV_DEBUG
+						printf("Calling R_tryEval for expression %d [type=%d] ...\n", bi + 1, TYPEOF(pxp));
+#endif
+						exp = R_tryEval(pxp, R_GlobalEnv, &err);
+						bi++;
+#ifdef RSERV_DEBUG
+						printf("Expression %d, error code: %d\n", bi, err);
+						if (err) printf(">> early error, aborting further evaluations\n");
+#endif
+						if (err) break;
+					}
+				} else
+					exp = R_tryEval(xp, R_GlobalEnv, &err);
+				if (!err && TYPEOF(exp) != STRSXP)
+					exp = R_tryEval(lang2(install("as.character"), exp), R_GlobalEnv, &err);
+				if (!err && TYPEOF(exp) == STRSXP) {
+					int i = 0, l = LENGTH(exp);
+					long tl = 0;
+					char *sb = buf;
+					while (i < l) {
+						tl += strlen(Rf_translateCharUTF8(STRING_ELT(exp, i))) + 1;
+						i++;
+					}
+					if (tl > bl) {
+						sb = (char*) malloc(tl);
+						if (!sb) {
+							fprintf(stderr, "ERROR: cannot allocate buffer for the result string\n");
+							snprintf(buf, bl, "ERROR: cannot allocate buffer for the result string\n");
+							srv->send(arg, buf, strlen(buf));
+						}
+					}
+					if (sb) {
+						tl = 0;
+						for (i = 0; i < l; i++) {
+							strcpy(sb + tl, Rf_translateCharUTF8(STRING_ELT(exp, i)));
+							tl += strlen(sb + tl);
+							if (i < l - 1) sb[tl++] = '\n';
+						}
+						srv->send(arg, sb, tl);
+						if (sb != buf) free(sb);
+					}
+				} else {
+					if (err)
+						snprintf(buf, bl, "ERROR: evaluation error %d\n", err);
+					else
+						snprintf(buf, bl, "ERROR: result cannot be coerced into character\n");
+					srv->send(arg, buf, strlen(buf));
+				}
+			}
+			bp = 0;
+		} else { /* continuation of a frame */
+			if (bp >= bl) {
+				fprintf(stderr, "WARNING: frame exceeds max size, ignoring\n");
+				while ((arg->flags & F_INFRAME) && srv->recv(arg, buf, bl) > 0) ;
+				bp = 0;
+			}
+		}
+	}
 }
 
 /* working thread/function. the parameter is of the type struct args* */
