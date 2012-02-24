@@ -258,12 +258,13 @@ static void WS_connected(void *parg) {
 		printf("Responded with WebSockets.00 handshake\n");
 #endif
 	} else {
-		unsigned char hash[20];
+		unsigned char hash[21];
 		char b64[40];
 		strcpy(buf, h.key);
 		strcat(buf, "258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
 		sha1hash(buf, strlen(buf), hash);
-		base64encode(hash, sizeof(hash), b64);
+		hash[20] = 0; /* base64encode needs NUL sentinel */
+		base64encode(hash, sizeof(hash) - 1, b64);
 		/* FIXME: if the client requests multiple protocols, we should be picking one but we don't */
 		snprintf(buf, LINE_BUF_SIZE, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: %s\r\n%s%s%s\r\n", b64, h.protocol ? "Sec-WebSocket-Protocol: " : "", h.protocol ? h.protocol : "", h.protocol ? "\r\n" : "");
 		send(s, buf, strlen(buf), 0);
@@ -305,7 +306,7 @@ static void WS_send_resp(args_t *arg, int rsp, rlen_t len, void *buf) {
 		ph.res = itop(len >> 32);
 #endif
 
-		sbuf[pl++] = ((arg->flags & F_OUT_BIN) ? 1 : 0) + (arg->ver < 4) ? 0x04 : 0x81; /* text/binary, 4+ has inverted FIN bit */
+		sbuf[pl++] = ((arg->flags & F_OUT_BIN) ? 1 : 0) + ((arg->ver < 4) ? 0x04 : 0x81); /* text/binary, 4+ has inverted FIN bit */
 		if (flen < 126) /* short length */
 			sbuf[pl++] = flen;
 		else if (flen < 65536) { /* 16-bit */
@@ -361,7 +362,7 @@ static int  WS_send_data(args_t *arg, void *buf, rlen_t len) {
 	} else {
 		if (len < arg->sl - 8 && len < 65536) {
 			int n, pl = 0;
-			sbuf[pl++] =  ((arg->flags & F_OUT_BIN) ? 1 : 0) + (arg->ver < 4) ? 0x04 : 0x81; /* text, 4+ has inverted FIN bit */
+			sbuf[pl++] =  ((arg->flags & F_OUT_BIN) ? 1 : 0) + ((arg->ver < 4) ? 0x04 : 0x81); /* text, 4+ has inverted FIN bit */
 			if (len < 126) /* short length */
 				sbuf[pl++] = len;
 			else if (len < 65536) { /* 16-bit */

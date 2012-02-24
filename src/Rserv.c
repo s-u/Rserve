@@ -1491,6 +1491,9 @@ void Rserve_QAP1_connected(void *thp) {
     printf("sending ID string.\n");
 #endif
     srv->send(a, (char*)buf, 32);
+
+	/* everything is binary from now on */
+	a->flags |= F_OUT_BIN;
 	
 	can_control = 0;
 	if (!authReq && !pwdfile) /* control is allowed by default only if authentication is not required and passwd is not present. In all other cases it will be set during authentication. */
