@@ -1,5 +1,5 @@
 #include "Rsrv.h"
-#include "RSserver.h"
+#include "websockets.h"
 #include "md5.h"
 
 #include <sisocks.h>
@@ -39,6 +39,17 @@ struct header_info {
 	char *query;
 	char *protocol;
 };
+
+static void free_header(struct header_info *h) {
+	if (h->origin) free(h->origin);
+	if (h->host) free(h->host);
+	if (h->key) free(h->key);
+	if (h->key1) free(h->key1);
+	if (h->key2) free(h->key2);
+	if (h->path) free(h->path);
+	if (h->query) free(h->query);
+	if (h->protocol) free(h->protocol);
+}
 
 static unsigned long count_spaces(const char *c) {
 	unsigned long n = 0;
@@ -166,6 +177,7 @@ static void WS_connected(void *parg) {
 				send(s, buf, strlen(buf), 0);
 				closesocket(s);
 				arg->s = -1;
+				free_header(&h);
 				free(buf);
 				return;
 			}
@@ -186,6 +198,8 @@ static void WS_connected(void *parg) {
 		send(s, buf, strlen(buf), 0);
 		closesocket(s);
 		arg->s = -1;
+		free(buf);
+		free_header(&h);
 		return;
 	}
 #ifdef RSERV_DEBUG
@@ -208,6 +222,7 @@ static void WS_connected(void *parg) {
 				closesocket(s);
 				arg->s = -1;
 				free(buf);
+				free_header(&h);
 				return;
 			}
 		}
@@ -217,6 +232,7 @@ static void WS_connected(void *parg) {
 			closesocket(s);
 			arg->s = -1;
 			free(buf);
+			free_header(&h);
 			return;
 		}
 		v[0] = count_digits(h.key1) / count_spaces(h.key1);
@@ -255,6 +271,8 @@ static void WS_connected(void *parg) {
 #endif
 	}
 	free(buf);
+	free_header(&h);
+
 	arg->bl = FRAME_BUFFER_SIZE;
 	arg->bp = 0;
 	arg->buf = (char*) malloc(FRAME_BUFFER_SIZE);
@@ -481,7 +499,7 @@ static int  WS_recv_data(args_t *arg, void *buf, rlen_t read_len) {
 	}
 }
 
-server_t *create_WS_server(int port) {
+server_t *create_WS_server(int port, int protocols) {
 	server_t *srv = create_server(port, 0);
 	if (srv) {
 		srv->connected = WS_connected;
@@ -489,6 +507,7 @@ server_t *create_WS_server(int port) {
 		srv->recv      = WS_recv_data;
 		srv->send      = WS_send_data;
 		srv->fin       = server_fin;
+		srv->flags     = protocols;
 		add_server(srv);
 		return srv;
 	}
@@ -509,7 +528,7 @@ static void brkHandler_R(int i) {
 #endif
 
 SEXP run_WSS(SEXP sPort) {
-	server_t *srv = create_WS_server(asInteger(sPort));
+	server_t *srv = create_WS_server(asInteger(sPort), WS_PROT_ALL);
 	if (srv) {
 		sig_fn_t old;
 		Rprintf("-- starting WebSockets server at port %d (pid=%d) --\n", asInteger(sPort), getpid());

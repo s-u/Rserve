@@ -9,13 +9,14 @@ typedef int  (*buf_fn_t) (args_t *arg, void *buf, rlen_t len);
 
 /* definition of a server */
 typedef struct server {
-    int ss;               /* server socket */
-    int unix_socket;      /* 0 = TCP/IP, 1 = unix socket */
-    work_fn_t connected;  /* function called for each new connection */
-    work_fn_t fin;        /* optional finalization function */
-    send_fn_t send_resp;  /* send response */
-    buf_fn_t  send;       /* direct send */
-    buf_fn_t  recv;       /* direct receive */
+	int ss;               /* server socket */
+	int unix_socket;      /* 0 = TCP/IP, 1 = unix socket */
+	int flags;            /* optional server-specific flags */
+	work_fn_t connected;  /* function called for each new connection */
+	work_fn_t fin;        /* optional finalization function */
+	send_fn_t send_resp;  /* send response */
+	buf_fn_t  send;       /* direct send */
+	buf_fn_t  recv;       /* direct receive */
 } server_t;
 
 server_t *create_server(int port, const char *localSocketName);
@@ -38,3 +39,10 @@ int Rserve_prepare_child(args_t *arg);
 
 #endif
 
+/*--- The following makes the indenting behavior of emacs compatible
+      with Xcode's 4/4 setting ---*/
+/* Local Variables: */
+/* indent-tabs-mode: t */
+/* tab-width: 4 */
+/* c-basic-offset: 4 */
+/* End: */

@@ -182,9 +182,16 @@ int main(int argc, char **argv)
     umask(umask_value);
 #endif
     
-	if (!create_Rserve_QAP1()) {
-		fprintf(stderr, "ERROR: unable to start server\n");
+	if (enable_qap && !create_Rserve_QAP1()) {
+		fprintf(stderr, "ERROR: unable to start Rserve server\n");
 		return 1;
+	}
+
+	if (enable_ws_text || enable_ws_qap) {
+		if (ws_port < 1)
+			fprintf(stderr, "WARNING: Invalid or missing websockets.port, WebSockets server will not start");
+		else
+			create_WS_server(ws_port, (enable_ws_qap ? WS_PROT_QAP : 0) | (enable_ws_text ? WS_PROT_TEXT : 0));
 	}
 
     serverLoop();

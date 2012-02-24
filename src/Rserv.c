@@ -252,6 +252,7 @@ extern __declspec(dllimport) int R_SignalHandlers;
 #define MAX_CTRL_DATA (1024*1024) /* max. length of data for control commands - larger data will be ignored */
 
 #include "RSserver.h"
+#include "websockets.h"
 
 struct args {
 	server_t *srv; /* server that instantiated this connection */
@@ -625,6 +626,8 @@ struct source_entry {
     char line[8];
 } *src_list=0, *src_tail=0;
 
+static int ws_port = -1, enable_qap = 1, enable_ws_qap = 0, enable_ws_text = 0;
+
 /* attempts to set a particular configuration setting
    returns: 1 = setting accepted, 0 = unknown setting, -1 = setting known but failed */
 static int setConfig(const char *c, const char *p) {
@@ -637,6 +640,30 @@ static int setConfig(const char *c, const char *p) {
 			int np = satoi(p);
 			if (np > 0) port = np;
 		}
+		return 1;
+	}
+	if (!strcmp(c,"websockets.port")) {
+		if (*p) {
+			int np = satoi(p);
+			if (np > 0) ws_port = np;
+		}
+		return 1;
+	}
+	if (!strcmp(c, "rserve") && !(p[0] == 'e' || p[0] == 'y' || p[0] == '1' || p[0] == 'T')) {
+		enable_qap = 0;
+		return 1;
+	}
+	if (!strcmp(c, "websockets.qap") && (p[0] == 'e' || p[0] == 'y' || p[0] == '1' || p[0] == 'T')) {
+		enable_ws_qap = 1;
+		return 1;
+	}
+	if (!strcmp(c, "websockets.text") && (p[0] == 'e' || p[0] == 'y' || p[0] == '1' || p[0] == 'T')) {
+		enable_ws_text = 1;
+		return 1;
+	}
+	if (!strcmp(c, "websockets") && (p[0] == 'e' || p[0] == 'y' || p[0] == '1' || p[0] == 'T')) {
+		enable_ws_qap = 1;
+		enable_ws_text = 1;
 		return 1;
 	}
 	if (!strcmp(c,"maxinbuf")) {
@@ -2470,7 +2497,7 @@ static void brkHandler_R(int i) {
 /* run Rserve inside R */
 SEXP run_Rserve(SEXP cfgFile, SEXP cfgPars) {
 	sig_fn_t old;
-	server_t *srv;
+	server_t *srv_qap = 0, *srv_ws = 0;
 	if (TYPEOF(cfgFile) == STRSXP && LENGTH(cfgFile) > 0) {
 		int i, n = LENGTH(cfgFile);
 		for (i = 0; i < n; i++)
@@ -2489,9 +2516,31 @@ SEXP run_Rserve(SEXP cfgFile, SEXP cfgPars) {
 				Rf_warning("Unknown configuration setting `%s`, ignored.", key);
 		}
 	}
-	srv = create_Rserve_QAP1();
-	if (!srv)
-		Rf_error("Unable to start server");
+	
+	if (enable_qap) {
+		srv_qap = create_Rserve_QAP1();
+		if (!srv_qap)
+			Rf_error("Unable to start Rserve server");
+	}
+
+	if (enable_ws_text || enable_ws_qap) {
+		if (ws_port < 1)
+			Rf_error("Invalid or missing websockets.port");
+		srv_ws = create_WS_server(ws_port, (enable_ws_qap ? WS_PROT_QAP : 0) | (enable_ws_text ? WS_PROT_TEXT : 0));
+		if (!srv_ws) {
+			if (srv_qap) {
+				rm_server(srv_qap);
+				free(srv_qap);
+			}
+			Rf_error("Unable to start WebSockets server");
+		}
+	}
+
+	if (!srv_qap && !srv_ws) {
+		Rf_warning("No server protocol is enabled, nothing to do");
+		return ScalarLogical(FALSE);
+	}
+	
 	Rprintf("-- running Rserve in this R session (pid=%d) --\n(This session will block until Rserve is shut down)\n", getpid());
 	active = 1;
 #ifdef unix
@@ -2501,8 +2550,14 @@ SEXP run_Rserve(SEXP cfgFile, SEXP cfgPars) {
 #ifdef unix
 	signal(SIGINT, old);
 #endif
-	rm_server(srv);
-	free(srv);
+	if (srv_qap) {
+		rm_server(srv_qap);
+		free(srv_qap);
+	}
+	if (srv_ws) {
+		rm_server(srv_ws);
+		free(srv_ws);
+	}
 	return ScalarLogical(TRUE);
 }
 

@@ -5,8 +5,8 @@ all: $(SHLIB) @WITH_SERVER_TRUE@ server
 @WITH_CLIENT_TRUE@	$(MAKE) client
 
 server:	standalone.c md5.c Rserv.c session.c qap_encode.c qap_decode.c Rsrv.h qap_encode.h qap_decode.h
-	$(CC) -DSTANDALONE_RSERVE -DDAEMON -I. -Iinclude $(ALL_CPPFLAGS) $(ALL_CFLAGS) $(CPPFLAGS) $(CFLAGS) $(PKG_CPPFLAGS) $(PKG_CFLAGS) -o Rserve standalone.c md5.c session.c qap_decode.c qap_encode.c $(ALL_LIBS) $(PKG_LIBS)
-	$(CC) -DSTANDALONE_RSERVE -DRSERV_DEBUG -DNODAEMON -I. -Iinclude $(ALL_CPPFLAGS) $(ALL_CFLAGS) $(PKG_CPPFLAGS) $(PKG_CFLAGS) -o Rserve.dbg standalone.c md5.c session.c qap_encode.c qap_decode.c $(ALL_LIBS) $(PKG_LIBS)
+	$(CC) -DSTANDALONE_RSERVE -DDAEMON -I. -Iinclude $(ALL_CPPFLAGS) $(ALL_CFLAGS) $(CPPFLAGS) $(CFLAGS) $(PKG_CPPFLAGS) $(PKG_CFLAGS) -o Rserve standalone.c md5.c session.c qap_decode.c qap_encode.c sha1.c base64.c websockets.c $(ALL_LIBS) $(PKG_LIBS)
+	$(CC) -DSTANDALONE_RSERVE -DRSERV_DEBUG -DNODAEMON -I. -Iinclude $(ALL_CPPFLAGS) $(ALL_CFLAGS) $(PKG_CPPFLAGS) $(PKG_CFLAGS) -o Rserve.dbg standalone.c md5.c session.c qap_encode.c qap_decode.c sha1.c base64.c websockets.c $(ALL_LIBS) $(PKG_LIBS)
 
 # merging to bin/Rserve works only if installed from sources, won't work for binary
 	-./mergefat Rserve "$(R_HOME)/bin/Rserve"
