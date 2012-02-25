@@ -273,7 +273,6 @@ static void WS_connected(void *parg) {
 #endif
 	}
 	free(buf);
-	free_header(&h);
 
 	arg->bl = FRAME_BUFFER_SIZE;
 	arg->bp = 0;
@@ -283,9 +282,12 @@ static void WS_connected(void *parg) {
 
 	/* textual protocol */
 	if (h.protocol && strstr(h.protocol, "text")) {
+		free_header(&h);
 		Rserve_text_connected(arg);
 		return;
 	}
+
+	free_header(&h);
 
 	/* switch to underlying QAP1 */
 	Rserve_QAP1_connected(arg);
