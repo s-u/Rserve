@@ -389,8 +389,56 @@ static int  WS_send_data(args_t *arg, void *buf, rlen_t len) {
 
 static int  WS_recv_data(args_t *arg, void *buf, rlen_t read_len) {
 	fprintf(stderr, "WS_recv_data for %d (bp = %d)\n", (int) read_len, arg->bp);
-	/* first check if we can satify any need by using contents of the buffer */
-	if (arg->ver > 0 && arg->flags & F_INFRAME && arg->bp > 0) { /* do we have content of a frame what has not been picked up yet? */
+	if (arg->ver == 0) {
+		/* make sure we have at least one (in frame) or two (oof) bytes in the buffer */
+		int min_size = (arg->flags & F_INFRAME) ? 1 : 2;
+		while (arg->bp < min_size) {
+			int n = recv(arg->s, arg->buf + arg->bp, arg->bl - arg->bp, 0);
+			fprintf(stderr, "WS_recv_data: needs ver 00 frame, reading %d bytes in addition to %d\n", n, arg->bp);
+			{ int i; fprintf(stderr, "Buffer: "); for (i = 0; i < n; i++) fprintf(stderr, " %02x", (int) (unsigned char) arg->buf[i]); fprintf(stderr,"\n"); }
+			if (n < 1) return n;
+			arg->bp += n;
+		}
+
+		if (!(arg->flags & F_INFRAME)) {
+			if (arg->buf[0] != 0x00) {
+				fprintf(stderr, "ERROR: WS_recv_data: ver0 yet not a text frame (0x%02x)\n", (int) (unsigned char) arg->buf[0]);
+				return -1;
+			}
+			/* now we're in-frame - this is silly but makes the processing easier */
+			arg->flags |= F_INFRAME;
+			memmove(arg->buf, arg->buf + 1, arg->bp - 1);
+		}
+
+		/* first check if we can satify any need by using contents of the buffer */
+		/* NOTE: this is actually always true since we guarantee both F_INFRAME and bp > 0 above */
+	    if ((arg->flags & F_INFRAME) && arg->bp > 0) {
+			unsigned char *b = (unsigned char*) arg->buf;
+			int i = 0;
+			fprintf(stderr, "WS_recv_data: have %d bytes of a frame, requested %d, returning what we have\n", arg->bp, (int) read_len);
+			while (i < arg->bp && i < read_len && b[i] != 0xff) i++;
+			if (i >= arg->bp) { /* end of buffer, still in frame */
+				memcpy(buf, arg->buf, i);
+				arg->bp = 0;
+				return i;
+			}
+			if (b[i] == 0xff) { /* reached end of frame */
+				if (i) memcpy(buf, arg->buf, i);
+				arg->bp -= i + 1;
+				if (arg->bp > 0)
+					memmove(arg->buf, arg->buf + i + 1, arg->bp);
+				arg->flags ^= F_INFRAME;
+				return i;
+			}
+			/* read_len was less than the buffer and did not even reach the end of frame */
+			memcpy(buf, arg->buf, i);
+			arg->bp -= i;
+			memmove(arg->buf, arg->buf + i, arg->bp);
+			return i;
+		}
+	} /* ver 00 always returns before this */
+
+	if ((arg->flags & F_INFRAME) && arg->bp > 0) { /* do we have content of a frame what has not been picked up yet? */
 		fprintf(stderr, "WS_recv_data: have %d bytes of a frame, requested %d, returning what we have\n", arg->bp, (int) read_len);
 		if (read_len > arg->bp) read_len = arg->bp; /* at most all buffer */
 		if (read_len > arg->l1) read_len = arg->l1; /* and not beyond the current frame */
@@ -412,103 +460,98 @@ static int  WS_recv_data(args_t *arg, void *buf, rlen_t read_len) {
 		fprintf(stderr, "INFO: WS_recv_data: read %d bytes:\n", n);
 		{ int i; for (i = 0; i < n; i++) fprintf(stderr, " %02x", (int) (unsigned char) arg->buf[i]); fprintf(stderr,"\n"); }
 	}
-	if (arg->ver > 0) {
-		if (arg->flags & F_INFRAME) { /* in frame with new content */
-			if (read_len > arg->l1) /* we can do at most the end of the frame */
-				read_len = arg->l1;
-			if (read_len > arg->bp) /* and at most what we got in the buffer */
-				read_len = arg->bp;
-			memcpy(buf, arg->buf, read_len);
-			if (arg->flags & F_MASK)
-				SET_F_MASK(arg->flags, do_mask(buf, read_len, GET_MASK_ID(arg->flags), (char*)&arg->l2));
-			arg->bp -= read_len;
-			arg->l1 -= read_len;
-			if (arg->l1 == 0) /* was that the entire frame? */
-				arg->flags ^= F_INFRAME;
-			return read_len;
-		} else { /* not in frame - interpret a new frame */
-			unsigned char *fr = (unsigned char*) arg->buf;
-			int more = (arg->ver < 4) ? ((fr[0] & 0x80) == 0x80) : ((fr[0] & 0x80) == 0), mask = 0;
-			int need = 0, ct = fr[0] & 127, at_least, payload;
-			long len = 0;
-			/* set the F_IN_BIN flag according to the frame type */
-			if ((arg->ver < 4 && ct == 5) ||
-				(arg->ver >= 4 && ct == 2))
-				arg->flags |= F_IN_BIN;
-			else
-				arg->flags &= ~ F_IN_BIN;
-			SET_F_FT(arg->flags, ct);
-			if (arg->bp == 1) {
-				int n = recv(arg->s, arg->buf + 1, arg->bl - 1, 0);
-				if (n < 1) return n;
-				arg->bp = n + 1;
+	if (arg->flags & F_INFRAME) { /* in frame with new content */
+		if (read_len > arg->l1) /* we can do at most the end of the frame */
+			read_len = arg->l1;
+		if (read_len > arg->bp) /* and at most what we got in the buffer */
+			read_len = arg->bp;
+		memcpy(buf, arg->buf, read_len);
+		if (arg->flags & F_MASK)
+			SET_F_MASK(arg->flags, do_mask(buf, read_len, GET_MASK_ID(arg->flags), (char*)&arg->l2));
+		arg->bp -= read_len;
+		arg->l1 -= read_len;
+		if (arg->l1 == 0) /* was that the entire frame? */
+			arg->flags ^= F_INFRAME;
+		return read_len;
+	} else { /* not in frame - interpret a new frame */
+		unsigned char *fr = (unsigned char*) arg->buf;
+		int more = (arg->ver < 4) ? ((fr[0] & 0x80) == 0x80) : ((fr[0] & 0x80) == 0), mask = 0;
+		int need = 0, ct = fr[0] & 127, at_least, payload;
+		long len = 0;
+		/* set the F_IN_BIN flag according to the frame type */
+		if ((arg->ver < 4 && ct == 5) ||
+			(arg->ver >= 4 && ct == 2))
+			arg->flags |= F_IN_BIN;
+		else
+			arg->flags &= ~ F_IN_BIN;
+		SET_F_FT(arg->flags, ct);
+		if (arg->bp == 1) {
+			int n = recv(arg->s, arg->buf + 1, arg->bl - 1, 0);
+			if (n < 1) return n;
+			arg->bp = n + 1;
+		}
+		if (arg->ver > 6 && fr[1] & 0x80) mask = 1;
+		len = fr[1] & 127;
+		need = 2 + (mask ? 4 : 0) + ((len < 126) ? 0 : ((len == 126) ? 2 : 8));
+		while (arg->bp < need) {
+			int n = recv(arg->s, arg->buf + arg->bp, arg->bl - arg->bp, 0);
+			if (n < 1) return n;
+			arg->bp += n;
+		}
+		if (len == 126)
+			len = (fr[2] << 8) | fr[3];
+		else if (len == 127) {
+			if (fr[2] || fr[3]) {
+				fprintf(stderr, "WS_recv_data: requested frame length is way too big - we support only up to 256TB\n");
+				return -1;
 			}
-			if (arg->ver > 6 && fr[1] & 0x80) mask = 1;
-			len = fr[1] & 127;
-			need = 2 + (mask ? 4 : 0) + ((len < 126) ? 0 : ((len == 126) ? 2 : 8));
-			while (arg->bp < need) {
-				int n = recv(arg->s, arg->buf + arg->bp, arg->bl - arg->bp, 0);
-				if (n < 1) return n;
-				arg->bp += n;
-			}
-			if (len == 126)
-				len = (fr[2] << 8) | fr[3];
-			else if (len == 127) {
-				if (fr[2] || fr[3]) {
-					fprintf(stderr, "WS_recv_data: requested frame length is way too big - we support only up to 256TB\n");
-					return -1;
-				}
 #define SH(X,Y) (((long)X) << Y)
-				len = SH(fr[4], 48) | SH(fr[5], 40) | SH(fr[5], 32) | SH(fr[6], 24) | SH(fr[7], 16) | SH(fr[8], 8) | (long)fr[9];
-			}
-			fprintf(stderr, "INFO: WS_recv_data frame type=%02x, len=%d, more=%d, mask=%d (need=%d)\n", ct, (int) len, more, mask, need);
-			at_least = need + len;
-			if (at_least > arg->bl)
-				at_least = arg->bl;
-			payload = at_least - need;
-
-			while (arg->bp < at_least) {
-				int n = recv(arg->s, arg->buf + arg->bp, at_least - arg->bp, 0);
-				fprintf(stderr, "INFO: read extra %d bytes in addition to %d (need %d)\n", n, arg->bp, need);
-				if (n < 1) return n;
-				arg->bp += n;
-			}
-			/* FIXME: more recent protocols require MASK at all times */
-			if (mask) {
-				{ int i; for (i = 0; i < payload; i++) fprintf(stderr, " %02x", (int) (unsigned char) arg->buf[need + i]); fprintf(stderr,"\n"); }
-				SET_F_MASK(arg->flags, do_mask(arg->buf + need, payload, 0, arg->buf + need - 4));
-				memcpy(&arg->l2, arg->buf + need - 4, 4);
-				{ int i; for (i = 0; i < payload; i++) fprintf(stderr, " %02x", (int) (unsigned char) arg->buf[need + i]); fprintf(stderr,"\n"); }
-			} else arg->flags &= ~ F_MASK;
-			
-			/* if the frame fits in the buffer (payload == len) and the read will read it all, we can deliver the whole frame */
-			if (payload == len && read_len >= payload) {
-				fprintf(stderr, "INFO: WS_recv_data frame has %d bytes, requested %d, returning entire frame\n", (int) len, (int) read_len);
-				memcpy(buf, arg->buf + need, len);
-				if (arg->bp > at_least) { /* this is unlikely but possible if we got multiple frames in the first read */
-					memmove(arg->buf, arg->buf + at_least, arg->bp - at_least);
-					arg->bp -= at_least;
-				} else arg->bp = 0;
-				return len;
-			}
-			
-			/* left-over */
-			fprintf(stderr, "INFO: WS_recv_data frame has %d bytes (of %ld frame), requested %d, returning partial frame\n", payload, len, (int) read_len);
-			/* we can only read all we got */
-			if (read_len > payload) read_len = payload;
-			memcpy(buf, arg->buf + need, read_len);
-			if (arg->bp > need + read_len) /* if there is any data beyond what we will deliver, we need to move it */
-				memmove(arg->buf, arg->buf + need + read_len, arg->bp - need - read_len);
-			len -= read_len; /* left in the frame is total minus delivered - we only get here if the frame did not fit, so len > 0 */
-			arg->l1 = len;
-			arg->flags |= F_INFRAME;
-			arg->bp -= need + read_len;
-			return read_len;
-		} /* in frame */
-	} else { /* ver 00 */
-		/* FIXME: no text support in QAP1 */
-		return -1;
-	}
+			len = SH(fr[4], 48) | SH(fr[5], 40) | SH(fr[5], 32) | SH(fr[6], 24) | SH(fr[7], 16) | SH(fr[8], 8) | (long)fr[9];
+		}
+		fprintf(stderr, "INFO: WS_recv_data frame type=%02x, len=%d, more=%d, mask=%d (need=%d)\n", ct, (int) len, more, mask, need);
+		at_least = need + len;
+		if (at_least > arg->bl)
+			at_least = arg->bl;
+		payload = at_least - need;
+		
+		while (arg->bp < at_least) {
+			int n = recv(arg->s, arg->buf + arg->bp, at_least - arg->bp, 0);
+			fprintf(stderr, "INFO: read extra %d bytes in addition to %d (need %d)\n", n, arg->bp, need);
+			if (n < 1) return n;
+			arg->bp += n;
+		}
+		/* FIXME: more recent protocols require MASK at all times */
+		if (mask) {
+			{ int i; for (i = 0; i < payload; i++) fprintf(stderr, " %02x", (int) (unsigned char) arg->buf[need + i]); fprintf(stderr,"\n"); }
+			SET_F_MASK(arg->flags, do_mask(arg->buf + need, payload, 0, arg->buf + need - 4));
+			memcpy(&arg->l2, arg->buf + need - 4, 4);
+			{ int i; for (i = 0; i < payload; i++) fprintf(stderr, " %02x", (int) (unsigned char) arg->buf[need + i]); fprintf(stderr,"\n"); }
+		} else arg->flags &= ~ F_MASK;
+		
+		/* if the frame fits in the buffer (payload == len) and the read will read it all, we can deliver the whole frame */
+		if (payload == len && read_len >= payload) {
+			fprintf(stderr, "INFO: WS_recv_data frame has %d bytes, requested %d, returning entire frame\n", (int) len, (int) read_len);
+			memcpy(buf, arg->buf + need, len);
+			if (arg->bp > at_least) { /* this is unlikely but possible if we got multiple frames in the first read */
+				memmove(arg->buf, arg->buf + at_least, arg->bp - at_least);
+				arg->bp -= at_least;
+			} else arg->bp = 0;
+			return len;
+		}
+		
+		/* left-over */
+		fprintf(stderr, "INFO: WS_recv_data frame has %d bytes (of %ld frame), requested %d, returning partial frame\n", payload, len, (int) read_len);
+		/* we can only read all we got */
+		if (read_len > payload) read_len = payload;
+		memcpy(buf, arg->buf + need, read_len);
+		if (arg->bp > need + read_len) /* if there is any data beyond what we will deliver, we need to move it */
+			memmove(arg->buf, arg->buf + need + read_len, arg->bp - need - read_len);
+		len -= read_len; /* left in the frame is total minus delivered - we only get here if the frame did not fit, so len > 0 */
+		arg->l1 = len;
+		arg->flags |= F_INFRAME;
+		arg->bp -= need + read_len;
+		return read_len;
+	} /* in frame */
 }
 
 server_t *create_WS_server(int port, int protocols) {
