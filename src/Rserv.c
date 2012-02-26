@@ -253,6 +253,7 @@ extern __declspec(dllimport) int R_SignalHandlers;
 
 #include "RSserver.h"
 #include "websockets.h"
+#include "http.h"
 
 struct args {
 	server_t *srv; /* server that instantiated this connection */
@@ -268,6 +269,7 @@ struct args {
 #ifdef unix
     struct sockaddr_un su;
 #endif
+	char res[128]; /* reserved space for server-specific fields */
 };
 
 int dumpLimit=128;
@@ -625,6 +627,7 @@ struct source_entry {
 } *src_list=0, *src_tail=0;
 
 static int ws_port = -1, enable_qap = 1, enable_ws_qap = 0, enable_ws_text = 0;
+static int http_port = -1;
 
 /* attempts to set a particular configuration setting
    returns: 1 = setting accepted, 0 = unknown setting, -1 = setting known but failed */
@@ -644,6 +647,13 @@ static int setConfig(const char *c, const char *p) {
 		if (*p) {
 			int np = satoi(p);
 			if (np > 0) ws_port = np;
+		}
+		return 1;
+	}
+	if (!strcmp(c,"http.port")) {
+		if (*p) {
+			int np = satoi(p);
+			if (np > 0) http_port = np;
 		}
 		return 1;
 	}
@@ -2592,7 +2602,7 @@ static void brkHandler_R(int i) {
 /* run Rserve inside R */
 SEXP run_Rserve(SEXP cfgFile, SEXP cfgPars) {
 	sig_fn_t old;
-	server_t *srv_qap = 0, *srv_ws = 0;
+	server_t *srv_qap = 0, *srv_ws = 0, *srv_http = 0;
 	if (TYPEOF(cfgFile) == STRSXP && LENGTH(cfgFile) > 0) {
 		int i, n = LENGTH(cfgFile);
 		for (i = 0; i < n; i++)
@@ -2618,11 +2628,26 @@ SEXP run_Rserve(SEXP cfgFile, SEXP cfgPars) {
 			Rf_error("Unable to start Rserve server");
 	}
 
+	if (http_port > 0) {
+		srv_http = create_HTTP_server(http_port);
+		if (!srv_http) {
+			if (srv_qap) {
+				rm_server(srv_qap);
+				free(srv_qap);
+			}
+			Rf_error("Unable to start HTTP server");
+		}
+	}
+
 	if (enable_ws_text || enable_ws_qap) {
 		if (ws_port < 1)
 			Rf_error("Invalid or missing websockets.port");
 		srv_ws = create_WS_server(ws_port, (enable_ws_qap ? WS_PROT_QAP : 0) | (enable_ws_text ? WS_PROT_TEXT : 0));
 		if (!srv_ws) {
+			if (srv_http) {
+				rm_server(srv_http);
+				free(srv_http);
+			}
 			if (srv_qap) {
 				rm_server(srv_qap);
 				free(srv_qap);
@@ -2631,7 +2656,7 @@ SEXP run_Rserve(SEXP cfgFile, SEXP cfgPars) {
 		}
 	}
 
-	if (!srv_qap && !srv_ws) {
+	if (!srv_qap && !srv_ws && !srv_http) {
 		Rf_warning("No server protocol is enabled, nothing to do");
 		return ScalarLogical(FALSE);
 	}

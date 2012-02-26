@@ -17,6 +17,16 @@
 	enabled by default and can be disabled using
 	"Rserve disable" configuration directive.
 
+	** HTTP **
+	this is very similar to the built-in R http server except that
+	on unix it forks on connection so it allows parallel separate,
+	persistent connections. It requires a worker function
+	.http.request to be defined in the session which will handle
+	incoming requests. This allows the use of facilities like
+	FastRWeb without an external webserver. This protocol is
+	disabled by default and can be enabled by setting "http.port"
+	configuration directive to the desired port to listen to.
+
 	** WebSockets **
 	this protocol is used by HTML5 web browsers for direct access
 	to R with a persistent connection. This allows implementation

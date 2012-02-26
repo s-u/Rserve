@@ -1,6 +1,8 @@
 #ifndef RS_SERVER_H__
 #define RS_SERVER_H__
 
+#include "Rsrv.h"
+
 typedef struct args args_t;
 
 typedef void (*work_fn_t)(void *par);
