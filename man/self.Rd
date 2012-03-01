@@ -5,6 +5,7 @@
 \usage{
 self.ctrlEval(expr)
 self.ctrlSource(file)
+self.oobSend(what, code = 0L)
 }
 \description{
   The following functions can only be used inside Rserve, they cannot be
@@ -21,13 +22,26 @@ self.ctrlSource(file)
   \code{self.ctrlSource} issues a control command to the Rserve parent
   instance to source the given file in the server, see
   \code{\link{RSserverSource}} for details.
+
+  \code{self.oobSend} sends a out-of-band (OOB) message with the encoded
+  content of \code{what} to the client connected to this session. The
+  OOB facility must be enabled in the Rserve configuration (using
+  \code{oob enable}) and the client must support OOB messages for this
+  to be meaningful. This facility is not used by Rserve itself, it is
+  offered to specialized applications (e.g. \code{Cairo} supports
+  asynchronous notification of web clients using WebSockets-QAP1 tunnel
+  to dynamically update graphics on the web during evaluation).
 }
 \arguments{
   \item{expr}{R expression to evaluate remotely}
-  \item{file}{path to a file that will be sourced into the main instance}
+  \item{file}{path to a file that will be sourced into the main
+    instance}
+  \item{what}{object to include as the payload fo the message}
+  \item{code}{user-defined message code that will be ORed with the
+  \code{OOB_SEND} message code}
 }
 \value{
-  Both functions return \code{TRUE} (invisibly).
+  All functions return \code{TRUE} (invisibly).
 }
 \examples{
 \dontrun{

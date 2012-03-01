@@ -626,7 +626,7 @@ struct source_entry {
     char line[8];
 } *src_list=0, *src_tail=0;
 
-static int ws_port = -1, enable_qap = 1, enable_ws_qap = 0, enable_ws_text = 0;
+static int ws_port = -1, enable_qap = 1, enable_ws_qap = 0, enable_ws_text = 0, enable_oob = 0;
 static int http_port = -1;
 
 /* attempts to set a particular configuration setting
@@ -806,6 +806,10 @@ static int setConfig(const char *c, const char *p) {
 	}
 	if (!strcmp(c,"plaintext")) {
 		usePlain = (*p=='1' || *p=='y' || *p=='e' || *p == 'T') ? 1 : 0;
+		return 1;
+	}
+	if (!strcmp(c,"oob")) {
+		enable_oob = (*p=='1' || *p=='y' || *p=='e' || *p == 'T') ? 1 : 0;
 		return 1;
 	}
 	if (!strcmp(c,"fileio")) {
@@ -1190,6 +1194,55 @@ static void pwd_close(pwdf_t *f) {
 	free(f);
 }
 
+args_t *self_args;
+
+SEXP Rserve_oobSend(SEXP exp, SEXP code) {
+	if (!self_args) Rf_error("OOB send cn only be used from code evaluate inside an Rserve client instance");
+	if (!enable_oob) Rf_error("OOB send is disallowed by the current Rserve configuration - use 'oob enable' to allow its use");
+	{
+		int oob_code = asInteger(code) & 0xfff;
+		args_t *a = self_args;
+		server_t *srv = a->srv;
+		char *sendhead = 0, *sendbuf;
+
+		/* check buffer size vs REXP size to avoid dangerous overflows
+		   todo: resize the buffer as necessary */
+		rlen_t rs = QAP_getStorageSize(exp);
+		/* increase the buffer by 25% for safety */
+		/* FIXME: there are issues with multi-byte strings that expand when
+		   converted. They should be convered by this margin but it is an ugly hack!! */
+		rs += (rs >> 2);
+#ifdef RSERV_DEBUG
+		printf("result storage size = %ld bytes\n",(long)rs);
+#endif
+		sendbuf = (char*) malloc(rs);
+		if (!sendbuf)
+			Rf_error("Unable to allocate large enough buffer to send the object");
+		else {
+			/* first we have 4 bytes of a header saying this is an encoded SEXP, then comes the SEXP */
+			char *sxh = sendbuf + 8;
+			char *tail = (char*)QAP_storeSEXP((unsigned int*)sxh, exp, rs);
+
+			/* set type to DT_SEXP and correct length */
+			if ((tail - sxh) > 0xfffff0) { /* we must use the "long" format */
+				rlen_t ll = tail - sxh;
+				((unsigned int*)sendbuf)[0] = itop(SET_PAR(DT_SEXP | DT_LARGE, ll & 0xffffff));
+				((unsigned int*)sendbuf)[1] = itop(ll >> 24);
+				sendhead = sendbuf;
+			} else {
+				sendhead = sendbuf + 4;
+				((unsigned int*)sendbuf)[1] = itop(SET_PAR(DT_SEXP,tail - sxh));
+			}
+#ifdef RSERV_DEBUG
+			printf("stored SEXP; length=%ld (incl. DT_SEXP header)\n",(long) (tail - sendhead));
+#endif
+			sendRespData(a, OOB_SEND | oob_code, tail - sendhead, sendhead);
+			free(sendbuf);
+		}
+	}	
+	return ScalarLogical(TRUE);
+}
+
 /* return 0 if the child was prepared. Returns the result of fork() is forked and this is the parent */
 int Rserve_prepare_child(args_t *arg) {
 #ifdef FORKED  
@@ -1250,6 +1303,8 @@ int Rserve_prepare_child(args_t *arg) {
 
 #endif
 
+	self_args = arg;
+
 	return 0;
 }
 
@@ -1265,6 +1320,8 @@ void Rserve_text_connected(void *thp) {
 		fprintf(stderr, "ERROR: cannot allocate buffer\n");
 		return;
 	}
+
+	self_args = arg;
 
 	snprintf(buf, bl, "OK\n");
 	srv->send(arg, buf, strlen(buf));
@@ -1440,6 +1497,8 @@ void Rserve_QAP1_connected(void *thp) {
     }
 
 #endif
+
+	self_args = a;
 
     buf = (char*) malloc(inBuf + 8);
     sfbuf = (char*) malloc(sfbufSize);

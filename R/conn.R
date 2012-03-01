@@ -52,3 +52,8 @@ self.ctrlSource <- function(file) {
   invisible(.Call(call, file))
 }
 
+self.oobSend <- function(what, code = 0L) {
+  if (!is.loaded("Rserve_oobSend")) stop("This command can only be run inside Rserve with oob enabled")
+  call <- getNativeSymbolInfo("Rserve_oobSend")
+  invisible(.Call(call, what, code))
+}

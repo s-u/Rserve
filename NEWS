@@ -69,6 +69,14 @@
 	interrupt). This allows allows the use of Rserve without the
 	presence of libR.
 
+    o	Rserve now supports out-of-band (OOB) messages. Those can be
+	sent using the self.oobSend() function from within code that
+	is evaluated in Rserve child instances. OOB messages are not
+	used by Rserve itself but offer asynchronous notification to
+	clients that support it (one typical use are WS-QAP1 tunnels
+	to web browsers that allow status updates as R code is
+	evaluated).
+
     o	The Rserve package no longer includes the R client. It has
 	been moved to a separate package "RSclient" so that it can be
 	used on machines separate from the server.
