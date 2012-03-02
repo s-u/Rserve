@@ -158,6 +158,7 @@ int main(int argc, char **argv)
 		R_CallMethodDef mainCallMethods[]  = {
 			{"Rserve_ctrlEval", (DL_FUNC) &Rserve_ctrlEval, 1},
 			{"Rserve_ctrlSource", (DL_FUNC) &Rserve_ctrlSource, 1},
+			{"Rserve_oobSend", (DL_FUNC) &Rserve_oobSend, 2},
 			{NULL, NULL, 0}
 		};
         R_registerRoutines(R_getEmbeddingDllInfo(), 0, mainCallMethods, 0, 0);

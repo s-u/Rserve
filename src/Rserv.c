@@ -626,7 +626,11 @@ struct source_entry {
     char line[8];
 } *src_list=0, *src_tail=0;
 
-static int ws_port = -1, enable_qap = 1, enable_ws_qap = 0, enable_ws_text = 0, enable_oob = 0;
+static int ws_port = -1, enable_qap = 1, enable_ws_qap = 0, enable_ws_text = 0;
+/* FIXME: self.* commands can be loaded either from Rserve.so or from stand-alone binary.
+   This will cause a mess since some things are private and some are not - we have to sort that out.
+   In the meantime a quick hack is to make the relevant config (here enable_oob) global */
+int enable_oob = 0;
 static int http_port = -1;
 
 /* attempts to set a particular configuration setting
@@ -657,16 +661,16 @@ static int setConfig(const char *c, const char *p) {
 		}
 		return 1;
 	}
-	if (!strcmp(c, "rserve") && !(p[0] == 'e' || p[0] == 'y' || p[0] == '1' || p[0] == 'T')) {
-		enable_qap = 0;
+	if (!strcmp(c, "rserve")) {
+		enable_qap = (p[0] == 'e' || p[0] == 'y' || p[0] == '1' || p[0] == 'T') ? 1 : 0;
 		return 1;
 	}
-	if (!strcmp(c, "websockets.qap") && (p[0] == 'e' || p[0] == 'y' || p[0] == '1' || p[0] == 'T')) {
-		enable_ws_qap = 1;
+	if (!strcmp(c, "websockets.qap")) {
+		enable_ws_qap = (p[0] == 'e' || p[0] == 'y' || p[0] == '1' || p[0] == 'T') ? 1 : 0;
 		return 1;
 	}
-	if (!strcmp(c, "websockets.text") && (p[0] == 'e' || p[0] == 'y' || p[0] == '1' || p[0] == 'T')) {
-		enable_ws_text = 1;
+	if (!strcmp(c, "websockets.text")) {
+		enable_ws_text = (p[0] == 'e' || p[0] == 'y' || p[0] == '1' || p[0] == 'T') ? 1 : 0;
 		return 1;
 	}
 	if (!strcmp(c, "websockets") && (p[0] == 'e' || p[0] == 'y' || p[0] == '1' || p[0] == 'T')) {
@@ -809,7 +813,7 @@ static int setConfig(const char *c, const char *p) {
 		return 1;
 	}
 	if (!strcmp(c,"oob")) {
-		enable_oob = (*p=='1' || *p=='y' || *p=='e' || *p == 'T') ? 1 : 0;
+		enable_oob = (*p == '1' || *p == 'y' || *p == 'e' || *p == 'T') ? 1 : 0;
 		return 1;
 	}
 	if (!strcmp(c,"fileio")) {
