@@ -785,7 +785,7 @@ static void HTTP_connected(void *parg) {
 }
 
 server_t *create_HTTP_server(int port) {
-	server_t *srv = create_server(port, 0);
+	server_t *srv = create_server(port, 0, 0);
 	if (srv) {
 		srv->connected = HTTP_connected;
 		/* we are not actually using anyting else since HTTP_connected uses sockets directly */

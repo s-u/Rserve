@@ -21,7 +21,7 @@ typedef struct server {
 	buf_fn_t  recv;       /* direct receive */
 } server_t;
 
-server_t *create_server(int port, const char *localSocketName);
+server_t *create_server(int port, const char *localSocketName, int localSocketMode);
 int add_server(server_t *srv);
 int rm_server(server_t *srv);
 

@@ -213,9 +213,9 @@ int sockerrorcheck(char *sn, int rtb, int res) {
   return res;
 }
 #else
-extern int suppmode=0;
+extern int suppmode;
 extern int socklasterr;
-extern FILE *sockerrlog=0;
+extern FILE *sockerrlog;
 
 int sockerrorchecks(char *buf, int blen, int res);
 int sockerrorcheck(char *sn, int rtb, int res);

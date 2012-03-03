@@ -195,6 +195,8 @@ int main(int argc, char **argv)
 			create_WS_server(ws_port, (enable_ws_qap ? WS_PROT_QAP : 0) | (enable_ws_text ? WS_PROT_TEXT : 0));
 	}
 
+	setup_signal_handlers();
+
     serverLoop();
 #ifdef unix
     if (localSocketName)
@@ -204,6 +206,9 @@ int main(int argc, char **argv)
 #ifdef RSERV_DEBUG
     printf("\nServer terminated normally.\n");
 #endif
+
+	restore_signal_handlers();
+
     return 0;
 }
 

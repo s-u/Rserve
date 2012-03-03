@@ -143,7 +143,7 @@ the use of DT_LARGE/XT_LARGE.
 #endif
 
 /* FORKED is default for unix platforms */
-#if defined unix && !defined THREADED && !defined COOPERATIVE && !defined FORKED
+#if defined unix && !defined COOPERATIVE && !defined FORKED
 #define FORKED
 #endif
 
@@ -912,7 +912,7 @@ static void sigHandler(int i) {
 		active = 0;
 }
 
-#ifdef RSERV_DEBUG
+#if defined RSERV_DEBUG || defined RSERVE_PKG
 static void brkHandler(int i) {
     printf("\nCaught break signal, shutting down Rserve.\n");
     active = 0;
@@ -2337,71 +2337,45 @@ void Rserve_QAP1_connected(void *thp) {
 #endif
 }
 
+#ifdef unix
+typedef void (*sig_fn_t)(int);
+
+static sig_fn_t old_HUP, old_TERM, old_INT;
+
+static void setup_signal_handlers() {
+#ifdef FORKED
+	if (!old_HUP) old_HUP = signal(SIGHUP, sigHandler);
+	if (!old_TERM) old_TERM = signal(SIGTERM, sigHandler);
+#if defined RSERV_DEBUG || defined RSERVE_PKG
+	if (!old_INT) old_INT = signal(SIGINT, brkHandler);
+#endif
+#endif
+}
+
+static void restore_signal_handlers() {
+	if (old_HUP) {
+		signal(SIGHUP, old_HUP);
+		old_HUP = 0;
+	}
+	if (old_TERM) {
+		signal(SIGTERM, old_TERM);
+		old_TERM = 0;
+	}
+	if (old_INT) {
+		signal(SIGINT, old_INT);
+		old_INT = 0;
+	}
+}
+#else
+static void setup_signal_handlers() {
+}
+static void restore_signal_handlers() {
+}
+#endif
+
 #define MAX_SERVERS 128
 static int servers;
 static server_t *server[MAX_SERVERS];
-
-server_t *create_server(int port, const char *localSocketName) {
-	server_t *srv;
-    SAIN ssa;
-    int reuse, ss;
-    struct sockaddr_in lsa;
-    struct sockaddr_un lusa;
-    
-    lsa.sin_addr.s_addr = inet_addr("127.0.0.1");
-    
-#ifdef FORKED
-    signal(SIGHUP,sigHandler);
-    signal(SIGTERM,sigHandler);
-#ifdef RSERV_DEBUG
-    signal(SIGINT,brkHandler);
-#endif
-#endif
-    
-    initsocks();
-    if (localSocketName) {
-#ifndef unix
-		fprintf(stderr,"Local sockets are not supported on non-unix systems.\n");
-		return 0;
-#else
-		ss = FCF("open socket", socket(AF_LOCAL, SOCK_STREAM, 0));
-		memset(&lusa, 0, sizeof(lusa));
-		lusa.sun_family = AF_LOCAL;
-		if (strlen(localSocketName) > sizeof(lusa.sun_path) - 2) {
-			fprintf(stderr,"Local socket name is too long for this system.\n");
-			return 0;
-		}
-		strcpy(lusa.sun_path, localSocketName);
-		remove(localSocketName); /* remove existing if possible */
-#endif
-	} else
-		ss = FCF("open socket", socket(AF_INET, SOCK_STREAM, 0));
-
-	srv = (server_t*) calloc(1, sizeof(server_t));
-	if (!srv) {
-		fprintf(stderr, "ERROR: cannot allocate memory for server structure\n");
-		return 0;
-	}
-
-	srv->ss = ss;
-	srv->unix_socket = localSocketName ? 1 : 0;
-
-    reuse = 1; /* enable socket address reusage */
-    setsockopt(ss, SOL_SOCKET, SO_REUSEADDR, (const char*)&reuse, sizeof(reuse));
-
-#ifdef unix
-    if (localSocketName) {
-		FCF("bind", bind(ss, (SA*) &lusa, sizeof(lusa)));    
-		if (localSocketMode)
-			chmod(localSocketName, localSocketMode);
-	} else
-#endif
-		FCF("bind", bind(ss, build_sin(&ssa, 0, port), sizeof(ssa)));
-    
-    FCF("listen", listen(ss, LISTENQ));
-
-	return srv;
-}
 
 int add_server(server_t *srv) {
 	if (!srv) return 0;
@@ -2449,7 +2423,7 @@ int server_send(args_t *arg, void *buf, rlen_t len) {
 }
 
 server_t *create_Rserve_QAP1() {
-	server_t *srv = create_server(port, localSocketName);
+	server_t *srv = create_server(port, localSocketName, localSocketMode);
 	if (srv) {
 		srv->connected = Rserve_QAP1_connected;
 		srv->send_resp = Rserve_QAP1_send_resp;
@@ -2653,18 +2627,8 @@ void serverLoop() {
 
 #ifndef STANDALONE_RSERVE
 
-#ifdef unix
-typedef void (*sig_fn_t)(int);
-
-static void brkHandler_R(int i) {
-    Rprintf("\nCaught break signal, shutting down Rserve.\n");
-    active = 0;
-}
-#endif
-
 /* run Rserve inside R */
 SEXP run_Rserve(SEXP cfgFile, SEXP cfgPars) {
-	sig_fn_t old;
 	server_t *srv_qap = 0, *srv_ws = 0, *srv_http = 0;
 	if (TYPEOF(cfgFile) == STRSXP && LENGTH(cfgFile) > 0) {
 		int i, n = LENGTH(cfgFile);
@@ -2724,15 +2688,15 @@ SEXP run_Rserve(SEXP cfgFile, SEXP cfgPars) {
 		return ScalarLogical(FALSE);
 	}
 	
+	setup_signal_handlers();
+
 	Rprintf("-- running Rserve in this R session (pid=%d) --\n(This session will block until Rserve is shut down)\n", getpid());
 	active = 1;
-#ifdef unix
-    old = signal(SIGINT, brkHandler_R);
-#endif
+
 	serverLoop();
-#ifdef unix
-	signal(SIGINT, old);
-#endif
+	
+	restore_signal_handlers();
+
 	if (srv_qap) {
 		rm_server(srv_qap);
 		free(srv_qap);
@@ -2740,6 +2704,10 @@ SEXP run_Rserve(SEXP cfgFile, SEXP cfgPars) {
 	if (srv_ws) {
 		rm_server(srv_ws);
 		free(srv_ws);
+	}
+	if (srv_http) {
+		rm_server(srv_http);
+		free(srv_http);
 	}
 	return ScalarLogical(TRUE);
 }
