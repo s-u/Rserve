@@ -20,6 +20,11 @@
 
 #include "Rsrv.h"
 #include "RSserver.h"
+
+#include <sisocks.h>
+#ifdef unix
+#include <sys/un.h> /* needed for unix sockets */
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -27,16 +32,24 @@
 #define default_max_pool 200
 #define default_workers 20
 
+static int active = 1, localonly = 1;
+
 typedef struct worker {
 #ifdef WIN32
+	SOCKET s;
 	HANDLE w_in, w_out; /* worker pipe I/O handles */
 #else
+	int s;
 	int w_in, w_out; /* worker pipe I/O handles, in = pool->worker, out = pool<-worker */
 #endif
+	long io_in_packet;
+	long s_in_packet;
 } worker_t;
 
-static const char **RSargv;
+static char **RSargv;
 static int RSargc;
+
+static char **allowed_ips = 0;
 
 /* spawns a new worker and returns worker structure to be used in the communication
    Returns only on the pool side, worker side. */
@@ -67,6 +80,9 @@ static worker_t* create_worker() {
 		
 		w->w_in  = pfd_in[1]; /* we write to w_in */
 		w->w_out = pfd_out[0];/* we read from w_out */
+		w->io_in_packet = -1;
+		w->s_in_packet = -1;
+		w->s = -1; /* all workers are unconnected first */
 
 		pid = fork();
 		if (pid == -1) {
@@ -77,12 +93,12 @@ static worker_t* create_worker() {
 			return 0;
 		}
 		if (pid == 0) { /* child -> exec */
-			char buf1[48];
+			char buf[48];
 			/* close pool's side of the pipes */
 			close(pfd_in[1]);
 			close(pfd_out[0]);
 			/* add FD arguments for communication */
-			snprintf(buf, "--RS-pipe-io=%d,%d", pfd_in[0], pfd_out[1]);
+			snprintf(buf, sizeof(buf), "--RS-pipe-io=%d,%d", pfd_in[0], pfd_out[1]);
 			RSargv[RSargc++] = buf;
 			RSargv[RSargc] = 0;
 			/* exec */
@@ -99,19 +115,213 @@ static worker_t* create_worker() {
 	return w;
 }
 
-		static int workers = default_workers, max_pool = default_max_pool;
+static void remove_worker(worker_t *w) {
+	close(w->w_out);
+	close(w->w_in);
+	free(w);
+}
+
+static int workers = default_workers, max_pool = default_max_pool;
 static worker_t **worker;
 static server_t *srv;
 
-/* new request - find or spawn a worker */
-static void RSP_connected(void *par) {
-	args_t *arg = (args_t*) par;
-	
+static void connected(SOCKET s) {
+	int i;
+	worker_t *w = 0;
+	for (i = 0; i < workers; i++) /* find any unconnected worker */
+		if (worker[i] && worker[i]->s == -1) {
+			w = worker[i];
+			break;
+		}
+	if (!w) { /* no unconnected workers, need to spawn new one - find a slot for it*/
+		for (i = 0; i < max_pool; i++)
+			if (!worker[i]) {
+				w = worker[i] = create_worker();
+				if (i >= workers)
+					workers = i + 1;
+				break;
+			}
+		if (!w) { /* no slot */
+			fprintf(stderr, "ERROR: too many connections\n");
+			close(s);
+			return;
+		}
+	}
+	w->s = s;
+	/* this should be unnecessary since the workes should be "fresh", but just in case ... */
+	w->s_in_packet = -1;
+	w->io_in_packet = -1;
 }
 
-static void RSP_fin(void *par) {
-	args_t *arg = (args_t*) par;
-	
+static char server_io_buffer[65536];
+
+/* pool server loop - the server part is the same as Rserve, but it also has to include the workers part */
+static void RSpool_serverLoop() {
+#ifdef unix
+    struct timeval timv;
+    int selRet = 0;
+    fd_set readfds;
+#endif
+    
+    while(active) { /* main serving loop */
+		int i;
+#ifdef unix
+		int maxfd = 0;
+
+		while (waitpid(-1, 0, WNOHANG) > 0);
+
+		/* 500ms (used to be 10ms) - it shouldn't really matter since
+		   it's ok for us to sleep -- the timeout will only influence
+		   how often we collect terminated children and (maybe) how
+		   quickly we react to shutdown */
+		timv.tv_sec = 0; timv.tv_usec = 500000;
+		FD_ZERO(&readfds);
+		if (srv) {
+			int ss = srv->ss;
+			if (ss > maxfd)
+				maxfd = ss;
+			FD_SET(ss, &readfds);
+		}
+		
+		for (i = 0; i < workers; i++)
+			if (worker[i]) { /* register output from workers as well as their sockets */
+				int fd = worker[i]->w_out;
+				if (fd > maxfd)
+					maxfd = fd;
+				FD_SET(fd, &readfds);
+				fd = worker[i]->s;
+				if (fd > maxfd)
+					maxfd = fd;
+				if (fd != -1)
+					FD_SET(fd, &readfds);
+			}
+
+		selRet = select(maxfd + 1, &readfds, 0, 0, &timv);
+
+		if (selRet > 0) {
+			/* for (i = 0; i < servers; i++) */
+			{
+				socklen_t al;
+				/* server_t *srv = server[i]; */
+				int ss = srv->ss;
+				if (FD_ISSET(ss, &readfds)) {
+#endif
+					SOCKET s;
+					SAIN sa;
+#ifdef unix
+					struct sockaddr_un su;
+					if (srv->unix_socket) {
+						
+						al = sizeof(su);
+						s = accept(ss, (SA*)&su, &al);
+					} else
+#endif
+						s = accept(ss, (SA*)&sa, &al);
+
+					if (s != -1) {
+						if (localonly && !srv->unix_socket) {
+							char **laddr = allowed_ips;
+							int allowed = 0;
+							if (!laddr) { 
+								allowed_ips = (char**) malloc(sizeof(char*)*2);
+								allowed_ips[0] = strdup("127.0.0.1");
+								allowed_ips[1] = 0;
+								laddr = allowed_ips;
+							}
+							
+							while (*laddr)
+								if (sa.sin_addr.s_addr == inet_addr(*(laddr++)))
+									{ allowed = 1; break; };
+							if (allowed) {
+#ifdef RSERV_DEBUG
+								printf("INFO: accepted connection for server %p, calling connected\n", (void*) srv);
+#endif
+								connected(s);
+							} else
+								closesocket(s);
+						} else { /* ---> remote enabled */
+#ifdef RSERV_DEBUG
+							printf("INFO: accepted connection for server %p, calling connected\n", (void*) srv);
+#endif
+							connected(s);
+						}
+					}
+#ifdef unix
+				}
+			} /* end loop over servers */
+
+			for (i = 0; i < workers; i++) {
+				worker_t *w = worker[i];
+				int remove = 0;
+				/* socket read */
+				if (w && FD_ISSET(w->s, &readfds)) {
+					remove = 1;
+					if (w->s_in_packet <= 0) { /* new packet */
+						struct phdr hdr;
+						int n = recv(w->s, &hdr, sizeof(hdr), 0);
+						if (n == sizeof(hdr)) {
+							n = write(w->w_in, &hdr, sizeof(hdr));
+							if (n == sizeof(hdr)) {
+								long sz = hdr.len;
+								if (hdr.res)
+									sz |= ((long) hdr.res) << 32;
+								remove = 0;
+								w->s_in_packet = sz;
+							}
+						}
+					} else { /* buffer IO */
+						int to_go = (int) (w->s_in_packet > sizeof(server_io_buffer)) ? sizeof(server_io_buffer) : w->s_in_packet;
+						int n = recv(w->s, server_io_buffer, to_go, 0);
+						if (n > 0 && write(w->w_in, server_io_buffer, n) == n) {
+							remove = 0;
+							w->s_in_packet -= to_go;
+						}
+					}
+				}
+				/* fd read */
+				if (w && FD_ISSET(w->w_out, &readfds)) {
+					remove = 1;
+					if (w->io_in_packet == -1) { /* first is the ID string */
+						char ids[32];
+						int n = read(w->w_out, ids, sizeof(ids));
+						if (n == sizeof(ids)) {
+							n = send(w->s, ids, sizeof(ids), 0);
+							if (n == sizeof(ids)) {
+								w->io_in_packet = 0; /* done with ID, back to messages */
+								remove = 0;
+							}
+						}
+					} else if (w->io_in_packet <= 0) { /* new packet */
+						struct phdr hdr;
+						int n = read(w->w_out, &hdr, sizeof(hdr));
+						if (n == sizeof(hdr)) {
+							n = send(w->s, &hdr, sizeof(hdr), 0);
+							if (n == sizeof(hdr)) {
+								long sz = hdr.len;
+								if (hdr.res)
+									sz |= ((long) hdr.res) << 32;
+								remove = 0;
+								w->io_in_packet = sz;
+							}
+						}
+					} else { /* buffer IO */
+						int to_go = (int) (w->io_in_packet > sizeof(server_io_buffer)) ? sizeof(server_io_buffer) : w->io_in_packet;
+						int n = read(w->w_out, server_io_buffer, to_go);
+						if (n > 0 && send(w->s, server_io_buffer, n, 0) == n) {
+							remove = 0;
+							w->io_in_packet -= to_go;
+						}
+					}
+				}
+				if (remove) {
+					remove_worker(w);
+					/* FIXME: we should only create if it was not a surplus worker - but we have not recorded that number */
+					worker[i] = create_worker();
+				}
+			} /* loop over workers */
+		} /* end if (selRet > 0) */
+#endif
+    } /* end while(active) */
 }
 
 int main(int argc, char **argv) {
@@ -134,7 +344,7 @@ int main(int argc, char **argv) {
 		return 0;
 	}
 	
-	RSargv = (const char**) calloc(argc - i + 3, sizeof(const char*));
+	RSargv = (char**) calloc(argc - i + 3, sizeof(char*));
 	RSargc = argc - i;
 	{ /* Fill RSargv with startup + sentinel */
 		int j;
@@ -145,8 +355,6 @@ int main(int argc, char **argv) {
 
 	srv = create_server(port, 0, 0);
 	if (!srv) return 0;
-	srv->connected = RSP_connected;
-	srv->fin = RSP_fin;
 
 	if (max_pool < workers) max_pool = workers;
 	
@@ -154,10 +362,33 @@ int main(int argc, char **argv) {
 	for (i = 0; i < workers; i++)
 		worker[i] = create_worker();
 
-	serverLoop();
+	RSpool_serverLoop();
 	
 	return 0;
 }
+
+#ifdef RSERVE_PKG
+
+#include <Rinternals.h>
+
+SEXP RSpool_run(SEXP args) {
+	int argc, i, n;
+	char **argv;
+	if (TYPEOF(args) != STRSXP) Rf_error("Start arguments must be a character vector.");
+	argc = LENGTH(args) + 1;
+	argv = (char**) calloc(argc, sizeof(char*));
+	if (!argv) Rf_error("Cannot allocate memory for arguments");
+	for (i = 1; i < argc; i++)
+		argv[i] = strdup(CHAR(STRING_ELT(args, i - 1)));
+	argv[0] = "RSpool";
+	n = main(argc, argv);
+	for (i = 1; i < argc; i++)
+		free(argv[i]);
+	free(argv);
+	return ScalarLogical((n == 0) ? TRUE : FALSE);
+}
+
+#endif
 
 /*--- The following makes the indenting behavior of emacs compatible
       with Xcode's 4/4 setting ---*/
