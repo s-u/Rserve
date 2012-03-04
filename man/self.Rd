@@ -2,6 +2,7 @@
 \title{Functions usable for R code run inside Rserve}
 \alias{self.ctrlEval}
 \alias{self.ctrlSource}
+\alias{self.oobSend}
 \usage{
 self.ctrlEval(expr)
 self.ctrlSource(file)
