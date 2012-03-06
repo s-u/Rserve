@@ -90,6 +90,11 @@
 	particular useful on Windows, making it possible to support
 	some number of parallel connections.
 
+    o	Rserve accepts additional command line arguments:
+	--RS-source <file>   (same as "source <file>" in cfg file)
+	--RS-enable-remote   (same as "remote enable" in cfg file)
+	--RS-enable-control  (same as "control enable" in cfg file)
+
     o	The Rserve package no longer includes the R client. It has
 	been moved to a separate package "RSclient" so that it can be
 	used on machines separate from the server.
