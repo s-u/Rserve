@@ -229,8 +229,10 @@ public:
     /*Rstring(const char *str) : Rexp(XT_STR, str, strlen(str)+1) {}*/
     
     char **strings() { return cont; }
-    char *stringAt(unsigned int i) { return (i<0||i>=nel)?0:cont[i]; }
+    char *stringAt(unsigned int i) { return (i < 0 || i >= nel) ? 0 : cont[i]; }
     char *string() { return stringAt(0); }
+    virtual Rsize_t length() { return nel; }
+
     unsigned int count() { return nel; }
     int indexOfString(const char *str);
 
@@ -313,7 +315,7 @@ private:
     void fix_content();
 };
 
-//===================================== Rvecotr --- XT_VECTOR (general lists)
+//===================================== Rvector --- XT_VECTOR (general lists)
 
 class Rvector : public Rexp {
 protected:
@@ -334,10 +336,15 @@ public:
     char **strings();
     int indexOf(Rexp *exp);
     int indexOfString(const char *str);
+    virtual Rsize_t length() { return (Rsize_t) count; }
 
     char *stringAt(int i) {
-        if (i<0 || i>count || !cont[i] || cont[i]->type!=XT_STR) return 0;
+        if (i < 0 || i >= count || !cont[i] || cont[i]->type != XT_STR) return 0;
         return ((Rstring*)cont[i])->string();
+    }
+
+    Rexp *elementAt(int i) {
+	return (i < 0 || i >= count || !cont[i]) ? 0 : cont[i];
     }
     
     Rexp* byName(const char *name);
