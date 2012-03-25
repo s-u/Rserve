@@ -31,6 +31,8 @@ static const unsigned char NaStringRepresentation[2] = { 255, 0 };
 #define dist(A,B) (((rlen_t)(((char*)B)-((char*)A))) - 4L)
 #define align(A) (((A) + 3L) & (rlen_max ^ 3L))
 
+void R_inspect(SEXP x); /* for debugging */
+
 rlen_t getStorageSize(SEXP x) {
     int t = TYPEOF(x);
     rlen_t tl = LENGTH(x); /* although LENGTH can only be 32-bit use rlen_t to avoid downcasting */
@@ -50,8 +52,8 @@ rlen_t getStorageSize(SEXP x) {
 			SEXP l = x;
 			rlen_t tags = 0, n = 0;
 			while (l != R_NilValue) {
-				len  += getStorageSize(CAR(x));
-				tags += getStorageSize(TAG(x));
+				len  += getStorageSize(CAR(l));
+				tags += getStorageSize(TAG(l));
 				n++;
 				l = CDR(l);
 			}
@@ -144,7 +146,8 @@ unsigned int* storeSEXP(unsigned int* buf, SEXP x, rlen_t storage_size) {
     } 
     
     /* check storage size */
-    txlen = storage_size ? storage_size : getStorageSize(x);
+    if (!storage_size) storage_size = getStorageSize(x);
+    txlen = storage_size;
     if (txlen > 0xfffff0) { /* if the entry is too big, use large format */
 		isLarge = 1;
 		buf++;
@@ -337,6 +340,15 @@ unsigned int* storeSEXP(unsigned int* buf, SEXP x, rlen_t storage_size) {
 #ifdef RSERV_DEBUG
 	printf("stored %p at %p, %lu bytes\n", (void*)x, (void*)preBuf, (unsigned long) dist(preBuf, buf));
 #endif
+
+    if (dist(preBuf, buf) > storage_size) {
+#ifdef RSERVE_PKG
+      REprintf("**ERROR: underestimated storage %ld / %ld SEXP type %d\n", (long) dist(preBuf, buf), (long) storage_size, TYPEOF(x));
+#else
+      fprintf(stderr, "**ERROR: underestimated storage %ld / %ld SEXP type %d\n", (long) dist(preBuf, buf), (long) storage_size, TYPEOF(x));
+#endif
+      R_inspect(x);
+    }
 
     return buf;
 }

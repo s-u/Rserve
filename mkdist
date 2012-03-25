@@ -2,14 +2,15 @@
 
 SWD=`pwd`
 echo "Removing previous dist ..."
-rm -rf /tmp/Rserve
+rm -rf /tmp/Rserve.tmp
 echo "Copying package base ..."
-cp -r ../Rserve /tmp
+mkdir /tmp/Rserve.tmp
+cp -r ../Rserve /tmp/Rserve.tmp
 
 #touch /tmp/Rserve/src/dummy.so
-rm -f /tmp/Rserve/mkdist
+rm -f /tmp/Rserve.tmp/Rserve/mkdist
 
-cd /tmp/Rserve
+cd /tmp/Rserve.tmp/Rserve
 # mkdir inst
 if [ -e configure ]; then
   echo "Note: configure exists, no attempt to reconfigure will be made."
@@ -35,7 +36,7 @@ if [ -e src/client/cxx/configure.ac ]; then
 	autoheader
 	autoconf
 	rm -rf autom4te* aclocal*
-	cd /tmp/Rserve
+	cd /tmp/Rserve.tmp/Rserve
     fi
 fi
 
@@ -62,7 +63,7 @@ cd ..
 #R CMD build --force Rserve
 tar fcz Rserve_${VER}.tar.gz Rserve
 cd ${SWD}
-cp /tmp/Rserve_${VER}.tar.gz ..
-rm -rf /tmp/Rserve
+cp /tmp/Rserve.tmp/Rserve_${VER}.tar.gz ..
+rm -rf /tmp/Rserve.tmp
 echo "Done."
 ls -l ../Rserve_${VER}.tar.gz

@@ -99,6 +99,11 @@
 	been moved to a separate package "RSclient" so that it can be
 	used on machines separate from the server.
 
+    o	There was a bug in QAP storage estimation affecting pairlists,
+	possibly resulting in buffer overflows. This should be fixed
+	and an error message will be printed when such overflows are
+	detected in the future (which hopefully won't happen).
+
 --- In order to support new ideas a major re-organization of Rserve ---
 --- has been started - almost 10 years after the first release.     ---
 --- It is time to look ahead again with a new major version. The    ---
