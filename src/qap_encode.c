@@ -31,8 +31,6 @@ static const unsigned char NaStringRepresentation[2] = { 255, 0 };
 #define dist(A,B) (((rlen_t)(((char*)B)-((char*)A))) - 4L)
 #define align(A) (((A) + 3L) & (rlen_max ^ 3L))
 
-void R_inspect(SEXP x); /* for debugging */
-
 rlen_t getStorageSize(SEXP x) {
     int t = TYPEOF(x);
     rlen_t tl = LENGTH(x); /* although LENGTH can only be 32-bit use rlen_t to avoid downcasting */
@@ -347,7 +345,7 @@ unsigned int* storeSEXP(unsigned int* buf, SEXP x, rlen_t storage_size) {
 #else
       fprintf(stderr, "**ERROR: underestimated storage %ld / %ld SEXP type %d\n", (long) dist(preBuf, buf), (long) storage_size, TYPEOF(x));
 #endif
-      R_inspect(x);
+      /* R_inspect(x)  // can't use this since it's hidden in R */
     }
 
     return buf;
