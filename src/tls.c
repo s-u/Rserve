@@ -28,6 +28,7 @@ tls_t *new_tls() {
 
     t->method = SSLv23_client_method();
     t->ctx = SSL_CTX_new(t->method);
+    return t;
 }
 
 int set_tls_pk(tls_t *tls, const char *fn) {
