@@ -3,6 +3,6 @@
 
 #include "RSserver.h"
 
-server_t *create_HTTP_server(int port);
+server_t *create_HTTP_server(int port, int flags);
 
 #endif

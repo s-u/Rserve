@@ -3,6 +3,9 @@
 
 #include "Rsrv.h"
 
+/* this is a voluntary standart flag to request TLS support */
+#define SRV_TLS  0x800
+
 typedef struct args args_t;
 
 typedef void (*work_fn_t)(void *par);

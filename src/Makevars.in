@@ -4,7 +4,7 @@ PKG_LIBS=@LIBS@
 all: $(SHLIB) @WITH_SERVER_TRUE@ server
 @WITH_CLIENT_TRUE@	$(MAKE) client
 
-SERVER_SRC = standalone.c md5.c session.c qap_decode.c qap_encode.c sha1.c base64.c websockets.c RSserver.c
+SERVER_SRC = standalone.c md5.c session.c qap_decode.c qap_encode.c sha1.c base64.c websockets.c RSserver.c tls.c
 SERVER_H = Rsrv.h qap_encode.h qap_decode.h RSserver.h 
 
 server:	$(SERVER_SRC) $(SERVER_H)

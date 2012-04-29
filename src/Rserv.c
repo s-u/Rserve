@@ -254,11 +254,13 @@ extern __declspec(dllimport) int R_SignalHandlers;
 #include "RSserver.h"
 #include "websockets.h"
 #include "http.h"
+#include "tls.h"
 
 struct args {
 	server_t *srv; /* server that instantiated this connection */
     SOCKET s;
 	SOCKET ss;
+	void *res1, *res2;
 	/* the following entries are not populated by Rserve but can be used by server implemetations */
 	char *buf, *sbuf;
 	int   ver, bp, bl, sp, sl, flags;
@@ -275,6 +277,7 @@ struct args {
 int dumpLimit=128;
 
 static int port = default_Rsrv_port;
+static int tls_port = -1;
 static int active = 1; /* 1 = server loop is active, 0 = shutdown */
 static int UCIX   = 1; /* unique connection index */
 
@@ -632,6 +635,7 @@ static int ws_port = -1, enable_qap = 1, enable_ws_qap = 0, enable_ws_text = 0;
    In the meantime a quick hack is to make the relevant config (here enable_oob) global */
 int enable_oob = 0;
 static int http_port = -1;
+static int https_port = -1;
 
 /* attempts to set a particular configuration setting
    returns: 1 = setting accepted, 0 = unknown setting, -1 = setting known but failed */
@@ -640,7 +644,7 @@ static int setConfig(const char *c, const char *p) {
 		localonly = (*p == '1' || *p == 'y' || *p == 'e' || *p == 'T') ? 0 : 1;
 		return 1;
 	}
-	if (!strcmp(c,"port")) {
+	if (!strcmp(c,"port") || !strcmp(c, "qap.port")) {
 		if (*p) {
 			int np = satoi(p);
 			if (np > 0) port = np;
@@ -658,6 +662,41 @@ static int setConfig(const char *c, const char *p) {
 		if (*p) {
 			int np = satoi(p);
 			if (np > 0) http_port = np;
+		}
+		return 1;
+	}
+	if (!strcmp(c, "tls.key")) {
+		tls_t *tls = shared_tls(0);
+		if (!tls)
+			tls = shared_tls(new_tls());
+		set_tls_pk(tls, p);
+		return 1;
+	}
+	if (!strcmp(c, "tls.ca")) {
+		tls_t *tls = shared_tls(0);
+		if (!tls)
+			tls = shared_tls(new_tls());
+		set_tls_ca(tls, p, 0);
+		return 1;
+	}
+	if (!strcmp(c, "tls.cert")) {
+		tls_t *tls = shared_tls(0);
+		if (!tls)
+			tls = shared_tls(new_tls());
+		set_tls_cert(tls, p);
+		return 1;
+	}
+	if (!strcmp(c, "tls.port") || !strcmp(c, "qap.tls.port")) {
+		if (*p) {
+			int np = satoi(p);
+			if (np > 0) tls_port = np;
+		}
+		return 1;
+	}
+	if (!strcmp(c,"https.port") || !strcmp(c, "http.tls.port")) {
+		if (*p) {
+			int np = satoi(p);
+			if (np > 0) https_port = np;
 		}
 		return 1;
 	}
@@ -1326,7 +1365,7 @@ void Rserve_text_connected(void *thp) {
 	}
 
 	self_args = arg;
-
+	
 	snprintf(buf, bl, "OK\n");
 	srv->send(arg, buf, strlen(buf));
 
@@ -1542,6 +1581,9 @@ void Rserve_QAP1_connected(void *thp) {
 		setsockopt(s, IPPROTO_TCP, TCP_NODELAY, (const char*) &opt, sizeof(opt));
     }
 #endif
+
+	if ((a->srv->flags & SRV_TLS) && shared_tls(0))
+		add_tls(a, shared_tls(0), 1);
     
     strcpy(buf,IDstring);
     if (authReq) {
@@ -2422,14 +2464,15 @@ int server_send(args_t *arg, void *buf, rlen_t len) {
 	return send(arg->s, buf, len, 0);
 }
 
-server_t *create_Rserve_QAP1() {
-	server_t *srv = create_server(port, localSocketName, localSocketMode);
+server_t *create_Rserve_QAP1(int flags) {
+	server_t *srv = create_server((flags & SRV_TLS) ? tls_port : port, localSocketName, localSocketMode);
 	if (srv) {
 		srv->connected = Rserve_QAP1_connected;
 		srv->send_resp = Rserve_QAP1_send_resp;
 		srv->fin       = server_fin;
 		srv->recv      = server_recv;
 		srv->send      = server_send;
+		srv->flags     = flags;
 		add_server(srv);
 		return srv;
 	}
@@ -2629,7 +2672,7 @@ void serverLoop() {
 
 /* run Rserve inside R */
 SEXP run_Rserve(SEXP cfgFile, SEXP cfgPars) {
-	server_t *srv_qap = 0, *srv_ws = 0, *srv_http = 0;
+	server_t *srv_qap = 0, *srv_qap_tls = 0, *srv_ws = 0, *srv_http = 0, *srv_https = 0;
 	if (TYPEOF(cfgFile) == STRSXP && LENGTH(cfgFile) > 0) {
 		int i, n = LENGTH(cfgFile);
 		for (i = 0; i < n; i++)
@@ -2650,19 +2693,36 @@ SEXP run_Rserve(SEXP cfgFile, SEXP cfgPars) {
 	}
 	
 	if (enable_qap) {
-		srv_qap = create_Rserve_QAP1();
+		srv_qap = create_Rserve_QAP1(0);
+		if (!srv_qap)
+			Rf_error("Unable to start Rserve server");
+	}
+
+	if (tls_port > 0) {
+		srv_qap_tls = create_Rserve_QAP1(SRV_TLS);
 		if (!srv_qap)
 			Rf_error("Unable to start Rserve server");
 	}
 
 	if (http_port > 0) {
-		srv_http = create_HTTP_server(http_port);
+		srv_http = create_HTTP_server(http_port, 0);
 		if (!srv_http) {
 			if (srv_qap) {
 				rm_server(srv_qap);
 				free(srv_qap);
 			}
 			Rf_error("Unable to start HTTP server");
+		}
+	}
+
+	if (https_port > 0) {
+		srv_https = create_HTTP_server(https_port, SRV_TLS);
+		if (!srv_https) {
+			if (srv_qap) {
+				rm_server(srv_qap);
+				free(srv_qap);
+			}
+			Rf_error("Unable to start HTTPS server");
 		}
 	}
 
@@ -2701,6 +2761,10 @@ SEXP run_Rserve(SEXP cfgFile, SEXP cfgPars) {
 		rm_server(srv_qap);
 		free(srv_qap);
 	}
+	if (srv_qap_tls) {
+		rm_server(srv_qap_tls);
+		free(srv_qap_tls);
+	}
 	if (srv_ws) {
 		rm_server(srv_ws);
 		free(srv_ws);
@@ -2708,6 +2772,10 @@ SEXP run_Rserve(SEXP cfgFile, SEXP cfgPars) {
 	if (srv_http) {
 		rm_server(srv_http);
 		free(srv_http);
+	}
+	if (srv_https) {
+		rm_server(srv_https);
+		free(srv_https);
 	}
 	return ScalarLogical(TRUE);
 }

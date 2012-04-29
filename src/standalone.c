@@ -198,8 +198,13 @@ int main(int argc, char **argv)
     umask(umask_value);
 #endif
     
-	if (enable_qap && !create_Rserve_QAP1()) {
+	if (enable_qap && !create_Rserve_QAP1(0)) {
 		fprintf(stderr, "ERROR: unable to start Rserve server\n");
+		return 1;
+	}
+
+ 	if (tls_port > 0 && !create_Rserve_QAP1(SRV_TLS)) {
+		fprintf(stderr, "ERROR: unable to start Rserve TLS server\n");
 		return 1;
 	}
 

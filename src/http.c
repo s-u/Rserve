@@ -1,4 +1,5 @@
 #include "RSserver.h"
+#include "tls.h"
 #include <sisocks.h>
 #include <string.h>
 #include <stdio.h>
@@ -44,6 +45,7 @@ struct args {
 	server_t *srv; /* server that instantiated this connection */
     SOCKET s;
 	SOCKET ss;
+	void *res1, *res2;
 	/* the following entries are not populated by Rserve but can be used by server implemetations */
 	char *buf, *sbuf;
 	int   ver, bp, bl, sp, sl, flags;
@@ -142,13 +144,14 @@ static void free_args(args_t *c)
     }
 }
 
-static int send_response(SOCKET s, const char *buf, unsigned int len)
+static int send_response(args_t *c, const char *buf, unsigned int len)
 {
+	server_t *srv = c->srv;
     unsigned int i = 0;
     /* we have to tell R to ignore SIGPIPE otherwise it can raise an error
        and get us into deep trouble */
     while (i < len) {
-		int n = send(s, buf + i, len - i, 0);
+		int n = srv->send(c, buf + i, len - i);
 		if (n < 1) {
 			return -1;
 		}
@@ -160,17 +163,18 @@ static int send_response(SOCKET s, const char *buf, unsigned int len)
 /* sends HTTP/x.x plus the text (which should be of the form " XXX ...") */
 static int send_http_response(args_t *c, const char *text) {
     char buf[96];
+	server_t *srv = c->srv;
     const char *s = HTTP_SIG(c);
     int l = strlen(text), res;
     /* reduce the number of packets by sending the payload en-block from buf */
     if (l < sizeof(buf) - 10) {
 		strcpy(buf, s);
 		strcpy(buf + 8, text);
-		return send_response(c->s, buf, l + 8);
+		return send_response(c, buf, l + 8);
     }
-    res = send(c->s, s, 8, 0);
+    res = srv->send(c, s, 8);
     if (res < 8) return -1;
-    return send_response(c->s, text, strlen(text));
+    return send_response(c, text, strlen(text));
 }
 
 /* decode URI in place (decoding never expands) */
@@ -340,7 +344,7 @@ static void process_request(args_t *c)
 			send_http_response(c, " 500 Evaluation error\r\nConnection: close\r\nContent-type: text/plain\r\n\r\n");
 			DBG(Rprintf("respond with 500 and content: %s\n", s));
 			if (c->method != METHOD_HEAD)
-				send_response(c->s, s, strlen(s));
+				send_response(c, s, strlen(s));
 			c->attr |= CONNECTION_CLOSE; /* force close */
 			UNPROTECT(7);
 			return;
@@ -368,15 +372,15 @@ static void process_request(args_t *c)
 					send_http_response(c, " 200 OK\r\nContent-type: ");
 				else {
 					sprintf(buf, "%s %d Code %d\r\nContent-type: ", HTTP_SIG(c), code, code);
-					send_response(c->s, buf, strlen(buf));
+					send_response(c, buf, strlen(buf));
 				}
-				send_response(c->s, ct, strlen(ct));
+				send_response(c, ct, strlen(ct));
 				if (sHeaders != R_NilValue) {
 					unsigned int i = 0, n = LENGTH(sHeaders);
 					for (; i < n; i++) {
 						const char *hs = CHAR(STRING_ELT(sHeaders, i));
-						send_response(c->s, "\r\n", 2);
-						send_response(c->s, hs, strlen(hs));
+						send_response(c, "\r\n", 2);
+						send_response(c, hs, strlen(hs));
 					}
 				}
 				/* special content - a file: either list(file="") or list(c("*FILE*", "")) - the latter will go away */
@@ -390,7 +394,7 @@ static void process_request(args_t *c)
 					FILE *f = fopen(fn, "rb");
 					long fsz = 0;
 					if (!f) {
-						send_response(c->s, "\r\nContent-length: 0\r\n\r\n", 23);
+						send_response(c, "\r\nContent-length: 0\r\n\r\n", 23);
 						UNPROTECT(7);
 						fin_request(c);
 						return;
@@ -399,7 +403,7 @@ static void process_request(args_t *c)
 					fsz = ftell(f);
 					fseek(f, 0, SEEK_SET);
 					sprintf(buf, "\r\nContent-length: %ld\r\n\r\n", fsz);
-					send_response(c->s, buf, strlen(buf));
+					send_response(c, buf, strlen(buf));
 					if (c->method != METHOD_HEAD) {
 						fbuf = (char*) malloc(32768);
 						if (fbuf) {
@@ -411,7 +415,7 @@ static void process_request(args_t *c)
 									c->attr |= CONNECTION_CLOSE;
 									return;
 								}
-								send_response(c->s, fbuf, rd);
+								send_response(c, fbuf, rd);
 								fsz -= rd;
 							}
 							free(fbuf);
@@ -427,9 +431,9 @@ static void process_request(args_t *c)
 					return;
 				}
 				sprintf(buf, "\r\nContent-length: %u\r\n\r\n", (unsigned int) strlen(cs));
-				send_response(c->s, buf, strlen(buf));
+				send_response(c, buf, strlen(buf));
 				if (c->method != METHOD_HEAD)
-					send_response(c->s, cs, strlen(cs));
+					send_response(c, cs, strlen(cs));
 				UNPROTECT(7);
 				fin_request(c);
 				return;
@@ -441,21 +445,21 @@ static void process_request(args_t *c)
 					send_http_response(c, " 200 OK\r\nContent-type: ");
 				else {
 					sprintf(buf, "%s %d Code %d\r\nContent-type: ", HTTP_SIG(c), code, code);
-					send_response(c->s, buf, strlen(buf));
+					send_response(c, buf, strlen(buf));
 				}
-				send_response(c->s, ct, strlen(ct));
+				send_response(c, ct, strlen(ct));
 				if (sHeaders != R_NilValue) {
 					unsigned int i = 0, n = LENGTH(sHeaders);
 					for (; i < n; i++) {
 						const char *hs = CHAR(STRING_ELT(sHeaders, i));
-						send_response(c->s, "\r\n", 2);
-						send_response(c->s, hs, strlen(hs));
+						send_response(c, "\r\n", 2);
+						send_response(c, hs, strlen(hs));
 					}
 				}
 				sprintf(buf, "\r\nContent-length: %u\r\n\r\n", LENGTH(y));
-				send_response(c->s, buf, strlen(buf));
+				send_response(c, buf, strlen(buf));
 				if (c->method != METHOD_HEAD)
-					send_response(c->s, (char*) cs, LENGTH(y));
+					send_response(c, (char*) cs, LENGTH(y));
 				UNPROTECT(7);
 				fin_request(c);
 				return;
@@ -476,6 +480,7 @@ static void http_close(args_t *arg) {
  * connection socket and process it */
 static void http_input_iteration(args_t *c) {
     int n;
+	server_t *srv = c->srv;
 	
     DBG(printf("worker_input_handler, data=%p\n", data));
     if (!c) return;
@@ -494,7 +499,7 @@ static void http_input_iteration(args_t *c) {
      * into one packet. */
     if (c->part < PART_BODY) {
 		char *s = c->line_buf;
-		n = recv(c->s, c->line_buf + c->line_pos, LINE_BUF_SIZE - c->line_pos - 1, 0);
+		n = srv->recv(c, c->line_buf + c->line_pos, LINE_BUF_SIZE - c->line_pos - 1);
 		DBG(printf("[recv n=%d, line_pos=%d, part=%d]\n", n, c->line_pos, (int)c->part));
 		if (n < 0) { /* error, scrape this worker */
 			http_close(c);
@@ -591,7 +596,7 @@ static void http_input_iteration(args_t *c) {
 						unsigned int rll = strlen(bol); /* request line length */
 						char *url = bol + 5;
 						if (rll < 14 || strncmp(bol + rll - 9, " HTTP/1.", 8)) { /* each request must have at least 14 characters [GET / HTTP/1.0] and have HTTP/1.x */
-							send_response(c->s, "HTTP/1.0 400 Bad Request\r\n\r\n", 28);
+							send_response(c, "HTTP/1.0 400 Bad Request\r\n\r\n", 28);
 							http_close(c);
 							return;
 						}
@@ -676,7 +681,7 @@ static void http_input_iteration(args_t *c) {
     if (c->part == PART_BODY && c->body) { /* BODY  - this branch always returns */
 		if (c->body_pos < c->content_length) { /* need to receive more ? */
 			DBG(printf("BODY: body_pos=%d, content_length=%ld\n", c->body_pos, c->content_length));
-			n = recv(c->s, c->body + c->body_pos, c->content_length - c->body_pos, 0);
+			n = srv->recv(c, c->body + c->body_pos, c->content_length - c->body_pos);
 			DBG(printf("      [recv n=%d - had %u of %lu]\n", n, c->body_pos, c->content_length));
 			c->line_pos = 0;
 			if (n < 0) { /* error, scrap this worker */
@@ -746,7 +751,7 @@ static void http_input_iteration(args_t *c) {
 				return;
 			}
 		}
-		n = recv(c->s, c->line_buf + c->line_pos, LINE_BUF_SIZE - c->line_pos - 1, 0);
+		n = srv->recv(c, c->line_buf + c->line_pos, LINE_BUF_SIZE - c->line_pos - 1);
 		if (n < 0) { /* error, scrap this worker */
 			http_close(c);
 			return;
@@ -778,22 +783,24 @@ static void HTTP_connected(void *parg) {
 		return;
 	}
 
+	if ((arg->srv->flags & SRV_TLS) && shared_tls(0))
+		add_tls(arg, shared_tls(0), 1);
+
 	while (arg->s != -1)
 		http_input_iteration(arg);
 
 	free_args(arg);
 }
 
-server_t *create_HTTP_server(int port) {
+server_t *create_HTTP_server(int port, int flags) {
 	server_t *srv = create_server(port, 0, 0);
 	if (srv) {
 		srv->connected = HTTP_connected;
-		/* we are not actually using anyting else since HTTP_connected uses sockets directly */
 		/* srv->send_resp = */
 		srv->recv      = server_recv;
 		srv->send      = server_send;
 		srv->fin       = server_fin;
-		srv->flags     = 0;
+		srv->flags     = flags;
 		add_server(srv);
 		return srv;
 	}
