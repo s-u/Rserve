@@ -22,11 +22,12 @@ tls_t *new_tls() {
     
     if (first_tls) {
 	SSL_library_init();
+	/* SSL_load_error_strings(); */
 	first_tls = 0;
 	tls = t;
     }
 
-    t->method = SSLv23_client_method();
+    t->method = SSLv23_server_method();
     t->ctx = SSL_CTX_new(t->method);
     return t;
 }
