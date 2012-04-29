@@ -15,7 +15,7 @@
 	this is the original Rserve protocol used in Rserve 0.x
 	series. It works over TCP/IP and unix sockets. It is
 	enabled by default and can be disabled using
-	"Rserve disable" configuration directive.
+	"qap disable" configuration directive.
 
 	** HTTP **
 	this is very similar to the built-in R http server except that
@@ -26,6 +26,7 @@
 	FastRWeb without an external webserver. This protocol is
 	disabled by default and can be enabled by setting "http.port"
 	configuration directive to the desired port to listen to.
+	(Also see TLS support below for https server)
 
 	** WebSockets **
 	this protocol is used by HTML5 web browsers for direct access
@@ -69,6 +70,35 @@
 	is to serve remote machines. Typically, if both QAP and either
 	HTTP or WebSockets are used, it is recommended to use QAP on a
 	local unix socket for better access control.
+
+    o	Rserve now supports SSL/TLS connections on QAP and HTTP
+	protocols. The TLS key/CA entries are common for all
+	protocols. The relevant new configuration directives are:
+
+	  tls.key <private key PEM file>
+	  tls.cert <server certificate PEM file>
+	  tls.ca <CA PEM file issuing the above certificate>
+	  
+	TLS can be enabled by specifying the port for the
+	corresponding protocol:
+
+ 	  tls.qap.port <port>    - for Rserve/QAP
+	  tls.http.port <port>   - for HTTPS
+
+	(there are synonyms "https.port" for "tls.http.port" and
+	 "tls.port" for "tls.qap.port", however, the tls.* versions
+	 are preferred for clarity)
+
+	The use of TLS protocols is encouraged where sensitive data
+	is transmitted or when requiring secure authentication. For
+	QAP protocol using TCL/QAP with MD5 passwords (also new, see
+	below) is the currently recommended way where authorization is
+	required.
+
+	NOTE: TLS services are started **in addition** to any other
+	servers, i.e., if you want to enable TLS/QAP only, you have to
+	set tls.qap.port but also add "qap disable" to disable the
+	plain Rserve access.
 
     o	Rserve can now be started from within an existing R session
 	using run.Rserve() command. This allows the user to prepare a

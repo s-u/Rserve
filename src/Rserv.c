@@ -700,7 +700,7 @@ static int setConfig(const char *c, const char *p) {
 		}
 		return 1;
 	}
-	if (!strcmp(c, "rserve")) {
+	if (!strcmp(c, "rserve") || !strcmp(c, "qap")) {
 		enable_qap = (p[0] == 'e' || p[0] == 'y' || p[0] == '1' || p[0] == 'T') ? 1 : 0;
 		return 1;
 	}
