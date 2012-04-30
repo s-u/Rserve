@@ -636,12 +636,17 @@ static int ws_port = -1, enable_qap = 1, enable_ws_qap = 0, enable_ws_text = 0;
 int enable_oob = 0;
 static int http_port = -1;
 static int https_port = -1;
+static int switch_qap_tls = 0;
 
 /* attempts to set a particular configuration setting
    returns: 1 = setting accepted, 0 = unknown setting, -1 = setting known but failed */
 static int setConfig(const char *c, const char *p) {
 	if (!strcmp(c,"remote")) {
 		localonly = (*p == '1' || *p == 'y' || *p == 'e' || *p == 'T') ? 0 : 1;
+		return 1;
+	}
+	if (!strcmp(c,"switch.qap.tls")) {
+		switch_qap_tls = (*p == '1' || *p == 'y' || *p == 'e' || *p == 'T') ? 1 : 0;
 		return 1;
 	}
 	if (!strcmp(c,"port") || !strcmp(c, "qap.port")) {
@@ -1602,6 +1607,13 @@ void Rserve_QAP1_connected(void *thp) {
 		if (usePlain) memcpy(buf + 16, "ARpt", 4);
 #endif
     }
+#ifdef HAVE_TLS
+	if (switch_qap_tls) {
+		char *ep = buf + 16;
+		while (*ep != '-') ep += 4;
+		memcpy(ep, "TLS\n", 4);
+	}
+#endif
 #ifdef RSERV_DEBUG
     printf("sending ID string.\n");
 #endif
@@ -1707,7 +1719,7 @@ void Rserve_QAP1_connected(void *thp) {
 #endif
 						sendResp(a, SET_STAT(RESP_ERR, ERR_inv_par));
 						process = 1; ph.cmd = 0;
-						break;
+v						break;
 					}
 #endif
 					if (parLen & 3) unaligned=1;         
@@ -1747,6 +1759,23 @@ void Rserve_QAP1_connected(void *thp) {
 #ifdef RSERV_DEBUG
 		printf("CMD=%08x, pars=%d\n", ph.cmd, pars);
 #endif
+
+		if (ph.cmd == CMD_switch) {
+			if (pars < 1 || parT[0] != DT_STRING) 
+				sendResp(a, SET_STAT(RESP_ERR, ERR_inv_par));
+			else {
+				c = (char*) parP[0];
+				if (!strcmp(c, "TLS")) {
+					if (switch_qap_tls && shared_tls(0)) {
+						sendResp(a, RESP_OK);
+						add_tls(a, shared_tls(0), 1);
+					} else
+						sendResp(a, SET_STAT(RESP_ERR, ERR_disabled));
+				} else
+					sendResp(a, SET_STAT(RESP_ERR, ERR_unsupportedCmd));
+			}
+			continue;
+		}
 
 		if (!authed && ph.cmd==CMD_login) {
 			if (pars < 1 || parT[0] != DT_STRING) 

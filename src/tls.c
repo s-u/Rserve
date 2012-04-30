@@ -1,4 +1,10 @@
+#ifndef NO_CONFIG_H
+#include "config.h"
+#endif
+
 #include "tls.h"
+
+#ifdef HAVE_TLS
 
 #include <openssl/ssl.h>
 
@@ -81,3 +87,18 @@ void close_tls(args_t *c) {
 
 void free_tls(tls_t *tls) {
 }
+
+#else /* no SSL/TLS support, ignore everything, fail on everything */
+
+tls_t *shared_tls(tls_t *new_tls) { return 0; }
+
+tls_t *new_tls() { return 0; }
+int set_tls_pk(tls_t *tls, const char *fn) { return -1; }
+int set_tls_cert(tls_t *tls, const char *fn) { return -1; }
+int set_tls_ca(tls_t *tls, const char *fn_ca, const char *path_ca) { return -1; }
+void free_tls(tls_t *tls) { };
+
+int add_tls(args_t *c, tls_t *tls, int server) { return -1; }
+void close_tls(args_t *c) { }
+
+#endif

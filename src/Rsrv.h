@@ -177,6 +177,9 @@ struct phdr { /* always 16 bytes */
 #define ERR_detach_failed    0x51 /* unable to detach seesion (cannot determine
 									 peer IP or problems creating a listening
 									 socket for resume) */
+/* since 1.7 */
+#define ERR_disabled         0x61 /* feature is disabled */
+#define ERR_unavailable      0x62 /* feature is not present in this build */
 
 /* availiable commands */
 
@@ -184,6 +187,8 @@ struct phdr { /* always 16 bytes */
 #define CMD_voidEval     0x002 /* string : - */
 #define CMD_eval         0x003 /* string : encoded SEXP */
 #define CMD_shutdown     0x004 /* [admin-pwd] : - */
+
+#define CMD_switch       0x005 /* string (protocol)  : -; since 1.7 */
 
 /* file I/O routines. server may answe */
 #define CMD_openFile     0x010 /* fn : - */

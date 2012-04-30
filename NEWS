@@ -3,6 +3,14 @@
 
 1.7-0	(under development)
 
+   ***	---- HEADLINE NEWS ----
+   ***	new protocols: HTTP, HTTPS, WebSockets and TLS/QAP
+   ***	added protocol switching (from QAP to TLS/QAP) via CMD_switch
+   ***	The R client was moved to RSclient package
+   ***	New in-session server support with run.Rserve()
+   ***	Out-of-band messages via self.oobSend()
+   ***	---- END - see below for details ----
+
     o	This is the first release in the new 1.x Rserve series. Many
 	of the Rserve internals have been re-written or cleaned
 	up. The original protocol remains the same (so all clients
@@ -78,9 +86,20 @@
 	  tls.key <private key PEM file>
 	  tls.cert <server certificate PEM file>
 	  tls.ca <CA PEM file issuing the above certificate>
-	  
-	TLS can be enabled by specifying the port for the
-	corresponding protocol:
+
+	SSL/TLS can be used in several ways: with separate port for
+	TLS connections or by switching protocol form a regular QAP
+	connection using CMD_switch with "TLS" as argument. The latter
+	can be enabled using
+
+	  switch.qap.tls enable
+
+	Enabled switching is advertized by Rserve with the presence
+	of a "TLS" entry in the ID string. Keys and other TLS entries
+	must be initialized in order for TLS to be enabled.
+
+	Dedicated TLS servers can be enabled by specifying the port
+	for the corresponding protocol:
 
  	  tls.qap.port <port>    - for Rserve/QAP
 	  tls.http.port <port>   - for HTTPS
@@ -91,9 +110,11 @@
 
 	The use of TLS protocols is encouraged where sensitive data
 	is transmitted or when requiring secure authentication. For
-	QAP protocol using TCL/QAP with MD5 passwords (also new, see
+	QAP protocol, using TCL/QAP with MD5 passwords (also new, see
 	below) is the currently recommended way where authorization is
-	required.
+	required. The only drawback is increased CPU utilization
+	during transfers casued by the encryption and the fact that
+	TLS-enabled clients must be used.
 
 	NOTE: TLS services are started **in addition** to any other
 	servers, i.e., if you want to enable TLS/QAP only, you have to
@@ -119,6 +140,7 @@
 	creation of pre-spawned worker Rserve instances. This is in
 	particular useful on Windows, making it possible to support
 	some number of parallel connections.
+	(experimental)
 
     o	Rserve accepts additional command line arguments:
 	--RS-source <file>   (same as "source <file>" in cfg file)
