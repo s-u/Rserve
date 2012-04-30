@@ -208,6 +208,7 @@ extern __declspec(dllimport) int R_SignalHandlers;
 #include "Rsrv.h"
 #include "qap_encode.h"
 #include "qap_decode.h"
+#include "md5.h"
 
 #ifdef HAVE_CRYPT_H
 #include <crypt.h>
@@ -1838,7 +1839,7 @@ v						break;
 #endif
 									if (usePlain &&
 										((*c1 == '$' && strlen(c1) == 33 && !strcmp(c1 + 1, md5_pwd)) ||
-										 ((*c1 != '$' || strlen(c1) != 33 ) && !strcmp(!strcmp(c1,cc)))) {
+										 ((*c1 != '$' || strlen(c1) != 33 ) && !strcmp(c1, cc)))) {
 										authed = 1;
 #ifdef RSERV_DEBUG
 										puts(" - plain password matches.");
