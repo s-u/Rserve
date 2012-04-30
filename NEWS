@@ -156,6 +156,18 @@
 	and an error message will be printed when such overflows are
 	detected in the future (which hopefully won't happen).
 
+    o	Passwords file can contain MD5 hash of a password instead of
+	the plaintext password for non-crypt authentication. In that
+	case the MD5 hash must be lowercase hex representation with
+	preceding $ sign, so for example user "foo" with password
+	"bar" would have an entry
+	foo $37b51d194a7513e45b56f6524f2d51f2
+	You can use
+	  echo -n 'password' | openssl md5 
+  	to obtain the MD5 hash of a password. This feature makes sure
+	that passwords are not stored in plain text and thus are safe
+	from local attacks.
+
 --- In order to support new ideas a major re-organization of Rserve ---
 --- has been started - almost 10 years after the first release.     ---
 --- It is time to look ahead again with a new major version. The    ---

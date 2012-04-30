@@ -1781,6 +1781,8 @@ v						break;
 			if (pars < 1 || parT[0] != DT_STRING) 
 				sendResp(a, SET_STAT(RESP_ERR, ERR_inv_par));
 			else {
+				unsigned char phash[16];
+				char md5_pwd[34];
 				c = (char*)parP[0];
 				cc = c;
 				while(*cc && *cc != '\n') cc++;
@@ -1788,6 +1790,8 @@ v						break;
 				c1 = cc;
 				while(*c1) if(*c1 == '\n' || *c1 == '\r') *c1=0; else c1++;
 				/* c=login, cc=pwd */
+				md5hash(cc, strlen(cc), phash);
+				{ char *mp = md5_pwd; int k; for (k = 0; k < 16; mp+=2, k++) snprintf(mp, 3, "%02x", phash[k]); }
 				authed = 1;
 #ifdef RSERV_DEBUG
 				printf("Authentication attempt (login='%s',pwd='%s',pwdfile='%s')\n",c, cc, pwdfile);
@@ -1832,10 +1836,12 @@ v						break;
 #ifdef RSERV_DEBUG
 									printf("Found login '%s', checking password.\n", c);
 #endif
-									if (usePlain && !strcmp(c1,cc)) {
-										authed=1;
+									if (usePlain &&
+										((*c1 == '$' && strlen(c1) == 33 && !strcmp(c1 + 1, md5_pwd)) ||
+										 ((*c1 != '$' || strlen(c1) != 33 ) && !strcmp(!strcmp(c1,cc)))) {
+										authed = 1;
 #ifdef RSERV_DEBUG
-										puts(" - plain pasword matches.");
+										puts(" - plain password matches.");
 #endif
 									} else {
 #ifdef HAS_CRYPT
