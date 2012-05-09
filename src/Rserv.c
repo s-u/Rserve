@@ -1564,10 +1564,18 @@ static int auth_user(const char *usr, const char *pwd, const char *salt) {
 			if (authed) {
 				can_control = ctrl_flag;
 #ifdef unix
-				if (auto_gid)
-					setgid(u_gid ? u_gid : default_gid);
-				if (auto_uid)
-					setuid(u_uid ? u_uid : default_uid);
+				if (auto_uid && !u_uid && !default_uid) {
+					authed = 0;
+#ifdef DEBUG_RSERV
+					printf(" - no uid in the user entry and no default.uid, refusing authentication\n");
+#endif
+					
+				} else {
+					if (auto_gid)
+						setgid(u_gid ? u_gid : default_gid);
+					if (auto_uid)
+						setuid(u_uid ? u_uid : default_uid);
+				}
 #endif
 			}
 		} /* if (pwf) */
