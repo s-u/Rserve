@@ -16,6 +16,6 @@ extern void MD5Transform();
 
 typedef struct MD5Context MD5_CTX;
 
-unsigned char *md5hash(void *buf, int len, unsigned char hash[16]);
+unsigned char *md5hash(const void *buf, int len, unsigned char hash[16]);
 
 #endif /* !MD5_H */

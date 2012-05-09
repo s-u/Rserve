@@ -9,6 +9,7 @@
    ***	The R client was moved to RSclient package
    ***	New in-session server support with run.Rserve()
    ***	Out-of-band messages via self.oobSend()
+   ***  user-based uid/gid switch, MD5 stored passwords
    ***	---- END - see below for details ----
 
     o	This is the first release in the new 1.x Rserve series. Many
@@ -167,6 +168,36 @@
   	to obtain the MD5 hash of a password. This feature makes sure
 	that passwords are not stored in plain text and thus are safe
 	from local attacks.
+
+    o	Rserve now has the ability to change uid/gid according to the
+	user that has been authenticated. The following settings
+	concern this feature (unix-only):
+
+	   auto.uid {enable|disable} [disable]
+	   auto.gid {enable}disable} [disable]
+	   default.uid <uid> [none]
+	   default.gid <gid> [none]
+
+	The auto.uid/gid directives enable setuid/setgid based on
+	user's uid/gid. In case no uid/gid is specified with the
+	username, dhe default.uid/gid settings will be used. If there
+	is no uid/gid in the username and no defaults are specified,
+	the user's authentication will fail. User's uid/gid can be
+	specified in the passwords file by appending /uid,gid to the
+	username. If gid is specified, uid will be used for both uid
+	and gid. So for example user "foo" (from the above MD5
+	example) with uid=501 would have an entry on the passwords
+	file:
+
+	   foo/501 $37b51d194a7513e45b56f6524f2d51f2
+
+	For this to work, Rserve must be started as root. However,
+	with auto.uid enabled it is safe to do so since Rserve will
+	prevent any R access until authenticated. You should, however,
+	use a client capable of secure PK authentication or use secure
+	connection such as QAP/TLS as to not send password in
+	cleartext over the wire.
+
 
 --- In order to support new ideas a major re-organization of Rserve ---
 --- has been started - almost 10 years after the first release.     ---

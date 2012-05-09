@@ -639,15 +639,34 @@ static int http_port = -1;
 static int https_port = -1;
 static int switch_qap_tls = 0;
 
+static int auto_uid = 0, auto_gid = 0;
+static int default_uid = 0, default_gid = 0;
+
 /* attempts to set a particular configuration setting
    returns: 1 = setting accepted, 0 = unknown setting, -1 = setting known but failed */
 static int setConfig(const char *c, const char *p) {
-	if (!strcmp(c,"remote")) {
+	if (!strcmp(c, "remote")) {
 		localonly = (*p == '1' || *p == 'y' || *p == 'e' || *p == 'T') ? 0 : 1;
 		return 1;
 	}
-	if (!strcmp(c,"switch.qap.tls")) {
+	if (!strcmp(c, "switch.qap.tls")) {
 		switch_qap_tls = (*p == '1' || *p == 'y' || *p == 'e' || *p == 'T') ? 1 : 0;
+		return 1;
+	}
+	if (!strcmp(c, "auto.uid")) {
+		auto_uid = (*p == '1' || *p == 'y' || *p == 'e' || *p == 'T') ? 1 : 0;
+		return 1;
+	}
+	if (!strcmp(c, "auto.gid")) {
+		auto_gid = (*p == '1' || *p == 'y' || *p == 'e' || *p == 'T') ? 1 : 0;
+		return 1;
+	}
+	if (!strcmp(c, "default.uid")) {
+		default_uid = satoi(p);
+		return 1;
+	}
+	if (!strcmp(c, "default.gid")) {
+		default_gid = satoi(p);
 		return 1;
 	}
 	if (!strcmp(c,"port") || !strcmp(c, "qap.port")) {
@@ -865,7 +884,7 @@ static int setConfig(const char *c, const char *p) {
 		allowIO = (*p=='1' || *p=='y' || *p=='e' || *p == 'T') ? 1 : 0;
 		return 1;
 	}
-	if (!strcmp(c,"r-control")){
+	if (!strcmp(c, "r-control") || !strcmp(c, "r.control")) {
 		self_control = (*p=='1' || *p=='y' || *p=='e' || *p == 'T') ? 1 : 0;
 		return 1;
 	}
@@ -1453,6 +1472,112 @@ void Rserve_text_connected(void *thp) {
 	}
 }
 
+static char auth_buf[4096];
+
+static int auth_user(const char *usr, const char *pwd, const char *salt) {
+	int authed = 0;
+	unsigned char phash[16];
+	char md5_pwd[34]; /* MD5 hex representation of the password */
+	md5hash(pwd, strlen(pwd), phash);
+	{
+		char *mp = md5_pwd;
+		int k;
+		for (k = 0; k < 16; mp+=2, k++)
+			snprintf(mp, 3, "%02x", phash[k]);
+	}
+	authed = 1;
+#ifdef RSERV_DEBUG
+	printf("Authentication attempt (login='%s', pwd='%s', pwdfile='%s')\n", usr, pwd, pwdfile);
+#endif
+	if (pwdfile) {
+		pwdf_t *pwf;
+		int ctrl_flag = 0, u_uid = 0, u_gid = 0;
+		authed = 0; /* if pwdfile exists, default is access denied */
+					/* we abuse variables of other commands since we are
+					   the first command ever used so we can trash them */
+		pwf = pwd_open();
+		if (pwf) {
+			auth_buf[sizeof(auth_buf) - 1] = 0;
+			while(!pwd_eof(pwf))
+				if (pwd_gets(auth_buf, sizeof(auth_buf) - 1, pwf)) {
+					char *login = auth_buf, *c1 = auth_buf, *c2, *l_uid = 0, *l_gid = 0; /* <TAB> and <SPC> are valid separators */
+					while(*c1 && *c1 != ' ' && *c1 != '\t') { /* [@]username[/uid[,gid]] {$MD5hash|password} */
+						if (*c1 == '/' && !l_uid) {
+							*c1 = 0; l_uid = c1 + 1;
+						} else if (*c1 == ',' && l_uid) {
+							*c1 = 0; if (!l_gid) l_gid = c1 + 1;
+						}
+						c1++;
+					}
+					if (l_uid) u_uid = satoi(l_uid);
+					if (l_gid) u_gid = satoi(l_gid);
+					if (l_uid && !l_gid) u_gid = u_uid;
+
+					if (*c1) {
+						*c1 = 0;
+						c1++;
+						while(*c1 == ' ' || *c1 == '\t') c1++; /* skip leading blanks */
+					}
+					c2 = c1;
+					while(*c2)
+						if (*c2 == '\r' || *c2=='\n') *c2 = 0; else c2++;
+
+					ctrl_flag = 0;
+					if (*login == '#') continue; /* skip comment lines */
+
+					if (*login == '@') { /* only users with @ prefix can use control commands */
+						login++;
+						ctrl_flag = 1;
+					}
+
+					if (*login == '*') { /* general authentication - useful to set control access but leave client access open */
+						authed = 1;
+#ifdef RSERV_DEBUG
+						printf("Public authentication enabled (found * entry), allowing login without checking.\n");
+#endif
+						break;
+					}
+					if (!strcmp(login, usr)) { /* login found */
+#ifdef RSERV_DEBUG
+						printf("Found login '%s', checking password.\n", usr);
+#endif
+						if (usePlain &&
+							((*c1 == '$' && strlen(c1) == 33 && !strcmp(c1 + 1, md5_pwd)) ||
+							 ((*c1 != '$' || strlen(c1) != 33 ) && !strcmp(c1, pwd)))) {
+							authed = 1;
+#ifdef RSERV_DEBUG
+							puts(" - plain password matches.");
+#endif
+						} else {
+#ifdef HAS_CRYPT
+							c2 = crypt(c1, salt);
+#ifdef RSERV_DEBUG
+							printf(" - checking crypted '%s' vs '%s'\n", c2, pwd);
+#endif
+							if (!strcmp(c2, pwd)) authed = 1;
+#endif
+						}
+					}
+					if (authed) break;
+				} /* if fgets */
+			pwd_close(pwf);
+			if (authed) {
+				can_control = ctrl_flag;
+#ifdef unix
+				if (auto_gid)
+					setgid(u_gid ? u_gid : default_gid);
+				if (auto_uid)
+					setuid(u_uid ? u_uid : default_uid);
+#endif
+			}
+		} /* if (pwf) */
+	}
+#ifdef DEBUG_RSERV
+	printf(" - authentication %s\n", authed ? "succeeded" : "failed");
+#endif
+	return authed;
+}
+
 /* working thread/function. the parameter is of the type struct args* */
 /* This server function implements the Rserve QAP1 protocol */
 void Rserve_QAP1_connected(void *thp) {
@@ -1460,7 +1585,7 @@ void Rserve_QAP1_connected(void *thp) {
     struct args *a = (struct args*)thp;
     struct phdr ph;
 	server_t *srv = a->srv;
-    char *buf, *c, *cc, *c1, *c2;
+    char *buf, *c, *cc, *c1;
     int pars;
     int process;
 	int rn;
@@ -1782,8 +1907,11 @@ v						break;
 			if (pars < 1 || parT[0] != DT_STRING) 
 				sendResp(a, SET_STAT(RESP_ERR, ERR_inv_par));
 			else {
-				unsigned char phash[16];
-				char md5_pwd[34];
+#ifdef HAS_CRYPT
+				const char *my_salt = salt + 1;
+#else
+				const char *my_salt = 0;
+#endif
 				c = (char*)parP[0];
 				cc = c;
 				while(*cc && *cc != '\n') cc++;
@@ -1791,82 +1919,10 @@ v						break;
 				c1 = cc;
 				while(*c1) if(*c1 == '\n' || *c1 == '\r') *c1=0; else c1++;
 				/* c=login, cc=pwd */
-				md5hash(cc, strlen(cc), phash);
-				{ char *mp = md5_pwd; int k; for (k = 0; k < 16; mp+=2, k++) snprintf(mp, 3, "%02x", phash[k]); }
-				authed = 1;
-#ifdef RSERV_DEBUG
-				printf("Authentication attempt (login='%s',pwd='%s',pwdfile='%s')\n",c, cc, pwdfile);
-#endif
-				if (pwdfile) {
-					pwdf_t *pwf;
-					int ctrl_flag = 0;
-					authed = 0; /* if pwdfile exists, default is access denied */
-					/* TODO: opening pwd file, parsing it and responding
-					   might be a bad idea, since it allows DOS attacks as this
-					   operation is fairly costly. We should actually cache
-					   the user list and reload it only on HUP or something. */
-					/* we abuse variables of other commands since we are
-					   the first command ever used so we can trash them */
-					pwf = pwd_open();
-					if (pwf) {
-						sfbuf[sfbufSize - 1] = 0;
-						while(!pwd_eof(pwf))
-							if (pwd_gets(sfbuf, sfbufSize - 1, pwf)) {
-								char *login = c1 = sfbuf;
-								while(*c1 && *c1 != ' ' && *c1 != '\t') c1++;
-								if (*c1) {
-									*c1 = 0;
-									c1++;
-									while(*c1 == ' ' || *c1 == '\t') c1++;
-								}
-								c2 = c1;
-								while(*c2) if (*c2 == '\r' || *c2=='\n') *c2 = 0; else c2++;
-								ctrl_flag = 0;
-								if (*login == '@') { /* only users with @ prefix can use control commands */
-									login++;
-									ctrl_flag = 1;
-								}
-								if (*login == '*') { /* general authentication - useful to set control access but leave client access open */
-									authed = 1;
-#ifdef RSERV_DEBUG
-									printf("Public authentication enabled (found * entry), allowing login without checking.\n");
-#endif
-									break;
-								}
-								if (!strcmp(login, c)) { /* login found */
-#ifdef RSERV_DEBUG
-									printf("Found login '%s', checking password.\n", c);
-#endif
-									if (usePlain &&
-										((*c1 == '$' && strlen(c1) == 33 && !strcmp(c1 + 1, md5_pwd)) ||
-										 ((*c1 != '$' || strlen(c1) != 33 ) && !strcmp(c1, cc)))) {
-										authed = 1;
-#ifdef RSERV_DEBUG
-										puts(" - plain password matches.");
-#endif
-									} else {
-#ifdef HAS_CRYPT
-										c2=crypt(c1,salt+1);
-#ifdef RSERV_DEBUG
-										printf(" - checking crypted '%s' vs '%s'\n", c2, cc);
-#endif
-										if (!strcmp(c2,cc)) authed=1;
-#endif
-									}
-#ifdef DEBUG_RSERV
-									printf(" - authentication %s\n",(authed)?"succeeded":"failed");
-#endif
-								}
-								if (authed) break;
-							} /* if fgets */
-						pwd_close(pwf);
-					} /* if (pwf) */
-					cf = 0;
-					if (authed) {
-						can_control = ctrl_flag;
-						process=1;
-						sendResp(a, RESP_OK);
-					}
+				authed = auth_user(c, cc, my_salt);
+				if (authed) {
+					process = 1;
+					sendResp(a, RESP_OK);
 				}
 			}
 		}
