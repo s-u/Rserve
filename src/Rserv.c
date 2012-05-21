@@ -306,6 +306,9 @@ rlen_t maxSendBufSize = 0; /* max. sendbuf for auto-resize. 0=no limit */
 
 int Rsrv_interactive = 1; /* default for R_Interactive flag */
 
+static char authkey[1024];  /* server-side authentication key */
+static int authkey_req = 0; /* number of auth requests */
+
 #ifdef unix
 static int umask_value = 0;
 #endif
@@ -1603,6 +1606,50 @@ static int auth_user(const char *usr, const char *pwd, const char *salt) {
 	return authed;
 }
 
+#ifdef HAVE_RSA
+#include <openssl/rsa.h>
+#include <openssl/rand.h>
+
+static RSA *rsa_srv_key;
+
+static char rsa_buf[32768];
+
+#define SRV_KEY_LEN 512
+
+static int rsa_gen_resp(char **dst) {
+	unsigned char *kb;
+	unsigned char *pt;
+	int kl;
+	if (!rsa_srv_key)
+		rsa_srv_key = RSA_generate_key(4096, 65537, 0, 0);
+	if (!rsa_srv_key || RAND_bytes((unsigned char*) authkey, sizeof(authkey)) == 0)
+		return 0;
+	kb = calloc(65536, 1);
+	if (!kb)
+		return 0;
+	kb[0] = SRV_KEY_LEN & 0xff;
+	kb[1] = (SRV_KEY_LEN >> 8) & 0xff;
+	memcpy(kb + 4, authkey, SRV_KEY_LEN);
+	pt = kb + SRV_KEY_LEN + 8;
+	kl = i2d_RSAPublicKey(rsa_srv_key, &pt);
+	kb[SRV_KEY_LEN + 4] = kl & 0xff;
+	kb[SRV_KEY_LEN + 5] = (kl >> 8) & 0xff;
+	*dst = (char*) kb;
+	return SRV_KEY_LEN + kl + 8;
+}
+
+static int rsa_decode(char *dst, char *src, int len) {
+	return RSA_private_decrypt(len, (unsigned char*)src, (unsigned char*) dst, rsa_srv_key, RSA_PKCS1_OAEP_PADDING);
+}
+
+/* the client encodes, so we don't use it for now
+static int rsa_encode(char *dst, char *src, int len) {
+	return RSA_public_encrypt(len, (unsigned char*)src, (unsigned char*) dst, rsa_srv_key, RSA_PKCS1_OAEP_PADDING);
+}
+*/
+
+#endif
+
 /* working thread/function. the parameter is of the type struct args* */
 /* This server function implements the Rserve QAP1 protocol */
 void Rserve_QAP1_connected(void *thp) {
@@ -1926,6 +1973,80 @@ v						break;
 					sendResp(a, SET_STAT(RESP_ERR, ERR_unsupportedCmd));
 			}
 			continue;
+		}
+
+		if (ph.cmd == CMD_keyReq) {
+			if (pars < 1 || parT[0] != DT_STRING) 
+				sendResp(a, SET_STAT(RESP_ERR, ERR_inv_par));
+			else {
+				c = (char*) parP[0];
+#ifdef HAVE_RSA
+				/* rsa-authkey - generates authkey and sends server's public RSA key */
+				if (strstr(c, "rsa-authkey")) {
+					if (++authkey_req < 2) {
+						char *pload = 0;
+						int pl = rsa_gen_resp(&pload);
+						if (pl < 1)
+							sendResp(a, SET_STAT(RESP_ERR, ERR_cryptError));
+						else
+							sendRespData(a, RESP_OK, pl, pload);
+						if (pload)
+							free(pload);
+					} else {
+						sendResp(a, SET_STAT(RESP_ERR, ERR_securityClose));
+						closesocket(s);
+						free(sendbuf); free(sfbuf); free(buf);
+						return;
+					}
+				} else
+#endif
+					sendResp(a, SET_STAT(RESP_ERR, ERR_unavailable));
+			}
+			continue;
+		}
+
+		if (ph.cmd == CMD_secLogin) {
+#ifdef HAVE_RSA
+			if (pars < 1 || parT[0] != DT_BYTESTREAM || parL[0] >= sizeof(rsa_buf))
+				sendResp(a, SET_STAT(RESP_ERR, ERR_inv_par));
+			else {
+				int dl;
+				if (!rsa_srv_key || (dl = rsa_decode((char*) parP[0], rsa_buf, parL[0])) < 1)
+					sendResp(a, SET_STAT(RESP_ERR, ERR_auth_failed));
+				else {
+					unsigned char *rb = (unsigned char*) rsa_buf;
+					if (rb[0] != (SRV_KEY_LEN & 0xff) || rb[1] != ((SRV_KEY_LEN >> 8) & 0xff) || rb[2] || rb[3] || memcpy(rb + 4, authkey, SRV_KEY_LEN))
+						sendResp(a, SET_STAT(RESP_ERR, ERR_auth_failed));
+					else {
+						unsigned int asl = rb[SRV_KEY_LEN + 5];
+						asl <<= 8;
+						asl |= rb[SRV_KEY_LEN + 4];
+						if (asl + SRV_KEY_LEN + 8 > dl)
+							sendResp(a, SET_STAT(RESP_ERR, ERR_auth_failed));
+						else {
+							char *ac, *au = 0, *ap = 0;
+							int i;
+							au = ac = ((char*) rb) + SRV_KEY_LEN + 8;
+							for (i = 0; i < asl; i++)
+								if (ac[i] == '\n') {
+									ac[i] = 0;
+									if (!ap) ap = ac + i;
+								}
+							if (ac[asl - 1])
+								ac[asl] = 0;
+							authed = auth_user(au, ap ? ap : "", 0);
+							if (authed) {
+								process = 1;
+								sendResp(a, RESP_OK);
+							}
+						}
+					}
+				}
+			}
+#else
+			sendResp(a, SET_STAT(RESP_ERR, ERR_unavailable));
+			continue;
+#endif
 		}
 
 		if (!authed && ph.cmd==CMD_login) {

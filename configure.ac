@@ -147,7 +147,10 @@ fi
 # on some platforms libR expects dl code in the binary
 AC_CHECK_LIB(dl, dlopen)
 
-# checl SSL support
+# cehck RSA/crypto
+AC_SEARCH_LIBS(RSA_generate_key, [crypto ssl openssl], [AC_DEFINE(HAVE_RSA, 1, [RSA crypto support])])
+
+# check SSL support
 AC_SEARCH_LIBS(SSL_CTX_load_verify_locations, [ssl openssl], [AC_DEFINE(HAVE_TLS, 1, [TLS/SSL support])])
 
 AC_CONFIG_FILES([src/Makevars])

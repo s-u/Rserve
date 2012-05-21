@@ -180,6 +180,10 @@ struct phdr { /* always 16 bytes */
 /* since 1.7 */
 #define ERR_disabled         0x61 /* feature is disabled */
 #define ERR_unavailable      0x62 /* feature is not present in this build */
+#define ERR_cryptError       0x63 /* crypto-system error */
+#define ERR_securityClose    0x64 /* server-initiated close due to security
+									 violation (too many attempts, excessive
+									 timeout etc.) */
 
 /* availiable commands */
 
@@ -188,7 +192,10 @@ struct phdr { /* always 16 bytes */
 #define CMD_eval         0x003 /* string : encoded SEXP */
 #define CMD_shutdown     0x004 /* [admin-pwd] : - */
 
-#define CMD_switch       0x005 /* string (protocol)  : -; since 1.7 */
+/* security/encryption - all since 1.7-0 */
+#define CMD_switch       0x005 /* string (protocol)  : - */
+#define CMD_keyReq       0x006 /* string (request) : bytestream (key) */ 
+#define CMD_secLogin     0x007 /* bytestream (encrypted auth) : - */
 
 /* file I/O routines. server may answe */
 #define CMD_openFile     0x010 /* fn : - */
