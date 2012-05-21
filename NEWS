@@ -9,7 +9,7 @@
    ***	The R client was moved to RSclient package
    ***	New in-session server support with run.Rserve()
    ***	Out-of-band messages via self.oobSend()
-   ***  user-based uid/gid switch, MD5 stored passwords
+   ***  user-based uid/gid switch, MD5/SHA1 stored passwords
    ***	---- END - see below for details ----
 
     o	This is the first release in the new 1.x Rserve series. Many
@@ -111,7 +111,7 @@
 
 	The use of TLS protocols is encouraged where sensitive data
 	is transmitted or when requiring secure authentication. For
-	QAP protocol, using TCL/QAP with MD5 passwords (also new, see
+	QAP protocol, using TCL/QAP with SHA1 passwords (also new, see
 	below) is the currently recommended way where authorization is
 	required. The only drawback is increased CPU utilization
 	during transfers casued by the encryption and the fact that
@@ -157,17 +157,18 @@
 	and an error message will be printed when such overflows are
 	detected in the future (which hopefully won't happen).
 
-    o	Passwords file can contain MD5 hash of a password instead of
-	the plaintext password for non-crypt authentication. In that
-	case the MD5 hash must be lowercase hex representation with
-	preceding $ sign, so for example user "foo" with password
-	"bar" would have an entry
-	foo $37b51d194a7513e45b56f6524f2d51f2
+    o	Passwords file can contain MD5 or SHA1 hash of a password
+	instead of the plaintext password for non-crypt
+	authentication. In that case the hash must be lowercase	hex
+	representation with preceding $ sign, so for example user
+	"foo" with password "bar" would have an entry
+	foo $62cdb7020ff920e5aa642c3d4066950dd1f01f4d
 	You can use
-	  echo -n 'password' | openssl md5 
-  	to obtain the MD5 hash of a password. This feature makes sure
-	that passwords are not stored in plain text and thus are safe
-	from local attacks.
+	  echo -n 'password' | openssl sha1
+  	to obtain the SHA1 hash of a password (openssl md5 for MD5
+	hash - MD5 is probably more common but less secure than
+	SHA1). This feature makes sure that passwords are not stored
+	in plain text and thus are safe from local attacks.
 
     o	Rserve now has the ability to change uid/gid according to the
 	user that has been authenticated. The following settings

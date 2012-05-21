@@ -209,6 +209,8 @@ extern __declspec(dllimport) int R_SignalHandlers;
 #include "qap_encode.h"
 #include "qap_decode.h"
 #include "md5.h"
+/* we don't bother with sha1.h so this is the declaration */
+void sha1hash(const char *buf, int len, unsigned char hash[20]);
 
 #ifdef HAVE_CRYPT_H
 #include <crypt.h>
@@ -1474,16 +1476,29 @@ void Rserve_text_connected(void *thp) {
 
 static char auth_buf[4096];
 
+static const char *hexc = "0123456789abcdef";
+
 static int auth_user(const char *usr, const char *pwd, const char *salt) {
 	int authed = 0;
-	unsigned char phash[16];
-	char md5_pwd[34]; /* MD5 hex representation of the password */
-	md5hash(pwd, strlen(pwd), phash);
-	{
+	unsigned char md5h[16];
+	unsigned char sh1h[20];
+	char md5_pwd[34];  /* MD5 hex representation of the password */
+	char sha1_pwd[42]; /* SHA1 hex representation of the password */
+	md5hash(pwd, strlen(pwd), md5h);
+	sha1hash(pwd, strlen(pwd), sh1h);
+	{ /* create hex-encoded versions of the password hashes */
 		char *mp = md5_pwd;
 		int k;
-		for (k = 0; k < 16; mp+=2, k++)
-			snprintf(mp, 3, "%02x", phash[k]);
+		for (k = 0; k < 16; mp+=2, k++) {
+			*(mp++) = hexc[md5h[k] >> 8];
+			*(mp++) = hexc[md5h[k] & 15];
+		}
+		*mp = 0;
+		mp = sha1_pwd;
+		for (k = 0; k < 20; mp+=2, k++) {
+			*(mp++) = hexc[sh1h[k] >> 8];
+			*(mp++) = hexc[sh1h[k] & 15];
+		}
 	}
 	authed = 1;
 #ifdef RSERV_DEBUG
@@ -1501,7 +1516,7 @@ static int auth_user(const char *usr, const char *pwd, const char *salt) {
 			while(!pwd_eof(pwf))
 				if (pwd_gets(auth_buf, sizeof(auth_buf) - 1, pwf)) {
 					char *login = auth_buf, *c1 = auth_buf, *c2, *l_uid = 0, *l_gid = 0; /* <TAB> and <SPC> are valid separators */
-					while(*c1 && *c1 != ' ' && *c1 != '\t') { /* [@]username[/uid[,gid]] {$MD5hash|password} */
+					while(*c1 && *c1 != ' ' && *c1 != '\t') { /* [@]username[/uid[,gid]] {$MD5/SHA1hash|password} */
 						if (*c1 == '/' && !l_uid) {
 							*c1 = 0; l_uid = c1 + 1;
 						} else if (*c1 == ',' && l_uid) {
@@ -1543,10 +1558,12 @@ static int auth_user(const char *usr, const char *pwd, const char *salt) {
 #endif
 						if (usePlain &&
 							((*c1 == '$' && strlen(c1) == 33 && !strcmp(c1 + 1, md5_pwd)) ||
-							 ((*c1 != '$' || strlen(c1) != 33 ) && !strcmp(c1, pwd)))) {
+							 (*c1 == '$' && strlen(c1) == 41 && !strcmp(c1 + 1, sha1_pwd)) ||
+							 ((*c1 != '$' || (strlen(c1) != 33 && strlen(c1) !=41)) && !strcmp(c1, pwd)))) {
 							authed = 1;
 #ifdef RSERV_DEBUG
-							puts(" - plain password matches.");
+							printf(" - %s password matches.", (*c1 == '$' && strlen(c1) == 33) ? "MD5" :
+								   ((*c1 == '$' && strlen(c1) == 41) ? "SHA1" : "plain"));
 #endif
 						} else {
 #ifdef HAS_CRYPT
