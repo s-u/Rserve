@@ -1609,6 +1609,9 @@ static int auth_user(const char *usr, const char *pwd, const char *salt) {
 #ifdef HAVE_RSA
 #include <openssl/rsa.h>
 #include <openssl/rand.h>
+#ifdef RSERV_DEBUG
+#include <openssl/err.h>
+#endif
 
 static RSA *rsa_srv_key;
 
@@ -1620,8 +1623,15 @@ static int rsa_gen_resp(char **dst) {
 	unsigned char *kb;
 	unsigned char *pt;
 	int kl;
-	if (!rsa_srv_key)
+	if (!rsa_srv_key) {
+#ifdef RSERV_DEBUG
+		printf("rsa_gen_resp: generating RSA key\n");
+#endif
 		rsa_srv_key = RSA_generate_key(4096, 65537, 0, 0);
+#ifdef RSERV_DEBUG
+		printf(" - done\n");
+#endif
+	}
 	if (!rsa_srv_key || RAND_bytes((unsigned char*) authkey, sizeof(authkey)) == 0)
 		return 0;
 	kb = calloc(65536, 1);
@@ -1638,8 +1648,23 @@ static int rsa_gen_resp(char **dst) {
 	return SRV_KEY_LEN + kl + 8;
 }
 
-static int rsa_decode(char *dst, char *src, int len) {
-	return RSA_private_decrypt(len, (unsigned char*)src, (unsigned char*) dst, rsa_srv_key, RSA_PKCS1_OAEP_PADDING);
+static int rsa_decode(char *dst, const char *src, int len) {
+	int dec = 0, blk = RSA_size(rsa_srv_key);
+	while (len > 0) {
+		int db = (len > blk) ? blk : len;
+		int n = RSA_private_decrypt(db, (unsigned char*)src, (unsigned char*) dst, rsa_srv_key, RSA_PKCS1_OAEP_PADDING);
+		if (n <= 0) {
+#ifdef RSERV_DEBUG
+			printf("rsa_decode (dec=%d, len=%d, db=%d) failed: %s\n", dec, len, db, ERR_error_string(ERR_get_error(), 0));
+#endif
+			return -1;
+		}
+		dst += n;
+		dec += n;
+		src += db;
+		len -= db;
+	}
+	return dec;
 }
 
 /* the client encodes, so we don't use it for now
@@ -2010,17 +2035,26 @@ v						break;
 			if (pars < 1 || parT[0] != DT_BYTESTREAM || parL[0] >= sizeof(rsa_buf))
 				sendResp(a, SET_STAT(RESP_ERR, ERR_inv_par));
 			else {
-				int dl;
-				if (!rsa_srv_key || (dl = rsa_decode((char*) parP[0], rsa_buf, parL[0])) < 1)
+				int dl = 0;
+				if (!rsa_srv_key || (dl = rsa_decode(rsa_buf, (char*) parP[0], parL[0])) < 1) {
+#ifdef RSERV_DEBUG
+					printf("CMD_secLogin: decode failed - rsa_srv_key=%p, dl = %d (payload %d)\n", (void*)rsa_srv_key, dl, (int) parL[0]);
+#endif
 					sendResp(a, SET_STAT(RESP_ERR, ERR_auth_failed));
-				else {
+				} else {
 					unsigned char *rb = (unsigned char*) rsa_buf;
-					if (rb[0] != (SRV_KEY_LEN & 0xff) || rb[1] != ((SRV_KEY_LEN >> 8) & 0xff) || rb[2] || rb[3] || memcpy(rb + 4, authkey, SRV_KEY_LEN))
+					if (rb[0] != (SRV_KEY_LEN & 0xff) || rb[1] != ((SRV_KEY_LEN >> 8) & 0xff) || rb[2] || rb[3] || memcmp(rb + 4, authkey, SRV_KEY_LEN)) {
+#ifdef RSERV_DEBUG
+						printf("CMD_secLogin: authkey mismatch\n");
+#endif
 						sendResp(a, SET_STAT(RESP_ERR, ERR_auth_failed));
-					else {
+					} else {
 						unsigned int asl = rb[SRV_KEY_LEN + 5];
 						asl <<= 8;
 						asl |= rb[SRV_KEY_LEN + 4];
+#ifdef RSERV_DEBUG
+						printf("CMD_secLogin: authkey matches, asl payload: %d\n", asl);
+#endif
 						if (asl + SRV_KEY_LEN + 8 > dl)
 							sendResp(a, SET_STAT(RESP_ERR, ERR_auth_failed));
 						else {
@@ -2030,7 +2064,7 @@ v						break;
 							for (i = 0; i < asl; i++)
 								if (ac[i] == '\n') {
 									ac[i] = 0;
-									if (!ap) ap = ac + i;
+									if (!ap) ap = ac + i + 1;
 								}
 							if (ac[asl - 1])
 								ac[asl] = 0;

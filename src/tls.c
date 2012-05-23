@@ -7,6 +7,9 @@
 #ifdef HAVE_TLS
 
 #include <openssl/ssl.h>
+#ifdef RSERV_DEBUG
+#include <openssl/err.h>
+#endif
 
 struct tls {
     SSL_CTX *ctx;
@@ -28,7 +31,9 @@ tls_t *new_tls() {
     
     if (first_tls) {
 	SSL_library_init();
-	/* SSL_load_error_strings(); */
+#ifdef RSERV_DEBUG
+	SSL_load_error_strings();
+#endif
 	first_tls = 0;
 	tls = t;
     }
