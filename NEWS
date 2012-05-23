@@ -102,12 +102,12 @@
 	Dedicated TLS servers can be enabled by specifying the port
 	for the corresponding protocol:
 
- 	  tls.qap.port <port>    - for Rserve/QAP
-	  tls.http.port <port>   - for HTTPS
+ 	  qap.tls.port <port>    - for Rserve/QAP
+	  http.tls.port <port>   - for HTTPS
 
-	(there are synonyms "https.port" for "tls.http.port" and
-	 "tls.port" for "tls.qap.port", however, the tls.* versions
-	 are preferred for clarity)
+	(there are synonyms "https.port" for "http.tls.port" and
+	 "tls.port" for "qap.tls.port", however, the *.tls.port
+	 versions are preferred for clarity)
 
 	The use of TLS protocols is encouraged where sensitive data
 	is transmitted or when requiring secure authentication. For
@@ -116,6 +116,16 @@
 	required. The only drawback is increased CPU utilization
 	during transfers casued by the encryption and the fact that
 	TLS-enabled clients must be used.
+
+	When enabling TLS tls.key and tls.cert are mandatory, tls.ca
+	is optional to establish CA chain of trust (whether this is
+	needed depends on the client and the certificate). To generate
+	a key and self-signed certificate, you can use something like
+	
+	  openssl genrsa -out server.key 2048
+	  openssl req -new -key server.key -out server.csr
+	  openssl x509 -req -days 365 -in server.csr \
+                  -signkey server.key -out server.crt
 
 	NOTE: TLS services are started **in addition** to any other
 	servers, i.e., if you want to enable TLS/QAP only, you have to

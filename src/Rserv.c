@@ -557,8 +557,8 @@ static int localonly = 1;
 
 /* send a response including the data part */
 void Rserve_QAP1_send_resp(args_t *arg, int rsp, rlen_t len, void *buf) {
-    struct phdr ph;
-	int s = arg->s;
+	server_t *srv = arg->srv;
+	struct phdr ph;
 	rlen_t i = 0;
     memset(&ph, 0, sizeof(ph));
     ph.cmd = itop(rsp | CMD_RESP);	
@@ -577,10 +577,10 @@ void Rserve_QAP1_send_resp(args_t *arg, int rsp, rlen_t len, void *buf) {
 	}
 #endif
     
-    send(s, (char*)&ph, sizeof(ph), 0);
+    srv->send(arg, (char*)&ph, sizeof(ph));
 	
 	while (i < len) {
-		int rs = send(s, (char*)buf + i, (len - i > max_sio_chunk) ? max_sio_chunk : (len - i), 0);
+		int rs = srv->send(arg, (char*)buf + i, (len - i > max_sio_chunk) ? max_sio_chunk : (len - i));
 		if (rs < 1)
 			break;
 		i += rs;
