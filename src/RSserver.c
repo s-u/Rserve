@@ -13,6 +13,10 @@ server_t *create_server(int port, const char *localSocketName, int localSocketMo
 	SAIN ssa;
 	int reuse, ss;
 	struct sockaddr_in lsa;
+#ifdef HAVE_IPV6
+	struct sockaddr_in6 lsa6;
+	int use_ipv6 = 0;
+#endif
 	struct sockaddr_un lusa;
     
 	lsa.sin_addr.s_addr = inet_addr("127.0.0.1");
@@ -33,8 +37,15 @@ server_t *create_server(int port, const char *localSocketName, int localSocketMo
 		strcpy(lusa.sun_path, localSocketName);
 		remove(localSocketName); /* remove existing if possible */
 #endif
-	} else
+	} else {
+#ifdef HAVE_IPV6
+		if (localSocketMode & LSM_IPV6)
+			use_ipv6 = 1;
+		ss = FCF("open socket", socket(use_ipv6 ? AF_INET6 : AF_INET, SOCK_STREAM, 0));
+#else
 		ss = FCF("open socket", socket(AF_INET, SOCK_STREAM, 0));
+#endif
+	}
 
 	srv = (server_t*) calloc(1, sizeof(server_t));
 	if (!srv) {
@@ -55,7 +66,19 @@ server_t *create_server(int port, const char *localSocketName, int localSocketMo
 			chmod(localSocketName, localSocketMode);
 	} else
 #endif
+#ifdef HAVE_IPV6
+		{
+			if (use_ipv6) {
+				memset(&lsa6, 0, sizeof(lsa6));
+				lsa6.sin6_family = AF_INET6;
+				lsa6.sin6_port = htons(port);
+				lsa6.sin6_addr = (localSocketMode & LSM_IP_LOCAL) ? in6addr_loopback : in6addr_any;
+				FCF("bind", bind(ss, (struct sockaddr*) &lsa6, sizeof(lsa6)));
+			} else FCF("bind", bind(ss, build_sin(&ssa, 0, port), sizeof(ssa)));
+		}
+#else
 		FCF("bind", bind(ss, build_sin(&ssa, 0, port), sizeof(ssa)));
+#endif
     
 	FCF("listen", listen(ss, LISTENQ));
 

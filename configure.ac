@@ -18,6 +18,12 @@ AC_ARG_WITH([client],
 	AS_HELP_STRING(--with-client,[compile additional C/C++ Rserve client (default is @<:@no@:>@). The client can be always compiled manually regardless of this setting.]),
 	[with_client=$withval], [with_client=no])
 
+AC_ARG_ENABLE([ipv6],
+[AC_HELP_STRING([--enable-ipv6],
+		[enable the use of IPv6 protocol. @<:@no@:>@])],
+[want_ipv6="${enableval}"],
+[want_ipv6=no])
+
 RLD=`${R_HOME}/bin/R CMD config --ldflags 2>/dev/null`
 has_R_shlib=no
 if test -n "$RLD"; then
@@ -142,6 +148,31 @@ if test x"$ac_cv_func_connect" = x"no"; then
         # don't!  it would cause AC_CHECK_FUNC to succeed next time configure is run
         AC_DEFINE(HAVE_CONNECT, 1, [ ])
     fi
+fi
+
+# IPv6
+have_ipv6=no
+AC_MSG_CHECKING([whether to enable IPv6])
+if test "$want_ipv6" = yes; then
+AC_MSG_RESULT([yes])
+AC_MSG_CHECKING([for working IPv6 sockets])
+AC_LINK_IFELSE([
+#include <sys/socket.h>
+#include <netinet/in.h>
+int main(void) {
+    struct sockaddr_in6 sin;
+    int i = socket(PF_INET6, SOCK_STREAM, 0);
+    sin.sin6_family = AF_INET6;
+    sin.sin6_addr = in6addr_any;
+    return 0;
+}
+],[AC_MSG_RESULT(yes)
+have_ipv6=yes],[AC_MSG_RESULT(no)])
+else
+AC_MSG_RESULT([no])
+fi
+if test "$have_ipv6" = yes; then
+   AC_DEFINE(HAVE_IPV6, 1, [IPv6 support present and enabled])
 fi
 
 # on some platforms libR expects dl code in the binary

@@ -24,6 +24,10 @@ typedef struct server {
 	buf_fn_t  recv;       /* direct receive */
 } server_t;
 
+/* this flag can be passed to create_server for an IP socket to modify the behavior */
+#define LSM_IP_LOCAL 1 /* bind to loopback address only */
+#define LSM_IPV6     2 /* use IPv6 (if available) */
+
 server_t *create_server(int port, const char *localSocketName, int localSocketMode);
 int add_server(server_t *srv);
 int rm_server(server_t *srv);

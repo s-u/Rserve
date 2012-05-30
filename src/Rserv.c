@@ -644,6 +644,8 @@ static int http_port = -1;
 static int https_port = -1;
 static int switch_qap_tls = 0;
 
+static int use_ipv6 = 0;
+
 static int auto_uid = 0, auto_gid = 0;
 static int default_uid = 0, default_gid = 0;
 
@@ -679,6 +681,10 @@ static int setConfig(const char *c, const char *p) {
 			int np = satoi(p);
 			if (np > 0) port = np;
 		}
+		return 1;
+	}
+	if (!strcmp(c, "ipv6")) {
+		use_ipv6 = (*p == '1' || *p == 'y' || *p == 'e' || *p == 'T') ? 1 : 0;
 		return 1;
 	}
 	if (!strcmp(c,"websockets.port")) {
@@ -2737,7 +2743,14 @@ int server_send(args_t *arg, void *buf, rlen_t len) {
 }
 
 server_t *create_Rserve_QAP1(int flags) {
-	server_t *srv = create_server((flags & SRV_TLS) ? tls_port : port, localSocketName, localSocketMode);
+	server_t *srv;
+	int lsm = localSocketMode;
+	if (!localSocketName) { /* we are (ab)using LSM for IP flags if this is not a unix socket */
+		lsm = 0;
+		if (use_ipv6)  lsm |= LSM_IPV6;
+		if (localonly) lsm |= LSM_IP_LOCAL;
+	}
+	srv = create_server((flags & SRV_TLS) ? tls_port : port, localSocketName, lsm);
 	if (srv) {
 		srv->connected = Rserve_QAP1_connected;
 		srv->send_resp = Rserve_QAP1_send_resp;
@@ -2824,7 +2837,8 @@ void serverLoop() {
 					  }
 					  #endif
 					*/
-					if (localonly && !srv->unix_socket) {
+					if (localonly && !srv->unix_socket && !use_ipv6) {
+						/* FIXME: IPv6 unsafe - so we rely on binding instead */
 						char **laddr = allowed_ips;
 						int allowed = 0;
 						if (!laddr) { 

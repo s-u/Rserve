@@ -10,6 +10,7 @@
    ***	New in-session server support with run.Rserve()
    ***	Out-of-band messages via self.oobSend()
    ***  user-based uid/gid switch, MD5/SHA1 stored passwords
+   ***  preliminary IPv6 support
    ***	---- END - see below for details ----
 
     o	This is the first release in the new 1.x Rserve series. Many
@@ -208,6 +209,18 @@
 	use a client capable of secure PK authentication or use secure
 	connection such as QAP/TLS as to not send password in
 	cleartext over the wire.
+
+    o	Rserve has a preliminary IPv6 support, it must be installed
+	installed with --enable-ipv6 configure flag to enable it in
+	the Rserve build. Currently only the QAP and QAP/TLS servers
+	support IPv6. In order to enable it, add
+
+	   ipv6 enable
+
+	 to the configuration file. The option is global, i.e. once
+	 enabled it applies to all servers that support it. Note that
+	 not all features work with IPv6 yet - detaching sessions
+	 (they will use IPv4 for re-attach) and client filtering don't.
 
 
 --- In order to support new ideas a major re-organization of Rserve ---
