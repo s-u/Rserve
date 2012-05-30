@@ -67,7 +67,7 @@ static int tls_recv(args_t *c, void *buf, rlen_t len) {
     return SSL_read(c->ssl, buf, len);
 }
 
-static int tls_send(args_t *c, void *buf, rlen_t len) {
+static int tls_send(args_t *c, const void *buf, rlen_t len) {
     return SSL_write(c->ssl, buf, len);
 }
 

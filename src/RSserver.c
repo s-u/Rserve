@@ -4,22 +4,20 @@
 #define LISTENQ 16
 
 #include <sisocks.h>
+#ifdef unix
 #include <sys/un.h> /* needed for unix sockets */
+#endif
 #include <sys/types.h>
 #include <sys/stat.h>
 
-server_t *create_server(int port, const char *localSocketName, int localSocketMode) {
+server_t *create_server(int port, const char *localSocketName, int localSocketMode, int flags) {
 	server_t *srv;
 	SAIN ssa;
 	int reuse, ss;
-	struct sockaddr_in lsa;
 #ifdef HAVE_IPV6
-	struct sockaddr_in6 lsa6;
-	int use_ipv6 = 0;
+	struct sockaddr_in6 ssa6;
 #endif
 	struct sockaddr_un lusa;
-    
-	lsa.sin_addr.s_addr = inet_addr("127.0.0.1");
     
 	initsocks();
 	if (localSocketName) {
@@ -37,15 +35,12 @@ server_t *create_server(int port, const char *localSocketName, int localSocketMo
 		strcpy(lusa.sun_path, localSocketName);
 		remove(localSocketName); /* remove existing if possible */
 #endif
-	} else {
+	} else
 #ifdef HAVE_IPV6
-		if (localSocketMode & LSM_IPV6)
-			use_ipv6 = 1;
-		ss = FCF("open socket", socket(use_ipv6 ? AF_INET6 : AF_INET, SOCK_STREAM, 0));
+		ss = FCF("open socket", socket((flags & SRV_IPV6) ? AF_INET6 : AF_INET, SOCK_STREAM, 0));
 #else
 		ss = FCF("open socket", socket(AF_INET, SOCK_STREAM, 0));
 #endif
-	}
 
 	srv = (server_t*) calloc(1, sizeof(server_t));
 	if (!srv) {
@@ -55,6 +50,7 @@ server_t *create_server(int port, const char *localSocketName, int localSocketMo
 
 	srv->ss = ss;
 	srv->unix_socket = localSocketName ? 1 : 0;
+	srv->flags = flags;
 
 	reuse = 1; /* enable socket address reusage */
 	setsockopt(ss, SOL_SOCKET, SO_REUSEADDR, (const char*)&reuse, sizeof(reuse));
@@ -64,20 +60,27 @@ server_t *create_server(int port, const char *localSocketName, int localSocketMo
 		FCF("bind", bind(ss, (SA*) &lusa, sizeof(lusa)));    
 		if (localSocketMode)
 			chmod(localSocketName, localSocketMode);
-	} else
+	} else {
 #endif
 #ifdef HAVE_IPV6
-		{
-			if (use_ipv6) {
-				memset(&lsa6, 0, sizeof(lsa6));
-				lsa6.sin6_family = AF_INET6;
-				lsa6.sin6_port = htons(port);
-				lsa6.sin6_addr = (localSocketMode & LSM_IP_LOCAL) ? in6addr_loopback : in6addr_any;
-				FCF("bind", bind(ss, (struct sockaddr*) &lsa6, sizeof(lsa6)));
-			} else FCF("bind", bind(ss, build_sin(&ssa, 0, port), sizeof(ssa)));
-		}
-#else
-		FCF("bind", bind(ss, build_sin(&ssa, 0, port), sizeof(ssa)));
+		if (flags & SRV_IPV6) {
+			memset(&ssa6, 0, sizeof(ssa6));
+			ssa6.sin6_family = AF_INET6;
+			ssa6.sin6_port = htons(port);
+			ssa6.sin6_addr = (flags & SRV_LOCAL) ? in6addr_loopback : in6addr_any;
+			FCF("bind", bind(ss, (struct sockaddr*) &ssa6, sizeof(ssa6)));
+		} else {
+#endif
+			memset(&ssa, 0, sizeof(ssa));
+			ssa.sin_family = AF_INET;
+			ssa.sin_port = htons(port);
+			ssa.sin_addr.s_addr = htonl((flags & SRV_LOCAL) ? INADDR_LOOPBACK : INADDR_ANY);
+			FCF("bind", bind(ss, (struct sockaddr*) &ssa, sizeof(ssa)));
+#ifdef HAVE_IPV6
+		} /* if (flags & SRV_IPV6) else */
+#endif
+#ifdef unix
+	} /* if (localSocketName) else */
 #endif
     
 	FCF("listen", listen(ss, LISTENQ));

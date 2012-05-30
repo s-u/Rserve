@@ -793,14 +793,13 @@ static void HTTP_connected(void *parg) {
 }
 
 server_t *create_HTTP_server(int port, int flags) {
-	server_t *srv = create_server(port, 0, 0);
+	server_t *srv = create_server(port, 0, 0, flags);
 	if (srv) {
 		srv->connected = HTTP_connected;
 		/* srv->send_resp = */
 		srv->recv      = server_recv;
 		srv->send      = server_send;
 		srv->fin       = server_fin;
-		srv->flags     = flags;
 		add_server(srv);
 		return srv;
 	}

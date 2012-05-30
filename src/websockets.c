@@ -294,7 +294,7 @@ static void WS_connected(void *parg) {
 	Rserve_QAP1_connected(arg);
 }
 
-static void WS_send_resp(args_t *arg, int rsp, rlen_t len, void *buf) {
+static void WS_send_resp(args_t *arg, int rsp, rlen_t len, const void *buf) {
 	unsigned char *sbuf = (unsigned char*) arg->sbuf;
 	if (arg->ver == 0) {
 		/* FIXME: we can't really tunnel QAP1 without some encoding ... */
@@ -345,7 +345,7 @@ static void WS_send_resp(args_t *arg, int rsp, rlen_t len, void *buf) {
 }
 
 /* we use send_data only to send the ID string so we don't bother supporting frames bigger than the buffer */
-static int  WS_send_data(args_t *arg, void *buf, rlen_t len) {
+static int  WS_send_data(args_t *arg, const void *buf, rlen_t len) {
 	unsigned char *sbuf = (unsigned char*) arg->sbuf;
 	if (arg->ver == 0) {
 		if (len < arg->sl - 2) {
@@ -555,15 +555,14 @@ static int  WS_recv_data(args_t *arg, void *buf, rlen_t read_len) {
 	} /* in frame */
 }
 
-server_t *create_WS_server(int port, int protocols) {
-	server_t *srv = create_server(port, 0, 0);
+server_t *create_WS_server(int port, int flags) {
+	server_t *srv = create_server(port, 0, 0, flags);
 	if (srv) {
 		srv->connected = WS_connected;
 		srv->send_resp = WS_send_resp;
 		srv->recv      = WS_recv_data;
 		srv->send      = WS_send_data;
 		srv->fin       = server_fin;
-		srv->flags     = protocols;
 		add_server(srv);
 		return srv;
 	}

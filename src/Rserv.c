@@ -397,13 +397,13 @@ static int satoi(const char *str) {
 }
 
 #ifdef RSERV_DEBUG
-static void printDump(void *b, int len) {
-    int i=0;
-    if (len<1) { printf("DUMP FAILED (len=%d)\n",len); };
+static void printDump(const void *b, int len) {
+    int i = 0;
+    if (len < 1) { printf("DUMP FAILED (len=%d)\n", len); };
     printf("DUMP [%d]:",len);
-    while(i<len) {
-		printf(" %02x",((unsigned char*)b)[i++]);
-		if(dumpLimit && i>dumpLimit) { printf(" ..."); break; };
+    while(i < len) {
+		printf(" %02x",((const unsigned char*)b)[i++]);
+		if (dumpLimit && i > dumpLimit) { printf(" ..."); break; };
     }
     printf("\n");
 }
@@ -556,7 +556,7 @@ static void printSEXP(SEXP e) /* merely for debugging purposes
 static int localonly = 1;
 
 /* send a response including the data part */
-void Rserve_QAP1_send_resp(args_t *arg, int rsp, rlen_t len, void *buf) {
+void Rserve_QAP1_send_resp(args_t *arg, int rsp, rlen_t len, const void *buf) {
 	server_t *srv = arg->srv;
 	struct phdr ph;
 	rlen_t i = 0;
@@ -2738,26 +2738,21 @@ int server_recv(args_t *arg, void *buf, rlen_t len) {
 	return recv(arg->s, buf, len, 0);
 }
 
-int server_send(args_t *arg, void *buf, rlen_t len) {
+int server_send(args_t *arg, const void *buf, rlen_t len) {
 	return send(arg->s, buf, len, 0);
 }
 
 server_t *create_Rserve_QAP1(int flags) {
 	server_t *srv;
-	int lsm = localSocketMode;
-	if (!localSocketName) { /* we are (ab)using LSM for IP flags if this is not a unix socket */
-		lsm = 0;
-		if (use_ipv6)  lsm |= LSM_IPV6;
-		if (localonly) lsm |= LSM_IP_LOCAL;
-	}
-	srv = create_server((flags & SRV_TLS) ? tls_port : port, localSocketName, lsm);
+	if (use_ipv6) flags |= SRV_IPV6;
+	if (localonly) flags |= SRV_LOCAL;
+	srv = create_server((flags & SRV_TLS) ? tls_port : port, localSocketName, localSocketMode, flags);
 	if (srv) {
 		srv->connected = Rserve_QAP1_connected;
 		srv->send_resp = Rserve_QAP1_send_resp;
 		srv->fin       = server_fin;
 		srv->recv      = server_recv;
 		srv->send      = server_send;
-		srv->flags     = flags;
 		add_server(srv);
 		return srv;
 	}
@@ -2837,20 +2832,13 @@ void serverLoop() {
 					  }
 					  #endif
 					*/
-					if (localonly && !srv->unix_socket && !use_ipv6) {
-						/* FIXME: IPv6 unsafe - so we rely on binding instead */
+					if (allowed_ips && !srv->unix_socket && !use_ipv6) {
+						/* FIXME: IPv6 unsafe - filtering won't work on IPv6 addresses */
 						char **laddr = allowed_ips;
 						int allowed = 0;
-						if (!laddr) { 
-							allowed_ips = (char**) malloc(sizeof(char*)*2);
-							allowed_ips[0] = strdup("127.0.0.1");
-							allowed_ips[1] = 0;
-							laddr = allowed_ips;
-						}
-						
 						while (*laddr)
-							if (sa->sa.sin_addr.s_addr==inet_addr(*(laddr++)))
-								{ allowed=1; break; };
+							if (sa->sa.sin_addr.s_addr == inet_addr(*(laddr++)))
+								{ allowed=1; break; }
 						if (allowed) {
 #ifdef RSERV_DEBUG
 							printf("INFO: accepted connection for server %p, calling connected\n", (void*) srv);
@@ -2862,8 +2850,12 @@ void serverLoop() {
 							if (is_child)
 								exit(2);
 #endif
-						} else
+						} else {
+#ifdef RSERV_DEBUG
+							printf("INFO: peer is not on allowed IP list, closing connection\n");
+#endif
 							closesocket(sa->s);
+						}
 					} else { /* ---> remote enabled */
 #ifdef RSERV_DEBUG
 						printf("INFO: accepted connection for server %p, calling connected\n", (void*) srv);
