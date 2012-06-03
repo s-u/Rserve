@@ -649,6 +649,10 @@ static int use_ipv6 = 0;
 static int auto_uid = 0, auto_gid = 0;
 static int default_uid = 0, default_gid = 0;
 
+#ifdef HAVE_RSA
+static int rsa_load_key(const char *buf);
+#endif
+
 /* attempts to set a particular configuration setting
    returns: 1 = setting accepted, 0 = unknown setting, -1 = setting known but failed */
 static int setConfig(const char *c, const char *p) {
@@ -720,6 +724,26 @@ static int setConfig(const char *c, const char *p) {
 		if (!tls)
 			tls = shared_tls(new_tls());
 		set_tls_cert(tls, p);
+		return 1;
+	}
+	if (!strcmp(c, "rsa.key")) {
+#ifdef HAVE_RSA
+		if (*p) {
+			FILE *f = fopen(p, "r");
+			if (f) {
+				char *buf = (char*) malloc(65536);
+				if (buf) {
+					int n = fread(buf, 1, 65535, f);
+					buf[n] = 0;
+					if (rsa_load_key(buf) == -1)
+						fprintf(stderr, "ERROR: not a valid RSA private key in '%s'\n", p);
+				} else fprintf(stderr, "ERROR: cannot allocate memory for the RSA key\n");
+				fclose(f);
+			} else fprintf(stderr, "ERROR: cannot open rsa.key file '%s'\n", p);
+		}
+#else
+		fprintf(stderr, "WARNING: rsa.key specified but RSA is not supported in this build!\n");
+#endif
 		return 1;
 	}
 	if (!strcmp(c, "tls.port") || !strcmp(c, "qap.tls.port")) {
@@ -1624,6 +1648,33 @@ static RSA *rsa_srv_key;
 static char rsa_buf[32768];
 
 #define SRV_KEY_LEN 512
+
+/* from base64.c */
+int base64decode(const char *src, void *dst, int max_len);
+
+static int rsa_load_key(const char *buf) {
+	int n;
+	const char *c = buf;
+	const unsigned char *ptr;
+	while (1) {
+		while (*c == ' ' || *c == '\t') c++;
+		if (*c == '-') { /* header line */
+			while (*c && *c != '\n' && *c != '\r') c++;
+			while (*c == '\n' || *c == '\r') c++;
+			continue;
+		}
+		if (*c == '\n' || *c == '\r')
+			while (*c == '\n' || *c == '\r') c++;
+		else break;		
+	}
+	if (!*c) return -1;
+	n = base64decode(c, rsa_buf, sizeof(rsa_buf));
+	if (n < 1) return -1;
+	ptr = (const unsigned char*) rsa_buf;
+	rsa_srv_key = d2i_RSAPrivateKey(NULL, &ptr, n);
+	if (!rsa_srv_key) return -1;
+	return 0;
+}
 
 static int rsa_gen_resp(char **dst) {
 	unsigned char *kb;

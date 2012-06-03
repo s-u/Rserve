@@ -10,7 +10,7 @@
    ***	New in-session server support with run.Rserve()
    ***	Out-of-band messages via self.oobSend()
    ***  user-based uid/gid switch, MD5/SHA1 stored passwords
-   ***  preliminary IPv6 support
+   ***  preliminary IPv6 support; RSA secure authentication
    ***	---- END - see below for details ----
 
     o	This is the first release in the new 1.x Rserve series. Many
@@ -116,7 +116,9 @@
 	below) is the currently recommended way where authorization is
 	required. The only drawback is increased CPU utilization
 	during transfers casued by the encryption and the fact that
-	TLS-enabled clients must be used.
+	TLS-enabled clients must be used. See also RSA secure
+	authentication (CMD_keyReq + CMD_secLogin) for a different
+	method if only the authentication step is to be encrypted.
 
 	When enabling TLS tls.key and tls.cert are mandatory, tls.ca
 	is optional to establish CA chain of trust (whether this is
@@ -137,7 +139,7 @@
 	using run.Rserve() command. This allows the user to prepare a
 	session "by hand", run Rserve from within that session and go
 	back to the session (by shutting down the server or sending an
-	interrupt). This allows allows the use of Rserve without the
+	interrupt). This allows the use of Rserve even without the
 	presence of libR.
 
     o	Rserve now supports out-of-band (OOB) messages. Those can be
@@ -152,7 +154,7 @@
 	creation of pre-spawned worker Rserve instances. This is in
 	particular useful on Windows, making it possible to support
 	some number of parallel connections.
-	(experimental)
+	(experimental, currently unfinished)
 
     o	Rserve accepts additional command line arguments:
 	--RS-source <file>   (same as "source <file>" in cfg file)
@@ -192,12 +194,12 @@
 
 	The auto.uid/gid directives enable setuid/setgid based on
 	user's uid/gid. In case no uid/gid is specified with the
-	username, dhe default.uid/gid settings will be used. If there
+	username, the default.uid/gid settings will be used. If there
 	is no uid/gid in the username and no defaults are specified,
 	the user's authentication will fail. User's uid/gid can be
 	specified in the passwords file by appending /uid,gid to the
-	username. If gid is specified, uid will be used for both uid
-	and gid. So for example user "foo" (from the above MD5
+	username. If gid is not specified, uid will be used for both
+	uid and gid. So for example user "foo" (from the above MD5
 	example) with uid=501 would have an entry on the passwords
 	file:
 
@@ -206,9 +208,66 @@
 	For this to work, Rserve must be started as root. However,
 	with auto.uid enabled it is safe to do so since Rserve will
 	prevent any R access until authenticated. You should, however,
-	use a client capable of secure PK authentication or use secure
+	use a client capable of secure RSA authentication or use secure
 	connection such as QAP/TLS as to not send password in
 	cleartext over the wire.
+
+    o	Rserve now supports secure authentication even outside of
+	SSL/TLS. There are two new commands that can be used by the
+	client:
+	
+	CMD_keyReq   - requests an authentication key from the server
+	               that will be used to perform a secure
+	               login. The kind of the requested key is
+	               specified as a parameter. Currently, only
+	               "rsa-authkey" is supported which returns server
+	               authentication key (authkey) and a RSA public
+	               key which must be used to encode the authkey
+	               and the authentication information (see below).
+		       The RSA key can be compared on the client side
+	               to ensure the authenticity of the server.
+
+	CMD_secLogin - secure login. It consists of an encrypted data
+	               stream that will authenticate the user. In the
+	               case of the "rsa-authkey" method, the stream
+	               consists of the authkey and the login +
+	               password, all of which must be encrypted using
+	               server's RSA key.
+
+	The RSA key on the server (Rserve) side is specified using
+
+	   rsa.key <RSA private key file>
+
+	configuration file directive. The file is expected to be in
+	PEM format. You can generate such file, e.g., with:
+
+	   openssl genrsa -out server.key 4096
+
+	where 4096 is the key size in bits. A public key can be
+	extracted from the private key using
+
+	   openssl rsa -pubout -in server.key -out server_pub.key
+
+	The clients can pre-share the public key by other means to
+	compare it to the key received from the server as to verify
+	its authenticity. This will prevent them from sending the
+	authentication information to rogue servers.
+
+	NOTE: if the rsa.key directive is missing, Rserve will
+	generate a key on the fly when asked for RSA authentication -
+	although this allows encrypted transmission and thus is safe
+	from sniffing, it is not safe from man-in-the-middle attacks
+	where a rogue server intercepts the request and sends its own
+	public key. Therefore the use of the rsa.key directive is
+	highly recommended.
+
+	The RSA authentication enables the client to a) check the
+	authenticity of the server (by comparing the RSA public key)
+	and b) send authentication information encrypted. This method
+	is highly recommended in cases where a full TLS/SSL encryption
+	of the entire connection would be too expensive (i.e. in cases
+	where the data is large and the security of the transported
+	data is not crucial).
 
     o	Rserve has a preliminary IPv6 support. Rserve must be
     	installed with --enable-ipv6 configure flag to enable it in
