@@ -290,6 +290,7 @@ static int localSocketMode = 0;   /* if set, chmod is used on the socket when cr
 static int allowIO = 1;  /* 1=allow I/O commands, 0=don't */
 
 static char *workdir = "/tmp/Rserv";
+static int   wd_mode = 0;
 static char *pwdfile = 0;
 
 static SOCKET csock = -1;
@@ -648,6 +649,8 @@ static int use_ipv6 = 0;
 
 static int auto_uid = 0, auto_gid = 0;
 static int default_uid = 0, default_gid = 0;
+static int random_uid = 0, random_gid = 0;
+static int random_uid_low = 32768, random_uid_high = 65530;
 
 #ifdef HAVE_RSA
 static int rsa_load_key(const char *buf);
@@ -662,6 +665,34 @@ static int setConfig(const char *c, const char *p) {
 	}
 	if (!strcmp(c, "switch.qap.tls")) {
 		switch_qap_tls = (*p == '1' || *p == 'y' || *p == 'e' || *p == 'T') ? 1 : 0;
+		return 1;
+	}
+	if (!strcmp(c, "random.uid")) {
+		random_uid = (*p == '1' || *p == 'y' || *p == 'e' || *p == 'T') ? 1 : 0;
+		return 1;
+	}
+	if (!strcmp(c, "random.gid")) {
+		random_uid = (*p == '1' || *p == 'y' || *p == 'e' || *p == 'T') ? 1 : 0;
+		return 1;
+	}
+	if (!strcmp(c, "random.uid.range")) {
+		const char *c = p;
+		int lo = atoi(c);
+		if (lo < 1)
+			fprintf(stderr, "ERROR: invalid random.uid.range start (%d)\n", lo);
+		else {
+			while (*c >= '0' && *c <= '9') c++;
+			while (*c && (*c < '0' || *c > '9')) c++;
+			if (*c) {
+				int hi = atoi(c);
+				if (hi <= lo)
+					fprintf(stderr, "ERROR: invalid random.uid.range (%d..%d)\n", lo, hi);
+				else {
+					random_uid_low  = lo;
+					random_uid_high = hi;
+				}
+			}
+		}
 		return 1;
 	}
 	if (!strcmp(c, "auto.uid")) {
@@ -881,6 +912,17 @@ static int setConfig(const char *c, const char *p) {
 	}
 	if (!strcmp(c,"workdir")) {
 		workdir = (*p) ? strdup(p) : 0;
+		return 1;
+	}
+	if (!strcmp(c, "workdir.mode")) {
+		int cm = satoi(p);
+		if (!cm)
+			fprintf(stderr, "ERROR: invalid workdir.mode\n");
+		else {
+			wd_mode = cm;
+			if ((wd_mode & 0600) != 0600)
+				fprintf(stderr, "WARNING: workdir.mode does not contain 0600 - this may cause problems\n");
+		}
 		return 1;
 	}
 	if (!strcmp(c,"encoding") && *p) {
@@ -1844,7 +1886,7 @@ void Rserve_QAP1_connected(void *thp) {
 		if (chdir(workdir))
 			mkdir(workdir,0777);
 		wdname[511]=0;
-		snprintf(wdname,511,"%s/conn%d",workdir,a->ucix);
+		snprintf(wdname,511,"%s/conn%d",workdir,(int)getpid());
 		mkdir(wdname,0777);
 		chdir(wdname);
     }

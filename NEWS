@@ -212,6 +212,32 @@
 	connection such as QAP/TLS as to not send password in
 	cleartext over the wire.
 
+    o	Rserve can now be run in a mode where each connection has a
+	different uid and/or gid such that separate client instances
+	are isolated. This allows more restricted setup in cases where
+	instances may not be trusted and need to be sandboxed. The
+	following configuration directives are associated with this
+	functionality:
+
+	   random.uid {enable|disable} [disable]
+	   random.gui {enable|disable} [disable]
+	   random.uid.range {<from>..<to>} [32768..65540]
+
+	If random.uid is enabled and random.gid disable then only the
+	uid of the process is changed. If both are enabled then the
+	gid is set to match the value of the uid. random.gid cannot be
+	enabled without random.uid.
+
+	To support sandboxing, the permissions on the working
+	directory can be specified using
+
+	   workdir.mode <mode>
+
+    o	If any kind of client-process uid switching is enabled in the
+	configuration, the permissions on the working directory will
+	match the uid of the process. Also the working directories are
+	now named by the process ID to facilitate cleanup.
+
     o	Rserve now supports secure authentication even outside of
 	SSL/TLS. There are two new commands that can be used by the
 	client:
