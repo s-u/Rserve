@@ -1,3 +1,6 @@
+void base64encode(const unsigned char *src, int len, char *dst);
+int base64decode(const char *src, void *dst, int max_len);
+
 static const char *b64tab = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 /* dst must be at least (len + 2) / 3 * 4 + 1 bytes long and will be NUL terminated when done */
@@ -28,6 +31,7 @@ static unsigned int val(const char **src) {
     }
 }
 
+/* returns the decoded length or -1 if max_len was not enough */
 int base64decode(const char *src, void *dst, int max_len) {
     unsigned char *t = (unsigned char*) dst, *end = t + max_len;
     while (*src && t < end) {

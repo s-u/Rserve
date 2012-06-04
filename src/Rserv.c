@@ -290,7 +290,7 @@ static int localSocketMode = 0;   /* if set, chmod is used on the socket when cr
 static int allowIO = 1;  /* 1=allow I/O commands, 0=don't */
 
 static char *workdir = "/tmp/Rserv";
-static int   wd_mode = 0;
+static int   wd_mode = 0755;
 static char *pwdfile = 0;
 
 static SOCKET csock = -1;
@@ -920,8 +920,8 @@ static int setConfig(const char *c, const char *p) {
 			fprintf(stderr, "ERROR: invalid workdir.mode\n");
 		else {
 			wd_mode = cm;
-			if ((wd_mode & 0600) != 0600)
-				fprintf(stderr, "WARNING: workdir.mode does not contain 0600 - this may cause problems\n");
+			if ((wd_mode & 0700) != 0700)
+				fprintf(stderr, "WARNING: workdir.mode does not contain 0700 - this may cause problems\n");
 		}
 		return 1;
 	}
@@ -1774,6 +1774,35 @@ static int rsa_encode(char *dst, char *src, int len) {
 
 #endif
 
+#ifdef unix
+
+#include <unistd.h>
+#include <dirent.h>
+
+static void rm_rf(const char *what) {
+	struct stat st;
+	if (!lstat(what, &st)) {
+		chmod(what, st.st_mode | ((st.st_mode & S_IFDIR) ? S_IRWXU : S_IWUSR));
+		if (st.st_more & S_IFDIR) { /* dirs need to be deleted recursively */
+			DIR *dir = opendir(what);
+			char path[PATH_MAX];
+			if (dir) {
+				struct dirent *d;
+				while ((d = readdir(dir))) {
+					if (!strcmp(d->d_name, ".") || !strcmp(d->d_name, ".."))
+						continue;
+					snprintf(path, sizeof(path), "%s/%s", what, d->d_name);
+					rm_rf(path);
+				}
+				closedir(dir);
+			}
+			rmdir(what);
+		} else
+			unlink(what);
+	}
+}
+#endif
+
 /* working thread/function. the parameter is of the type struct args* */
 /* This server function implements the Rserve QAP1 protocol */
 void Rserve_QAP1_connected(void *thp) {
@@ -1884,10 +1913,11 @@ void Rserve_QAP1_connected(void *thp) {
 #ifdef unix
     if (workdir) {
 		if (chdir(workdir))
-			mkdir(workdir,0777);
+			mkdir(workdir,0755);
 		wdname[511]=0;
-		snprintf(wdname,511,"%s/conn%d",workdir,(int)getpid());
-		mkdir(wdname,0777);
+		snprintf(wdname, 511, "%s/conn%d", workdir, (int)getpid());
+		rm_rf(wdname);
+		mkdir(wdname, wd_mode);
 		chdir(wdname);
     }
 #endif
