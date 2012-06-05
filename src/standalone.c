@@ -130,6 +130,8 @@ int main(int argc, char **argv)
     }
 	
     R_SignalHandlers = 0; /* disable signal handlers */
+
+	performConfig(SU_NOW);
 	
     stat = Rf_initEmbeddedR(top_argc,top_argv);
     if (stat < 0) {
@@ -158,13 +160,7 @@ int main(int argc, char **argv)
 #endif
     }
 	
-#ifdef unix
-    /* if server su is enabled, do it now */
-    if (su_time == SU_SERVER) {
-		if (new_gid != -1) setgid(new_gid);
-		if (new_uid != -1) setuid(new_uid);
-    }
-#endif
+	performConfig(SU_SERVER);
 	
     if (self_control) { /* register routines for self-control */
 #if R_VERSION < R_Version(2,9,0)

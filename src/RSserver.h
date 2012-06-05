@@ -37,6 +37,13 @@ server_t *create_server(int port, const char *localSocketName, int localSocketMo
 int add_server(server_t *srv);
 int rm_server(server_t *srv);
 
+/* server stacks */
+typedef struct server_stack server_stack_t;
+server_stack_t* create_server_stack();
+void push_server(server_stack_t *s, server_t *srv);
+int server_stack_size(server_stack_t *s);
+void release_server_stack(server_stack_t *s);
+
 /* some generic implementations */
 void server_fin(void *x);
 int server_recv(args_t *arg, void *buf, rlen_t len);

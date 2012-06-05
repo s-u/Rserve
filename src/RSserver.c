@@ -88,6 +88,53 @@ server_t *create_server(int port, const char *localSocketName, int localSocketMo
 	return srv;
 }
 
+
+#define NSPS 16
+struct server_stack {
+	server_stack_t *prev, *next;
+	int ns;
+	server_t *srv[NSPS];
+};
+
+server_stack_t* create_server_stack() {
+	server_stack_t *s = (server_stack_t*) malloc(sizeof(server_stack_t));
+	s->prev = s->next = 0;
+	s->ns = 0;
+	return s;
+}
+
+void push_server(server_stack_t *s, server_t *srv) {
+	while (s->ns >= NSPS && s->next) s = s->next;
+	if (s->ns >= NSPS) {
+		server_stack_t *ns = create_server_stack();
+		ns->prev = s;
+		s = s->next = ns;
+	}
+	s->srv[s->ns++] = srv;
+}
+
+void release_server_stack(server_stack_t *s) {
+	while (s && s->next) s = s->next;
+	while (s) {
+		int i = s->ns;
+		while (i-- > 0) {
+			rm_server(s->srv[i]);
+			free(s->srv[i]);
+		}
+		s->ns = 0;
+		s = s->prev;
+	}
+}
+
+int server_stack_size(server_stack_t *s) {
+	int n = 0;
+	while (s) {
+		n += s->ns;
+		s = s->next;
+	}
+	return n;
+}
+
 /*--- The following makes the indenting behavior of emacs compatible
       with Xcode's 4/4 setting ---*/
 /* Local Variables: */

@@ -608,9 +608,6 @@ char *pwd_cache;
 #define SU_SERVER 1
 #define SU_CLIENT 2
 static int su_time = SU_NOW;
-#ifdef unix
-static int new_gid = -1, new_uid = -1;
-#endif
 
 static void load_pwd_cache() {
 	FILE *f = fopen(pwdfile, "r");
@@ -647,6 +644,8 @@ static int switch_qap_tls = 0;
 
 static int use_ipv6 = 0;
 
+static int requested_uid = 0, requested_gid = 0;
+static char *requested_chroot = 0;
 static int auto_uid = 0, auto_gid = 0;
 static int default_uid = 0, default_gid = 0;
 static int random_uid = 0, random_gid = 0;
@@ -655,6 +654,40 @@ static int random_uid_low = 32768, random_uid_high = 65530;
 #ifdef HAVE_RSA
 static int rsa_load_key(const char *buf);
 #endif
+
+/* FIXME: we are not preventing collisions - we have to keep track of
+   the uid assignments to children and no reuse those alive */
+static int get_random_uid() {
+	int uid = random_uid_low +
+		UCIX % (random_uid_high - random_uid_low + 1);
+	return uid;
+}
+
+static int performConfig(int when) {
+	int fail = 0;
+#ifdef unix
+	if (when == SU_NOW) {
+		if (requested_chroot && chroot(requested_chroot)) {
+			perror("chroot");
+			fprintf(stderr,"chroot(\"%s\"): failed.\n", requested_chroot);
+			fail++;
+		}
+	}
+	if (cache_pwd)
+		load_pwd_cache();/* load pwd file into memory before su */
+	if (when == SU_CLIENT && random_uid) { /* FIXME: we */
+		int ruid = get_random_uid();
+		if (random_gid)
+			setgid(ruid);
+		setuid(ruid);
+	} else if (su_time == when) {
+		if (requested_gid) setgid(requested_gid);
+		if (requested_uid) setuid(requested_uid);
+	}
+#endif
+	return fail;
+}
+
 
 /* attempts to set a particular configuration setting
    returns: 1 = setting accepted, 0 = unknown setting, -1 = setting known but failed */
@@ -672,7 +705,7 @@ static int setConfig(const char *c, const char *p) {
 		return 1;
 	}
 	if (!strcmp(c, "random.gid")) {
-		random_uid = (*p == '1' || *p == 'y' || *p == 'e' || *p == 'T') ? 1 : 0;
+		random_gid = (*p == '1' || *p == 'y' || *p == 'e' || *p == 'T') ? 1 : 0;
 		return 1;
 	}
 	if (!strcmp(c, "random.uid.range")) {
@@ -862,25 +895,15 @@ static int setConfig(const char *c, const char *p) {
 		return 1;
 	}
 	if (!strcmp(c,"uid") && *p) {
-		new_uid = satoi(p);
-		if (su_time == SU_NOW && setuid(new_uid)) {
-			fprintf(stderr, "setuid(%d): failed. no user switch performed.\n", new_uid);
-			return -1;
-		}
+		requested_uid = satoi(p);
 		return 1;
 	}
 	if (!strcmp(c,"gid") && *p) {
-		new_gid = satoi(p);
-		if (su_time == SU_NOW && setgid(new_gid))
-			fprintf(stderr, "setgid(%d): failed. no group switch performed.\n", new_gid);
+		requested_gid = satoi(p);
 		return 1;
 	}
 	if (!strcmp(c,"chroot") && *p) {
-		if (chroot(p)) {
-			perror("chroot");
-			fprintf(stderr,"chroot(\"%s\"): failed.\n", p);
-			return -1;
-		}
+		requested_chroot = strdup(p);
 		return 1;
 	}
 	if (!strcmp(c,"umask") && *p) {
@@ -1437,14 +1460,7 @@ int Rserve_prepare_child(args_t *arg) {
     parentPID = getppid();
     closesocket(arg->ss); /* close server socket */
 
-#ifdef unix
-	if (cache_pwd)
-		load_pwd_cache();/* load pwd file into memory before su */
-	if (su_time == SU_CLIENT) { /* if requested set gid/pid as client */
-		if (new_gid != -1) setgid(new_gid);
-		if (new_uid != -1) setuid(new_uid);
-	}
-#endif
+	performConfig(SU_CLIENT);
 
 #endif
 
@@ -1783,7 +1799,7 @@ static void rm_rf(const char *what) {
 	struct stat st;
 	if (!lstat(what, &st)) {
 		chmod(what, st.st_mode | ((st.st_mode & S_IFDIR) ? S_IRWXU : S_IWUSR));
-		if (st.st_more & S_IFDIR) { /* dirs need to be deleted recursively */
+		if (st.st_mode & S_IFDIR) { /* dirs need to be deleted recursively */
 			DIR *dir = opendir(what);
 			char path[PATH_MAX];
 			if (dir) {
@@ -1885,14 +1901,7 @@ void Rserve_QAP1_connected(void *thp) {
 		parentPID = getppid();
 		closesocket(a->ss); /* close server socket */
 		
-#ifdef unix
-		if (cache_pwd)
-			load_pwd_cache();/* load pwd file into memory before su */
-		if (su_time == SU_CLIENT) { /* if requested set gid/pid as client */
-			if (new_gid != -1) setgid(new_gid);
-			if (new_uid != -1) setuid(new_uid);
-		}
-#endif
+		performConfig(SU_CLIENT);
     }
 
 #endif
@@ -3073,7 +3082,7 @@ void serverLoop() {
 
 /* run Rserve inside R */
 SEXP run_Rserve(SEXP cfgFile, SEXP cfgPars) {
-	server_t *srv_qap = 0, *srv_qap_tls = 0, *srv_ws = 0, *srv_http = 0, *srv_https = 0;
+	server_stack_t *ss;
 	if (TYPEOF(cfgFile) == STRSXP && LENGTH(cfgFile) > 0) {
 		int i, n = LENGTH(cfgFile);
 		for (i = 0; i < n; i++)
@@ -3093,91 +3102,78 @@ SEXP run_Rserve(SEXP cfgFile, SEXP cfgPars) {
 		}
 	}
 	
+	/* FIXME: should we really do this ? setuid, chroot etc. are not meant to work inside R ... */
+	performConfig(SU_NOW);
+
+	ss = create_server_stack();
+
 	if (enable_qap) {
-		srv_qap = create_Rserve_QAP1(0);
-		if (!srv_qap)
+		server_t *srv = create_Rserve_QAP1(0);
+		if (!srv) {
+			release_server_stack(ss);
 			Rf_error("Unable to start Rserve server");
+		}
+		push_server(ss, srv);
 	}
 
 	if (tls_port > 0) {
-		srv_qap_tls = create_Rserve_QAP1(SRV_TLS);
-		if (!srv_qap)
+		server_t *srv = create_Rserve_QAP1(SRV_TLS);
+		if (!srv) {
+			release_server_stack(ss);
 			Rf_error("Unable to start Rserve server");
+		}
+		push_server(ss, srv);
 	}
 
 	if (http_port > 0) {
-		srv_http = create_HTTP_server(http_port, 0);
-		if (!srv_http) {
-			if (srv_qap) {
-				rm_server(srv_qap);
-				free(srv_qap);
-			}
+		server_t *srv = create_HTTP_server(http_port, 0);
+		if (!srv) {
+			release_server_stack(ss);
 			Rf_error("Unable to start HTTP server");
 		}
+		push_server(ss, srv);
 	}
 
 	if (https_port > 0) {
-		srv_https = create_HTTP_server(https_port, SRV_TLS);
-		if (!srv_https) {
-			if (srv_qap) {
-				rm_server(srv_qap);
-				free(srv_qap);
-			}
+		server_t *srv = create_HTTP_server(https_port, SRV_TLS);
+		if (!srv) {
+			release_server_stack(ss);
 			Rf_error("Unable to start HTTPS server");
 		}
+		push_server(ss, srv);
 	}
 
 	if (enable_ws_text || enable_ws_qap) {
-		if (ws_port < 1)
+		server_t *srv;
+		if (ws_port < 1) {
+			release_server_stack(ss);
 			Rf_error("Invalid or missing websockets.port");
-		srv_ws = create_WS_server(ws_port, (enable_ws_qap ? WS_PROT_QAP : 0) | (enable_ws_text ? WS_PROT_TEXT : 0));
-		if (!srv_ws) {
-			if (srv_http) {
-				rm_server(srv_http);
-				free(srv_http);
-			}
-			if (srv_qap) {
-				rm_server(srv_qap);
-				free(srv_qap);
-			}
+		}
+		srv = create_WS_server(ws_port, (enable_ws_qap ? WS_PROT_QAP : 0) | (enable_ws_text ? WS_PROT_TEXT : 0));
+		if (!srv) {
+			release_server_stack(ss);
 			Rf_error("Unable to start WebSockets server");
 		}
+		push_server(ss, srv);
 	}
 
-	if (!srv_qap && !srv_ws && !srv_http) {
+	if (!server_stack_size(ss)) {
 		Rf_warning("No server protocol is enabled, nothing to do");
+		release_server_stack(ss);
 		return ScalarLogical(FALSE);
 	}
 	
 	setup_signal_handlers();
 
-	Rprintf("-- running Rserve in this R session (pid=%d) --\n(This session will block until Rserve is shut down)\n", getpid());
+	Rprintf("-- running Rserve in this R session (pid=%d), %d server(s) --\n(This session will block until Rserve is shut down)\n", getpid(), server_stack_size(ss));
 	active = 1;
 
 	serverLoop();
 	
 	restore_signal_handlers();
 
-	if (srv_qap) {
-		rm_server(srv_qap);
-		free(srv_qap);
-	}
-	if (srv_qap_tls) {
-		rm_server(srv_qap_tls);
-		free(srv_qap_tls);
-	}
-	if (srv_ws) {
-		rm_server(srv_ws);
-		free(srv_ws);
-	}
-	if (srv_http) {
-		rm_server(srv_http);
-		free(srv_http);
-	}
-	if (srv_https) {
-		rm_server(srv_https);
-		free(srv_https);
-	}
+	release_server_stack(ss);
+
 	return ScalarLogical(TRUE);
 }
 
