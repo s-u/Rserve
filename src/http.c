@@ -367,6 +367,7 @@ static void process_request(args_t *c)
 			y = VECTOR_ELT(x, 0);
 			if (TYPEOF(y) == STRSXP && LENGTH(y) > 0) {
 				char buf[64];
+				int  is_tmp = 0;
 				const char *cs = CHAR(STRING_ELT(y, 0)), *fn = 0;
 				if (code == 200)
 					send_http_response(c, " 200 OK\r\nContent-type: ");
@@ -379,16 +380,17 @@ static void process_request(args_t *c)
 					unsigned int i = 0, n = LENGTH(sHeaders);
 					for (; i < n; i++) {
 						const char *hs = CHAR(STRING_ELT(sHeaders, i));
-						send_response(c, "\r\n", 2);
-						send_response(c, hs, strlen(hs));
+						if (*hs) { /* headers must be non-empty */
+							send_response(c, "\r\n", 2);
+							send_response(c, hs, strlen(hs));
+						}
 					}
 				}
-				/* special content - a file: either list(file="") or list(c("*FILE*", "")) - the latter will go away */
+				/* special content - a file: either list(file="") or list(tmpfile="")
+				   the latter will be deleted once served */
 				if (TYPEOF(xNames) == STRSXP && LENGTH(xNames) > 0 &&
-					!strcmp(CHAR(STRING_ELT(xNames, 0)), "file"))
+					(!strcmp(CHAR(STRING_ELT(xNames, 0)), "file") || (is_tmp = !strcmp(CHAR(STRING_ELT(xNames, 0)), "tmpfile"))))
 					fn = cs;
-				if (LENGTH(y) > 1 && !strcmp(cs, "*FILE*"))
-					fn = CHAR(STRING_ELT(y, 1));
 				if (fn) {
 					char *fbuf;
 					FILE *f = fopen(fn, "rb");
@@ -413,6 +415,8 @@ static void process_request(args_t *c)
 									free(fbuf);
 									UNPROTECT(7);
 									c->attr |= CONNECTION_CLOSE;
+									fclose(f);
+									if (is_tmp) unlink(fn);
 									return;
 								}
 								send_response(c, fbuf, rd);
@@ -422,10 +426,13 @@ static void process_request(args_t *c)
 						} else { /* allocation error - get out */
 							UNPROTECT(7);
 							c->attr |= CONNECTION_CLOSE;
+							fclose(f);
+							if (is_tmp) unlink(fn);
 							return;
 						}
 					}
 					fclose(f);
+					if (is_tmp) unlink(fn);
 					UNPROTECT(7);
 					fin_request(c);
 					return;
