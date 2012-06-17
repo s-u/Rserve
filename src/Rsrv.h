@@ -118,8 +118,10 @@ struct phdr { /* always 16 bytes */
 
 #define CMD_OOB  0x20000  /* out-of-band data - i.e. unsolicited messages */
 #define OOB_SEND (CMD_OOB | 0x1000) /* OOB send - unsolicited SEXP sent from the R instance to the client. 12 LSB are reserved for application-specific code */
+#define OOB_MSG  (CMD_OOB | 0x2000) /* OOB message - unsolicited message sent from the R instance to the client requiring a response. 12 LSB are reserved for application-specific code */
 
-#define IS_OOB_SEND(X) (((X) & 0x0ffff000) == OOB_SEND)
+#define IS_OOB_SEND(X)  (((X) & 0x0ffff000) == OOB_SEND)
+#define IS_OOB_MSG(X)   (((X) & 0x0ffff000) == OOB_MSG)
 #define OOB_USR_CODE(X) ((X) & 0xfff)
 
 /* stat codes; 0-0x3f are reserved for program specific codes - e.g. for R
@@ -259,6 +261,8 @@ struct phdr { /* always 16 bytes */
 #define DT_SEXP       10 /* encoded SEXP */
 #define DT_ARRAY      11 /* array of objects (i.e. first 4 bytes specify how many
 			    subsequent objects are part of the array; 0 is legitimate) */
+#define DT_CUSTOM     32 /* custom types not defined in the protocol but used
+							by applications */
 #define DT_LARGE      64 /* new in 0102: if this flag is set then the length of the object
 			    is coded as 56-bit integer enlarging the header by 4 bytes */
 

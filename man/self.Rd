@@ -3,10 +3,12 @@
 \alias{self.ctrlEval}
 \alias{self.ctrlSource}
 \alias{self.oobSend}
+\alias{self.oobMessage}
 \usage{
 self.ctrlEval(expr)
 self.ctrlSource(file)
 self.oobSend(what, code = 0L)
+self.oobMessage(what, code = 0L)
 }
 \description{
   The following functions can only be used inside Rserve, they cannot be
@@ -32,6 +34,9 @@ self.oobSend(what, code = 0L)
   offered to specialized applications (e.g. \code{Cairo} supports
   asynchronous notification of web clients using WebSockets-QAP1 tunnel
   to dynamically update graphics on the web during evaluation).
+
+  \code{self.oobMessage} is like \code{self.oobSend} except that it
+  waits for a response and returs the response.
 }
 \arguments{
   \item{expr}{R expression to evaluate remotely}
@@ -39,14 +44,17 @@ self.oobSend(what, code = 0L)
     instance}
   \item{what}{object to include as the payload fo the message}
   \item{code}{user-defined message code that will be ORed with the
-  \code{OOB_SEND} message code}
+  \code{OOB_SEND}/\code{OOB_MSG} message code}
 }
 \value{
-  All functions return \code{TRUE} (invisibly).
+  \code{oobMessage} returns data contained in the response message.
+  
+  All other functions return \code{TRUE} (invisibly).
 }
 \examples{
 \dontrun{
   self.ctrlEval("a <- rnorm(10)")
+  self.oobSend(list("url","http://foo/bar"))
 }
 }
 \author{Simon Urbanek}

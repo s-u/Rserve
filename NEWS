@@ -143,12 +143,12 @@
 	presence of libR.
 
     o	Rserve now supports out-of-band (OOB) messages. Those can be
-	sent using the self.oobSend() function from within code that
-	is evaluated in Rserve child instances. OOB messages are not
-	used by Rserve itself but offer asynchronous notification to
-	clients that support it (one typical use are WS-QAP1 tunnels
-	to web browsers that allow status updates as R code is
-	evaluated).
+	sent using the self.oobSend() [one-way] and self.oobMessage()
+	[roundtrip] functions from within code that is evaluated in
+	Rserve child instances. OOB messages are not used by Rserve
+	itself but offer asynchronous notification to clients that
+	support it (one typical use are WS-QAP1 tunnels	to web
+	browsers that allow status updates as R code is evaluated).
 
     o	Rserve now includes a pool manager RSpool that facilitates the
 	creation of pre-spawned worker Rserve instances. This is in

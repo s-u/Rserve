@@ -1364,11 +1364,12 @@ static void pwd_close(pwdf_t *f) {
 
 args_t *self_args;
 
-SEXP Rserve_oobSend(SEXP exp, SEXP code) {
-	if (!self_args) Rf_error("OOB send cn only be used from code evaluate inside an Rserve client instance");
-	if (!enable_oob) Rf_error("OOB send is disallowed by the current Rserve configuration - use 'oob enable' to allow its use");
+static char dump_buf[32768]; /* scratch buffer that is static so mem alloc doesn't fail */
+
+static int send_oob_sexp(int cmd, SEXP exp) {
+	if (!self_args) Rf_error("OOB commands can only be used from code evaluated inside an Rserve client instance");
+	if (!enable_oob) Rf_error("OOB command is disallowed by the current Rserve configuration - use 'oob enable' to allow its use");
 	{
-		int oob_code = asInteger(code) & 0xfff;
 		args_t *a = self_args;
 		server_t *srv = a->srv;
 		char *sendhead = 0, *sendbuf;
@@ -1404,12 +1405,111 @@ SEXP Rserve_oobSend(SEXP exp, SEXP code) {
 #ifdef RSERV_DEBUG
 			printf("stored SEXP; length=%ld (incl. DT_SEXP header)\n",(long) (tail - sendhead));
 #endif
-			sendRespData(a, OOB_SEND | oob_code, tail - sendhead, sendhead);
+			sendRespData(a, cmd, tail - sendhead, sendhead);
 			free(sendbuf);
 		}
 	}	
-	return ScalarLogical(TRUE);
+	return 1;
 }
+
+SEXP Rserve_oobSend(SEXP exp, SEXP code) {
+	int oob_code = asInteger(code);
+	return ScalarLogical(send_oob_sexp(OOB_USR_CODE(oob_code) | OOB_SEND, exp) == 1 ? TRUE : FALSE);
+}
+
+SEXP Rserve_oobMsg(SEXP exp, SEXP code) {
+	struct phdr ph;
+	int oob_code = asInteger(code), n;
+	int res = send_oob_sexp(OOB_USR_CODE(oob_code) | OOB_MSG, exp);
+	args_t *a = self_args; /* send_oob_sexp has checked this already so it's ok */
+	server_t *srv = a->srv;
+	if (res != 1) /* never happens since send_oob_sexp returns only on success */
+		Rf_error("Sending OOB_MSG failed");
+
+	/* FIXME: this is very similar (but not the same) as the
+	   read loop in Rserve itself - we should modularize this
+	   and re-use the parts */
+#ifdef RSERV_DEBUG
+	printf("OOB-msg (%x) - waiting for response packet\n", oob_code);
+#endif
+    if ((n = srv->recv(a, (char*)&ph, sizeof(ph))) == sizeof(ph)) {
+		size_t plen = 0, i;
+#ifdef RSERV_DEBUG
+		printf("\nOOB response header read result: %d\n", n);
+		if (n > 0) printDump(&ph, n);
+#endif
+		ph.len = ptoi(ph.len);
+		ph.cmd = ptoi(ph.cmd);
+		ph.dof = ptoi(ph.dof);
+#ifdef __LP64__
+		ph.res = ptoi(ph.res);
+		plen = (unsigned int) ph.len;
+		plen |= (((size_t) (unsigned int) ph.res) << 32);
+#else
+		plen = ph.len;
+#endif
+		if (plen) {
+			char *orb = (char*) malloc(plen + 8);
+			if (!orb) {
+				/* error, but we have to pull the while packet as to not kill the queue */
+				size_t chk = (sizeof(dump_buf) < max_sio_chunk) ? sizeof(dump_buf) : max_sio_chunk;
+				i = plen;
+				while((n = srv->recv(a, dump_buf, (i < chk) ? i : chk))) {
+					if (n > 0) i -= n;
+					if (i < 1 || n < 1) break;
+				}
+				if (i > 0) { /* something went wrong */
+					/* FIXME: is this ok? do we need a common close function to shutdown TLS etc.? */
+					closesocket(a->s);
+					a->s = -1;
+					Rf_error("cannot allocate buffer for OOB msg result + read error, aborting conenction");
+				}
+				/* packet discarded so connection is ok, but it is still a mem alloc error */
+				Rf_error("cannot allocate buffer for OOB msg result");
+			}
+			/* ok, got the buffer, fill it */
+			i = 0;
+			while ((n = srv->recv(a, orb + i, (plen - i > max_sio_chunk) ? max_sio_chunk : (plen - i)))) {
+				if (n > 0) i += n;
+				if (i >= plen || n < 1) break;
+			}
+			if (i < plen) { /* uh, oh, the stream is corrupted */
+				closesocket(a->s);
+				a->s = -1;
+				free(orb);
+				Rf_error("read error while reading OOB msg respose, aborting connection");
+			}
+			/* parse the payload - we ony support SEXPs though */
+			{
+				unsigned int *hi = (unsigned int*) orb, pt = PAR_TYPE(ptoi(hi[0]));
+				unsigned long psz = PAR_LEN(ptoi(hi[0]));
+				int upc = 0;
+				SEXP res;
+				if (pt & DT_LARGE) {
+					psz |= hi[1] << 24;
+					pt ^= DT_LARGE;
+					hi++;
+				}
+				if (pt != DT_SEXP) {
+					free(orb);
+					Rf_error("unsupported parameter type %d in OOB msg response", PAR_TYPE(ptoi(hi[0])));
+				}
+				hi++;
+				/* FIXME: we should use R allocation for orb since it will leak if there is an error in any allocation in decoding --- but we can't do the before reading since it would fail to read the stream in case of an error - so we're stuck a bit ... */
+				res = QAP_decode(&hi, &upc);
+				free(orb);
+				if (upc) UNPROTECT(upc);
+				return res;
+			}
+		}				
+	} else {
+		closesocket(a->s);
+		a->s = -1;
+		Rf_error("read error im OOB msg header");
+	}
+	return R_NilValue;
+}
+
 
 /* return 0 if the child was prepared. Returns the result of fork() is forked and this is the parent */
 int Rserve_prepare_child(args_t *arg) {
