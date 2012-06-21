@@ -126,7 +126,6 @@ int main(int argc, char **argv)
 		}
 		if (!isRSP)
 			top_argv[top_argc++]=argv[i];
-		i++;
     }
 	
     R_SignalHandlers = 0; /* disable signal handlers */
@@ -201,6 +200,16 @@ int main(int argc, char **argv)
 
  	if (tls_port > 0 && !create_Rserve_QAP1(SRV_TLS)) {
 		fprintf(stderr, "ERROR: unable to start Rserve TLS server\n");
+		return 1;
+	}
+
+	if (http_port > 0 && !create_HTTP_server(http_port, 0)) {
+		fprintf(stderr, "ERROR: unable to start Rserve HTTP server\n");
+		return 1;
+	}
+
+	if (https_port > 0 && !create_HTTP_server(https_port, SRV_TLS)) {
+		fprintf(stderr, "ERROR: unable to start Rserve HTTPS server\n");
 		return 1;
 	}
 

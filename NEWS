@@ -170,6 +170,8 @@
 	and an error message will be printed when such overflows are
 	detected in the future (which hopefully won't happen).
 
+    o	Bugfix: command line parsing would skip over some arguments
+
     o	Passwords file can contain MD5 or SHA1 hash of a password
 	instead of the plaintext password for non-crypt
 	authentication. In that case the hash must be lowercase	hex
