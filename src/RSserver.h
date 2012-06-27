@@ -27,6 +27,7 @@ typedef struct server {
 	send_fn_t send_resp;  /* send response */
 	cbuf_fn_t send;       /* direct send */
 	buf_fn_t  recv;       /* direct receive */
+	struct server *parent;/* parent server - used only by multi-layer servers */
 } server_t;
 
 /* this flag can be passed to create_server for an IP socket to modify the behavior */

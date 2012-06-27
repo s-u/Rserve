@@ -10,7 +10,7 @@ extern int Rf_initEmbeddedR(int, char**);
 /* main function - start Rserve */
 int main(int argc, char **argv)
 {
-    int stat, i;
+    int stat, i, http_flags;
 	char **top_argv;
 	int    top_argc;
 
@@ -203,20 +203,29 @@ int main(int argc, char **argv)
 		return 1;
 	}
 
-	if (http_port > 0 && !create_HTTP_server(http_port, 0)) {
+	http_flags = 0;
+	if (ws_upgrade) {
+		http_flags = (enable_ws_qap ? WS_PROT_QAP : 0) | (enable_ws_text ? WS_PROT_TEXT : 0);
+		if (http_flags)
+			http_flags |= HTTP_WS_UPGRADE;
+		else
+			fprintf(stderr, "WARNING: http.upgrade.websockets is enabled but no WS sub-protocol is enabled, ignoring\n");
+	}
+	if (http_port > 0 && !create_HTTP_server(http_port, http_flags)) {
 		fprintf(stderr, "ERROR: unable to start Rserve HTTP server\n");
 		return 1;
 	}
 
-	if (https_port > 0 && !create_HTTP_server(https_port, SRV_TLS)) {
+	if (https_port > 0 && !create_HTTP_server(https_port, http_flags | SRV_TLS)) {
 		fprintf(stderr, "ERROR: unable to start Rserve HTTPS server\n");
 		return 1;
 	}
 
 	if (enable_ws_text || enable_ws_qap) {
-		if (ws_port < 1)
-			fprintf(stderr, "WARNING: Invalid or missing websockets.port, WebSockets server will not start");
-		else
+		if (ws_port < 1) {
+			if (!ws_upgrade)
+				fprintf(stderr, "WARNING: Invalid or missing websockets.port, WebSockets server will not start\n");
+		} else
 			create_WS_server(ws_port, (enable_ws_qap ? WS_PROT_QAP : 0) | (enable_ws_text ? WS_PROT_TEXT : 0));
 	}
 

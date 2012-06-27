@@ -1,5 +1,6 @@
 #include "RSserver.h"
 #include "tls.h"
+#include "websockets.h" /* for connection upgrade */
 #include <sisocks.h>
 #include <string.h>
 #include <stdio.h>
@@ -9,7 +10,11 @@
 #define LINE_BUF_SIZE 1024
 
 /* debug output - change the DBG(X) X to enable debugging output */
+#ifdef RSERV_DEBUG
+#define DBG(X) X
+#else
 #define DBG(X)
+#endif
 
 /* --- httpd --- */
 
@@ -22,14 +27,15 @@
 #define METHOD_HEAD 3
 
 /* attributes of a connection/worker */
-#define CONNECTION_CLOSE  0x01 /* Connection: close response behavior is requested */
-#define HOST_HEADER       0x02 /* headers contained Host: header (required for HTTP/1.1) */
-#define HTTP_1_0          0x04 /* the client requested HTTP/1.0 */
-#define CONTENT_LENGTH    0x08 /* Content-length: was specified in the headers */
-#define THREAD_OWNED      0x10 /* the worker is owned by a thread and cannot removed */
-#define THREAD_DISPOSE    0x20 /* the thread should dispose of the worker */
-#define CONTENT_TYPE      0x40 /* message has a specific content type set */
-#define CONTENT_FORM_UENC 0x80 /* message content type is application/x-www-form-urlencoded */
+#define CONNECTION_CLOSE  0x0001 /* Connection: close response behavior is requested */
+#define HOST_HEADER       0x0002 /* headers contained Host: header (required for HTTP/1.1) */
+#define HTTP_1_0          0x0004 /* the client requested HTTP/1.0 */
+#define CONTENT_LENGTH    0x0008 /* Content-length: was specified in the headers */
+#define THREAD_OWNED      0x0010 /* the worker is owned by a thread and cannot removed */
+#define THREAD_DISPOSE    0x0020 /* the thread should dispose of the worker */
+#define CONTENT_TYPE      0x0040 /* message has a specific content type set */
+#define CONTENT_FORM_UENC 0x0080 /* message content type is application/x-www-form-urlencoded */
+#define WS_UPGRADE        0x0100 /* upgrade to WebSockets protocol */
 
 struct buffer {
     struct buffer *next, *prev;
@@ -61,7 +67,9 @@ struct args {
     char *content_type;            /* content type (if set) */
     unsigned int line_pos, body_pos; /* positions in the buffers */
     long content_length;           /* desired content length */
-    char part, method, attr;       /* request part, method and connection attributes */
+    char part, method;             /* request part, method */
+	int  attr;                     /* connection attributes */
+	char *ws_protocol, *ws_version, *ws_key;
     struct buffer *headers;        /* buffer holding header lines */
 };
 
@@ -138,6 +146,18 @@ static void free_args(args_t *c)
 		free_buffer(c->headers);
 		c->headers = NULL;
     }
+	if (c->ws_key) {
+		free(c->ws_key);
+		c->ws_key = NULL;
+	}
+	if (c->ws_protocol) {
+		free(c->ws_protocol);
+		c->ws_protocol = NULL;
+	}
+	if (c->ws_version) {
+		free(c->ws_version);
+		c->ws_version = NULL;
+	}
     if (c->s != INVALID_SOCKET) {
 		closesocket(c->s);
 		c->s = INVALID_SOCKET;
@@ -295,6 +315,12 @@ static void process_request(args_t *c)
     int code = 200;
     DBG(Rprintf("process request for %p\n", (void*) c));
     if (!c || !c->url) return; /* if there is not enough to process, bail out */
+	if (c->attr & WS_UPGRADE) {
+		WS13_upgrade(c, c->ws_key, c->ws_protocol, c->ws_version);
+		/* the WS swtich messes up args since it replaces it with its own version so
+		   we can't go back to serving - just bail out (NOTE: only works when forked!) */
+		exit(0);
+	}
     s = c->url;
     while (*s && *s != '?') s++; /* find the query part */
     if (*s) {
@@ -489,7 +515,7 @@ static void http_input_iteration(args_t *c) {
     int n;
 	server_t *srv = c->srv;
 	
-    DBG(printf("worker_input_handler, data=%p\n", data));
+    DBG(printf("worker_input_handler, data=%p\n", (void*) c));
     if (!c) return;
 	
     DBG(printf("input handler for worker %p (sock=%d, part=%d, method=%d, line_pos=%d)\n", (void*) c, (int)c->s, (int)c->part, (int)c->method, (int)c->line_pos));
@@ -562,6 +588,9 @@ static void http_input_iteration(args_t *c) {
 					if (c->body) { free(c->body); c->body = NULL; }
 					if (c->content_type) { free(c->content_type); c->content_type = NULL; }
 					if (c->headers) { free_buffer(c->headers); c->headers = NULL; }
+					if (c->ws_key) { free(c->ws_key); c->ws_key = NULL; }
+					if (c->ws_protocol) { free(c->ws_protocol); c->ws_protocol = NULL; }
+					if (c->ws_version) { free(c->ws_version); c->ws_version = NULL; }
 					c->body_pos = 0;
 					c->method = 0;
 					c->part = PART_REQUEST;
@@ -653,6 +682,8 @@ static void http_input_iteration(args_t *c) {
 							*(k++) = 0;
 							while (*k == ' ' || *k == '\t') k++;
 							DBG(printf("header '%s' => '%s'\n", bol, k));
+							if (!strcmp(bol, "upgrade") && !strcmp(k, "websocket"))
+								c->attr |= WS_UPGRADE;
 							if (!strcmp(bol, "content-length")) {
 								c->attr |= CONTENT_LENGTH;
 								c->content_length = atol(k);
@@ -674,6 +705,19 @@ static void http_input_iteration(args_t *c) {
 								if (!strncmp(k, "close", 5))
 									c->attr |= CONNECTION_CLOSE;
 							}
+							if (!strcmp(bol, "sec-websocket-key")) {
+								if (c->ws_key) free(c->ws_key);
+								c->ws_key = strdup(k);
+							}
+							if (!strcmp(bol, "sec-websocket-protocol")) {
+								if (c->ws_protocol) free(c->ws_protocol);
+								c->ws_protocol = strdup(k);
+							}
+							if (!strcmp(bol, "sec-websocket-version")) {
+								if (c->ws_version) free(c->ws_version);
+								c->ws_version = strdup(k);
+							}
+							DBG(Rprintf(" [attr = %x]\n", c->attr));
 						}
 					}
 				}
@@ -713,6 +757,9 @@ static void http_input_iteration(args_t *c) {
 			if (c->body) { free(c->body); c->body = NULL; }
 			if (c->content_type) { free(c->content_type); c->content_type = NULL; }
 			if (c->headers) { free_buffer(c->headers); c->headers = NULL; }
+			if (c->ws_key) { free(c->ws_key); c->ws_key = NULL; }
+			if (c->ws_protocol) { free(c->ws_protocol); c->ws_protocol = NULL; }
+			if (c->ws_version) { free(c->ws_version); c->ws_version = NULL; }
 			c->line_pos = 0; c->body_pos = 0;
 			c->method = 0;
 			c->part = PART_REQUEST;
@@ -750,6 +797,9 @@ static void http_input_iteration(args_t *c) {
 				if (c->body) { free(c->body); c->body = NULL; }
 				if (c->content_type) { free(c->content_type); c->content_type = NULL; }
 				if (c->headers) { free_buffer(c->headers); c->headers = NULL; }
+				if (c->ws_key) { free(c->ws_key); c->ws_key = NULL; }
+				if (c->ws_protocol) { free(c->ws_protocol); c->ws_protocol = NULL; }
+				if (c->ws_version) { free(c->ws_version); c->ws_version = NULL; }
 				c->body_pos = 0;
 				c->method = 0;
 				c->part = PART_REQUEST;
@@ -801,6 +851,9 @@ static void HTTP_connected(void *parg) {
 
 server_t *create_HTTP_server(int port, int flags) {
 	server_t *srv = create_server(port, 0, 0, flags);
+#ifdef RSERV_DEBUG
+	fprintf(stderr, "create_HTTP_server(port = %d, flags=0x%x)\n", port, flags);
+#endif
 	if (srv) {
 		srv->connected = HTTP_connected;
 		/* srv->send_resp = */

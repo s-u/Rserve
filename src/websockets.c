@@ -18,6 +18,10 @@ struct args {
 	long  l1, l2;
 };
 
+static int  WS_recv_data(args_t *arg, void *buf, rlen_t read_len);
+static void WS_send_resp(args_t *arg, int rsp, rlen_t len, const void *buf);
+static int  WS_send_data(args_t *arg, const void *buf, rlen_t len);
+
 static int do_mask(char *msg, int len, int koff, char *key) {
 	int i = 0;
 	while (i < len) {
@@ -293,6 +297,64 @@ static void WS_connected(void *parg) {
 	/* switch to underlying QAP1 */
 	Rserve_QAP1_connected(arg);
 }
+
+static server_t *ws_upgrade_srv; /* virtual server that represents the WS layer in HTTP/WS stack */
+
+/* upgrade HTTP connection to WS connection, only 13+ protocol is supported this way */
+/* NOTE: not included: origin, host */
+/* IMPORTANT: it mangles the arg structure, so the caller should make sure it releases any obejcts from
+              the structure that may leak */
+/* FIXME: it only works on connections that have a direct socket since we don't have a stack to do TLS <-> WS <-> QAP */
+void WS13_upgrade(args_t *arg, const char *key, const char *protocol, const char *version) {
+	char buf[512];
+	unsigned char hash[21];
+	char b64[44];
+	server_t *srv;
+	srv = ws_upgrade_srv;
+	if (!srv) {
+		srv = ws_upgrade_srv = (server_t*) calloc(1, sizeof(server_t));
+		if (!ws_upgrade_srv) {
+			snprintf(buf, sizeof(buf), "HTTP/1.1 511 Allocation error\r\n\r\n");
+			arg->srv->send(arg, buf, strlen(buf));
+			return;
+		}
+		srv->parent    = arg->srv;
+		srv->connected = WS_connected; /* this is not actually called */
+		srv->send_resp = WS_send_resp;
+		srv->recv      = WS_recv_data;
+		srv->send      = WS_send_data;
+		srv->fin       = server_fin;
+	}
+	strncpy(buf, key, sizeof(buf) - 50);
+	strcat(buf, "258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
+	sha1hash(buf, strlen(buf), hash);
+	hash[20] = 0; /* base64encode needs NUL sentinel */
+	base64encode(hash, sizeof(hash) - 1, b64);
+	/* FIXME: if the client requests multiple protocols, we should be picking one but we don't */
+	snprintf(buf, sizeof(buf), "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: %s\r\n%s%s%s\r\n", b64, protocol ? "Sec-WebSocket-Protocol: " : "", protocol ? protocol : "", protocol ? "\r\n" : "");
+	arg->srv->send(arg, buf, strlen(buf));
+#ifdef RSERV_DEBUG
+	printf("Responded with WebSockets.04+ handshake (version = %02d)\n", version ? atoi(version) : 0);
+#endif
+
+	arg->bl = FRAME_BUFFER_SIZE;
+	arg->bp = 0;
+	arg->buf = (char*) malloc(FRAME_BUFFER_SIZE);
+	arg->sl = FRAME_BUFFER_SIZE;
+	arg->sbuf = (char*) malloc(FRAME_BUFFER_SIZE);
+	arg->srv = srv;
+	arg->ver = version ? atoi(version) : 13; /* let's assume 13 if not present */
+
+	/* textual protocol */
+	if (protocol && strstr(protocol, "text")) {
+		Rserve_text_connected(arg);
+		return;
+	}
+
+	/* switch to underlying QAP1 */
+	Rserve_QAP1_connected(arg);
+}
+
 
 static void WS_send_resp(args_t *arg, int rsp, rlen_t len, const void *buf) {
 	unsigned char *sbuf = (unsigned char*) arg->sbuf;

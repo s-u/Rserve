@@ -10,6 +10,10 @@
 
 server_t *create_WS_server(int port, int protocols);
 
+/* upgrade HTTP connection to WS - assumes that the HTTP server has parsed the request already
+   only WS 13+ handshake is supported by this function */
+void WS13_upgrade(args_t *arg, const char *key, const char *protocol, const char *version);
+
 /* flags used in args_t.flags */
 #define F_INFRAME 0x010
 #define F_MASK    0x020

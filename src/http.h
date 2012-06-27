@@ -3,6 +3,8 @@
 
 #include "RSserver.h"
 
+#define HTTP_WS_UPGRADE 0x10
+
 server_t *create_HTTP_server(int port, int flags);
 
 #endif

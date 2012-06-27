@@ -51,6 +51,7 @@ server_t *create_server(int port, const char *localSocketName, int localSocketMo
 	srv->ss = ss;
 	srv->unix_socket = localSocketName ? 1 : 0;
 	srv->flags = flags;
+	srv->parent = 0;
 
 	reuse = 1; /* enable socket address reusage */
 	setsockopt(ss, SOL_SOCKET, SO_REUSEADDR, (const char*)&reuse, sizeof(reuse));

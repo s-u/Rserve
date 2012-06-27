@@ -72,7 +72,9 @@
 	In addition to enabling each or both subprotocols, the port on
 	which the WebSockets server should listen must be specified in
 	the configuration using "websockets.port" directive, for
-	example "websockets.port 8080"
+	example "websockets.port 8080". Alternatively, the HTTP server
+	can be enabled to allow connection upgrade to WebSockets on
+	the same port with "http.upgrade.websockets enable"
 
 	NOTE: remember that the default in Rserve is to disallow
 	remote connections, so you may need to use "remote enable" in
