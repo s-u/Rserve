@@ -1685,16 +1685,17 @@ static int auth_user(const char *usr, const char *pwd, const char *salt) {
 	{ /* create hex-encoded versions of the password hashes */
 		char *mp = md5_pwd;
 		int k;
-		for (k = 0; k < 16; mp+=2, k++) {
-			*(mp++) = hexc[md5h[k] >> 8];
+		for (k = 0; k < 16; k++) {
+			*(mp++) = hexc[md5h[k] >> 4];
 			*(mp++) = hexc[md5h[k] & 15];
 		}
 		*mp = 0;
 		mp = sha1_pwd;
-		for (k = 0; k < 20; mp+=2, k++) {
-			*(mp++) = hexc[sh1h[k] >> 8];
+		for (k = 0; k < 20; k++) {
+			*(mp++) = hexc[sh1h[k] >> 4];
 			*(mp++) = hexc[sh1h[k] & 15];
 		}
+		*mp = 0;
 	}
 	authed = 1;
 #ifdef RSERV_DEBUG
@@ -1751,6 +1752,7 @@ static int auth_user(const char *usr, const char *pwd, const char *salt) {
 					if (!strcmp(login, usr)) { /* login found */
 #ifdef RSERV_DEBUG
 						printf("Found login '%s', checking password.\n", usr);
+						printf(" - stored pwd = '%s', md5='%s', sha1='%s'\n", c1, md5_pwd, sha1_pwd);
 #endif
 						if (usePlain &&
 							((*c1 == '$' && strlen(c1) == 33 && !strcmp(c1 + 1, md5_pwd)) ||
@@ -1758,7 +1760,7 @@ static int auth_user(const char *usr, const char *pwd, const char *salt) {
 							 ((*c1 != '$' || (strlen(c1) != 33 && strlen(c1) !=41)) && !strcmp(c1, pwd)))) {
 							authed = 1;
 #ifdef RSERV_DEBUG
-							printf(" - %s password matches.", (*c1 == '$' && strlen(c1) == 33) ? "MD5" :
+							printf(" - %s password matches.\n", (*c1 == '$' && strlen(c1) == 33) ? "MD5" :
 								   ((*c1 == '$' && strlen(c1) == 41) ? "SHA1" : "plain"));
 #endif
 						} else {
