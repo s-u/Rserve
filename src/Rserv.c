@@ -2886,6 +2886,12 @@ v						break;
 		rmdir(wdname);
     }
 #endif
+	{ /* run .Rserve.done() if present */
+		SEXP fun, fsym = install(".Rserve.done");
+		fun = findVarInFrame(R_GlobalEnv, fsym);
+		if (Rf_isFunction(fun))
+			R_tryEval(lang1(fsym), R_GlobalEnv, &Rerror);
+	}
     
 #ifdef RSERV_DEBUG
     printf("done.\n");

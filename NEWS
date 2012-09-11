@@ -11,6 +11,7 @@
    ***	Out-of-band messages via self.oobSend()
    ***  user-based uid/gid switch, MD5/SHA1 stored passwords
    ***  preliminary IPv6 support; RSA secure authentication
+   ***  .Rserve.done global env hook for optiopnal cleanup
    ***	---- END - see below for details ----
 
     o	This is the first release in the new 1.x Rserve series. Many
@@ -324,6 +325,11 @@
 	you don't need this -- if you actually need this, then you
 	probably want to add more "allow" entries for the machine's
 	other interfaces as well).
+
+    o	If a function .Rserve.done() is defined in the global
+	environment, it will be run after a clean connection
+	shutdown. This allows custom code to be run when a client
+	connection is closed.
 
 
 --- In order to support new ideas a major re-organization of Rserve ---
