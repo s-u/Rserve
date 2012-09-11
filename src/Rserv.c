@@ -2880,18 +2880,21 @@ v						break;
 		sendResp(a, SET_STAT(RESP_ERR, ERR_conn_broken));
     closesocket(s);
     free(sendbuf); free(sfbuf); free(buf);
+	{ /* run .Rserve.done() if present */
+		SEXP fun, fsym = install(".Rserve.done");
+		fun = findVarInFrame(R_GlobalEnv, fsym);
+		if (Rf_isFunction(fun)) {
+#ifdef unix
+			chdir(wdname); /* guarantee that we are running in the workign directory */
+#endif
+			R_tryEval(lang1(fsym), R_GlobalEnv, &Rerror);
+	}
 #ifdef unix
     if (workdir) {
 		chdir(workdir);
 		rmdir(wdname);
     }
 #endif
-	{ /* run .Rserve.done() if present */
-		SEXP fun, fsym = install(".Rserve.done");
-		fun = findVarInFrame(R_GlobalEnv, fsym);
-		if (Rf_isFunction(fun))
-			R_tryEval(lang1(fsym), R_GlobalEnv, &Rerror);
-	}
     
 #ifdef RSERV_DEBUG
     printf("done.\n");
