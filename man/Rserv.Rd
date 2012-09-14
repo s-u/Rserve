@@ -4,10 +4,10 @@
 \usage{
 # R CMD Rserve [<parameters>]
 
-Rserve(debug = FALSE, port = 6311, args = NULL, quote=(length(args) > 1), wait, ...)
+Rserve(debug = FALSE, port, args = NULL, quote=(length(args) > 1), wait, ...)
 }
 \synopsis{
-Rserve(debug = FALSE, port = 6311, args = NULL, quote=(length(args) > 1), wait, ...)
+Rserve(debug = FALSE, port, args = NULL, quote=(length(args) > 1), wait, ...)
 }
 \description{
 Starts Rserve in daemon mode (unix only). Any additional parameters
@@ -27,7 +27,9 @@ current R.DLL so that Rserve can be run.
 \arguments{
 \item{debug}{determines whether regular Rserve or debug version of
   Rserve (\code{Rserve.dbg}) should be started.}
-\item{port}{port used by Rserve to listen for connections}
+\item{port}{port used by Rserve to listen for connections. If not
+  specified, it will be taken from the configuration file (if present)
+  or default to 6311}
 \item{args}{further arguments passed to Rserve (as a string that will be
   passed to the \code{system} command - see \code{quote} below).}
 \item{quote}{logical, if \code{TRUE} then arguments are quoted,
@@ -41,5 +43,6 @@ current R.DLL so that Rserve can be run.
   R package for convenience only. For details see
   http://www.rforge.net/Rserve
 }
+\seealso{\code{\link{run.Rserve}}}
 \author{Simon Urbanek}
 \keyword{interface}
