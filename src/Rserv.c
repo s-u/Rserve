@@ -2888,6 +2888,7 @@ v						break;
 			chdir(wdname); /* guarantee that we are running in the workign directory */
 #endif
 			R_tryEval(lang1(fsym), R_GlobalEnv, &Rerror);
+		}
 	}
 #ifdef unix
     if (workdir) {
