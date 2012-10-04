@@ -520,6 +520,17 @@ static void printSEXP(SEXP e) /* merely for debugging purposes
 		putchar('\n');
 		return;
     }
+    if (t==LGLSXP) {
+		printf("Vector of %d logicals:\n",LENGTH(e));
+		while(i<LENGTH(e)) {
+			if (dumpLimit && i>dumpLimit) { printf("..."); break; }
+			printf("%d",INTEGER(e)[i]);
+			if (i<LENGTH(e)-1) printf(", ");
+			i++;
+		}
+		putchar('\n');
+		return;
+    }
     if (t==VECSXP) {
 		printf("Vector of %d fields:\n",LENGTH(e));
 		while(i<LENGTH(e)) {

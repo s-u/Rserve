@@ -331,6 +331,9 @@
 	shutdown. This allows custom code to be run when a client
 	connection is closed.
 
+    o	assigning logical NAs now uses the proper NA_LOGICAL value
+	that is also recognized by R. (PR#276)
+
 
 --- In order to support new ideas a major re-organization of Rserve ---
 --- has been started - almost 10 years after the first release.     ---
