@@ -1937,6 +1937,7 @@ static void rm_rf(const char *what) {
 }
 #endif
 
+/* FIXME: we are not using Rserve_prepare_child so the behavior may differ between QAP and others! */
 /* working thread/function. the parameter is of the type struct args* */
 /* This server function implements the Rserve QAP1 protocol */
 void Rserve_QAP1_connected(void *thp) {
@@ -3065,6 +3066,7 @@ void serverLoop() {
 				struct args *sa;
 				server_t *srv = server[i];
 				int ss = srv->ss;
+				int succ = 0;
 				if (server[i] && FD_ISSET(ss, &readfds)) {
 #endif
 					sa = (struct args*)malloc(sizeof(struct args));
@@ -3104,6 +3106,7 @@ void serverLoop() {
 							printf("INFO: accepted connection for server %p, calling connected\n", (void*) srv);
 #endif
 							srv->connected(sa);
+							succ = 1;
 #ifdef FORKED
 							/* when the child returns it means it's done (likely an error)
 							   but it is forked, so the only right thing to do is to exit */
@@ -3121,10 +3124,18 @@ void serverLoop() {
 						printf("INFO: accepted connection for server %p, calling connected\n", (void*) srv);
 #endif
 						srv->connected(sa);
+						succ = 1;
 						if (is_child) /* same as above */
 							exit(2);
 					}
 #ifdef unix
+				}
+				if (succ) { /* if there was an actual connection, offer to run .Rserve.served */
+					SEXP fun, fsym = install(".Rserve.served");
+					int evalErr = 0;
+					fun = findVarInFrame(R_GlobalEnv, fsym);
+					if (Rf_isFunction(fun))
+                        R_tryEval(lang1(fsym), R_GlobalEnv, &evalErr);
 				}
 			} /* end loop over servers */
 

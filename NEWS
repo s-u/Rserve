@@ -331,6 +331,15 @@
 	shutdown. This allows custom code to be run when a client
 	connection is closed.
 
+    o	If a function .Rserve.served() is defined in the global
+	environment of the server, it will be run after a client
+	connection has been served. For forked servers this is just
+	after the fork(), for co-operative servers this is after the
+	client conenction has been closed. It is guaranteed that no
+	other client is served before the call so it can be used to
+	manage resources that are unsafe to share with forked
+	processes (e.g. sockets etc.).
+
     o	assigning logical NAs now uses the proper NA_LOGICAL value
 	that is also recognized by R. (PR#276)
 
