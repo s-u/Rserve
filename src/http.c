@@ -662,7 +662,10 @@ static void http_input_iteration(args_t *c) {
 								if (c->headers->length + l + 1 > c->headers->size) { /* not enough space? */
 									int fits = c->headers->size - c->headers->length;
 									int needs = 2048;
-									if (fits) memcpy(c->headers->data + c->headers->length, bol, fits);
+									if (fits) {
+										memcpy(c->headers->data + c->headers->length, bol, fits);
+										c->headers->length += fits;
+									}
 									while (l + 1 - fits >= needs) needs <<= 1;
 									if (alloc_buffer(needs, c->headers)) {
 										c->headers = c->headers->next;
