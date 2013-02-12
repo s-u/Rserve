@@ -6,8 +6,10 @@
 #include <stdio.h>
 
 /* size of the line buffer for each worker (request and header only)
- * requests that have longer headers will be rejected with 413 */
-#define LINE_BUF_SIZE 1024
+ * requests that have longer headers will be rejected with 413
+ * Note that cookies can be quite big and some browsers send them
+ * in one line, so this should not be too small */
+#define LINE_BUF_SIZE 8192
 
 /* debug output - change the DBG(X) X to enable debugging output */
 #ifdef RSERV_DEBUG
@@ -328,7 +330,7 @@ static void process_request(args_t *c)
 		query = s;
     }
     uri_decode(c->url); /* decode the path part */
-    {   /* construct "try(httpd(url, query, body), silent=TRUE)" */
+    {   /* construct "try(httpd(url, query, body, headers), silent=TRUE)" */
 		SEXP sTrue = PROTECT(ScalarLogical(TRUE));
 		SEXP sBody = PROTECT(parse_request_body(c));
 		SEXP sQuery = PROTECT(query ? parse_query(query) : R_NilValue);
@@ -659,8 +661,10 @@ static void http_input_iteration(args_t *c) {
 							if (l) { /* this should be really always true */
 								if (c->headers->length + l + 1 > c->headers->size) { /* not enough space? */
 									int fits = c->headers->size - c->headers->length;
+									int needs = 2048;
 									if (fits) memcpy(c->headers->data + c->headers->length, bol, fits);
-									if (alloc_buffer(2048, c->headers)) {
+									while (l + 1 - fits >= needs) needs <<= 1;
+									if (alloc_buffer(needs, c->headers)) {
 										c->headers = c->headers->next;
 										memcpy(c->headers->data, bol + fits, l - fits);
 										c->headers->length = l - fits;
