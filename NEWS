@@ -12,6 +12,7 @@
    ***  user-based uid/gid switch, MD5/SHA1 stored passwords
    ***  preliminary IPv6 support; RSA secure authentication
    ***  .Rserve.done global env hook for optiopnal cleanup
+   ***  auth.function setting to allow custom authentication
    ***	---- END - see below for details ----
 
     o	This is the first release in the new 1.x Rserve series. Many

@@ -309,6 +309,7 @@ int Rsrv_interactive = 1; /* default for R_Interactive flag */
 
 static char authkey[1024];  /* server-side authentication key */
 static int authkey_req = 0; /* number of auth requests */
+static char *auth_fn;       /* authentication function */
 
 #ifdef unix
 static int umask_value = 0;
@@ -980,6 +981,10 @@ static int setConfig(const char *c, const char *p) {
 		pwdfile = (*p) ? strdup(p) : 0;
 		return 1;
 	}
+	if (!strcmp(c,"auth.function")) {
+		auth_fn = (*p) ? strdup(p) : 0;
+		return 1;
+	}
 	if (!strcmp(c,"auth")) {
 		authReq = (*p=='1' || *p=='y' || *p=='r' || *p=='e' || *p == 'T') ? 1 : 0;
 		return 1;
@@ -1527,6 +1532,14 @@ SEXP Rserve_oobMsg(SEXP exp, SEXP code) {
 }
 
 
+/* server forking
+   For a regular forked server this is simply fork(), but for pre-forked servers
+   ... ?
+ */
+int RS_fork(args_t *arg) {
+	return fork();
+}
+
 /* return 0 if the child was prepared. Returns the result of fork() is forked and this is the parent */
 int Rserve_prepare_child(args_t *arg) {
 #ifdef FORKED  
@@ -1545,7 +1558,7 @@ int Rserve_prepare_child(args_t *arg) {
 		cinp[0] = -1;
 #endif
 
-    if ((lastChild = fork()) != 0) { /* parent/master part */
+    if ((lastChild = RS_fork(arg)) != 0) { /* parent/master part */
 		/* close the connection socket - the child has it already */
 		closesocket(arg->s);
 		if (cinp[0] != -1) { /* if we have a valid pipe register the child */
@@ -1712,6 +1725,15 @@ static int auth_user(const char *usr, const char *pwd, const char *salt) {
 #ifdef RSERV_DEBUG
 	printf("Authentication attempt (login='%s', pwd='%s', pwdfile='%s')\n", usr, pwd, pwdfile);
 #endif
+	if (auth_fn) {
+		SEXP res, authv = PROTECT(allocVector(STRSXP, 2));
+		int eres = 0;
+		SET_STRING_ELT(authv, 0, mkChar(usr));
+		SET_STRING_ELT(authv, 1, mkChar(pwd));
+		res = R_tryEval(lang2(install(auth_fn), authv), R_GlobalEnv, &eres);
+		UNPROTECT(1);
+		return (res && TYPEOF(res) == LGLSXP && LENGTH(res) == 1 && LOGICAL(res)[0] == TRUE);
+	}
 	if (pwdfile) {
 		pwdf_t *pwf;
 		int ctrl_flag = 0, u_uid = 0, u_gid = 0;
