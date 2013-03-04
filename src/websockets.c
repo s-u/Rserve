@@ -31,7 +31,8 @@ static int do_mask(char *msg, int len, int koff, char *key) {
 	return (i + koff) & 3;
 }
 
-#define LINE_BUF_SIZE 4096
+/* due to very large cookies the lines may be very long, using 128kB for now */
+#define LINE_BUF_SIZE (128*1024)
 
 struct header_info {
 	int version;
