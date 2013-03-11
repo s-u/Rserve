@@ -58,8 +58,8 @@
 #else
 
 #define windows
-#include <windows.h>
 #include <winsock2.h>
+#include <windows.h>
 #include <string.h>
 #include <stdlib.h>
 #define inet_aton(A,B) (0, B.s_addr=inet_addr(A))
