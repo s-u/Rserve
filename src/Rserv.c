@@ -1697,6 +1697,7 @@ void Rserve_text_connected(void *thp) {
 static char auth_buf[4096];
 
 static const char *hexc = "0123456789abcdef";
+static const char *sec_salt = "##secure"; /* special object to denote secure login */
 
 static int auth_user(const char *usr, const char *pwd, const char *salt) {
 	int authed = 0;
@@ -1787,7 +1788,7 @@ static int auth_user(const char *usr, const char *pwd, const char *salt) {
 						printf("Found login '%s', checking password.\n", usr);
 						printf(" - stored pwd = '%s', md5='%s', sha1='%s'\n", c1, md5_pwd, sha1_pwd);
 #endif
-						if (usePlain &&
+						if ((usePlain || salt == sec_salt) &&
 							((*c1 == '$' && strlen(c1) == 33 && !strcmp(c1 + 1, md5_pwd)) ||
 							 (*c1 == '$' && strlen(c1) == 41 && !strcmp(c1 + 1, sha1_pwd)) ||
 							 ((*c1 != '$' || (strlen(c1) != 33 && strlen(c1) !=41)) && !strcmp(c1, pwd)))) {
@@ -2347,7 +2348,7 @@ v						break;
 								}
 							if (ac[asl - 1])
 								ac[asl] = 0;
-							authed = auth_user(au, ap ? ap : "", 0);
+							authed = auth_user(au, ap ? ap : "", sec_salt);
 							if (authed) {
 								process = 1;
 								sendResp(a, RESP_OK);
