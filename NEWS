@@ -341,6 +341,18 @@
 	manage resources that are unsafe to share with forked
 	processes (e.g. sockets etc.).
 
+    o	All commands based on eval now also accept DT_SEXP in addition
+	to DT_STRING. In such case the parse step is skipped and the
+	expression is evaluated directly. The intended use of this
+	functionality is to evaluate language constructs and thus
+	allow calls with both reference and inlined arguments.
+
+    o	QAP decoding is slightly more efficient and avoids protection
+	cascades. QAP_decode() has now only one argument and it	is
+	guaranteed to not increase the protection stack when returning
+	(which implies that it is the responsibility of the caller to
+	protect the result if needed).
+
     o	assigning logical NAs now uses the proper NA_LOGICAL value
 	that is also recognized by R. (PR#276)
 

@@ -8,6 +8,6 @@
 
 #include "Rsrv.h"
 
-SEXP QAP_decode(unsigned int **buf, int *UPC);
+SEXP QAP_decode(unsigned int **buf);
 
 #endif

@@ -1504,7 +1504,6 @@ SEXP Rserve_oobMsg(SEXP exp, SEXP code) {
 			{
 				unsigned int *hi = (unsigned int*) orb, pt = PAR_TYPE(ptoi(hi[0]));
 				unsigned long psz = PAR_LEN(ptoi(hi[0]));
-				int upc = 0;
 				SEXP res;
 				if (pt & DT_LARGE) {
 					psz |= hi[1] << 24;
@@ -1517,9 +1516,8 @@ SEXP Rserve_oobMsg(SEXP exp, SEXP code) {
 				}
 				hi++;
 				/* FIXME: we should use R allocation for orb since it will leak if there is an error in any allocation in decoding --- but we can't do the before reading since it would fail to read the stream in case of an error - so we're stuck a bit ... */
-				res = QAP_decode(&hi, &upc);
+				res = QAP_decode(&hi);
 				free(orb);
-				if (upc) UNPROTECT(upc);
 				return res;
 			}
 		}				
@@ -2629,7 +2627,6 @@ v						break;
 				SEXP val, sym=0;
 				unsigned int *sptr;
 				int parType = parT[1];
-				int globalUPC = 0;
 				int boffs = 0;
 		
 				c=(char*)parP[0]; /* name of the symbol */
@@ -2668,18 +2665,19 @@ v						break;
 								advance the pointer and don't care about the length */
 				case DT_SEXP:
 					sptr = ((unsigned int*)parP[1]) + boffs;
-					val = QAP_decode(&sptr, &globalUPC);
+					val = QAP_decode(&sptr);
 					if (val == 0)
 						sendResp(a, SET_STAT(RESP_ERR, ERR_inv_par));
 					else {
+						PROTECT(val);
 #ifdef RSERV_DEBUG
 						printf("  assigning SEXP: ");
 						printSEXP(val);
 #endif
 						defineVar(sym ? sym : install(c), val, R_GlobalEnv);
+						UNPROTECT(1);
 						sendResp(a, RESP_OK);
 					}
-					if (globalUPC>0) UNPROTECT(globalUPC);
 					break;
 				default:
 					sendResp(a, SET_STAT(RESP_ERR, ERR_inv_par));
@@ -2732,16 +2730,38 @@ v						break;
 		}
 
 		if (ph.cmd == CMD_voidEval || ph.cmd == CMD_eval || ph.cmd == CMD_detachedVoidEval) {
-			process=1;
-			if (pars < 1 || parT[0] != DT_STRING) 
+			int is_large = (parT[0] & DT_LARGE) ? 1 : 0;
+			SEXP eval_result = 0;
+			if (is_large) parT[0] ^= DT_LARGE;
+			process = 1;
+			Rerror = 0;
+			if (pars < 1 || (parT[0] != DT_STRING && parT[0] != DT_SEXP))
 				sendResp(a, SET_STAT(RESP_ERR, ERR_inv_par));
-			else {
+			else if (parT[0] == DT_SEXP) {
+				unsigned int *sptr = ((unsigned int*)parP[0]) + is_large;
+				SEXP val = QAP_decode(&sptr);
+				if (!val) {
+#ifdef RSERV_DEBUG
+					printf("  FAILED to decode SEXP parameter\n");
+#endif
+					sendResp(a, SET_STAT(RESP_ERR, ERR_inv_par));
+				} else {
+					PROTECT(val);
+#ifdef RSERV_DEBUG
+					printf("  running eval on SEXP: ");
+					printSEXP(val);
+#endif
+					eval_result = R_tryEval(val, R_GlobalEnv, &Rerror);
+					UNPROTECT(1);
+				}
+			} else {
 				int j = 0;
-				c=(char*)parP[0];
+				c = (char*)parP[0];
+				if (is_large) c += 4;
 #ifdef RSERV_DEBUG
 				printf("parseString(\"%s\")\n",c);
 #endif
-				xp=parseString(c, &j, &stat);
+				xp = parseString(c, &j, &stat);
 				PROTECT(xp);
 #ifdef RSERV_DEBUG
 				printf("buffer parsed, stat=%d, parts=%d\n", stat, j);
@@ -2750,7 +2770,7 @@ v						break;
 				else
 					printf("result is <null>\n");
 #endif				
-				if (stat == 1 && ph.cmd==CMD_detachedVoidEval && detach_session(a))
+				if (stat == 1 && ph.cmd == CMD_detachedVoidEval && detach_session(a))
 					sendResp(a, SET_STAT(RESP_ERR, ERR_detach_failed));
 				else if (stat != 1)
 					sendResp(a, SET_STAT(RESP_ERR, stat));
@@ -2759,41 +2779,44 @@ v						break;
 					printf("R_tryEval(xp,R_GlobalEnv,&Rerror);\n");
 #endif
 					if (ph.cmd==CMD_detachedVoidEval)
-						s=-1;
-					exp=R_NilValue;
-					if (TYPEOF(xp)==EXPRSXP && LENGTH(xp)>0) {
-						int bi=0;
-						while (bi<LENGTH(xp)) {
-							SEXP pxp=VECTOR_ELT(xp, bi);
-							Rerror=0;
+						s = -1;
+					if (TYPEOF(xp) == EXPRSXP && LENGTH(xp) > 0) {
+						int bi = 0;
+						while (bi < LENGTH(xp)) {
+							SEXP pxp = VECTOR_ELT(xp, bi);
+							Rerror = 0;
 #ifdef RSERV_DEBUG
 							printf("Calling R_tryEval for expression %d [type=%d] ...\n",bi+1,TYPEOF(pxp));
 #endif
-							exp=R_tryEval(pxp, R_GlobalEnv, &Rerror);
+							eval_result = R_tryEval(pxp, R_GlobalEnv, &Rerror);
 							bi++;
 #ifdef RSERV_DEBUG
-							printf("Expression %d, error code: %d\n",bi, Rerror);
+							printf("Expression %d, error code: %d\n", bi, Rerror);
 							if (Rerror) printf(">> early error, aborting further evaluations\n");
 #endif
 							if (Rerror) break;
 						}
 					} else {
-						Rerror=0;
-						exp=R_tryEval(xp, R_GlobalEnv, &Rerror);
+						Rerror = 0;
+						eval_result = R_tryEval(xp, R_GlobalEnv, &Rerror);
 					}
-					PROTECT(exp);
+				}
+				UNPROTECT(1); /* xp */
+			}
+			if (eval_result) {
+				exp = PROTECT(eval_result);
 #ifdef RSERV_DEBUG
-					printf("expression(s) evaluated (Rerror=%d).\n",Rerror);
-					if (!Rerror) printSEXP(exp);
+				printf("expression(s) evaluated (Rerror=%d).\n",Rerror);
+				if (!Rerror) printSEXP(exp);
 #endif
-					if (ph.cmd==CMD_detachedVoidEval && s==-1)
-						s=resume_session();
-					if (Rerror) {
-						sendResp(a, SET_STAT(RESP_ERR, (Rerror < 0) ? Rerror : -Rerror));
-					} else {
-						if (ph.cmd == CMD_voidEval || ph.cmd == CMD_detachedVoidEval)
-							sendResp(a, RESP_OK);
-						else {
+				if (ph.cmd == CMD_detachedVoidEval && s == -1)
+					s = resume_session();
+				if (Rerror) {
+					sendResp(a, SET_STAT(RESP_ERR, (Rerror < 0) ? Rerror : -Rerror));
+				} else {
+					if (ph.cmd == CMD_voidEval || ph.cmd == CMD_detachedVoidEval)
+						sendResp(a, RESP_OK);
+					else {
 							char *sendhead = 0;
 							int canProceed = 1;
 							/* check buffer size vs REXP size to avoid dangerous overflows
@@ -2886,10 +2909,8 @@ v						break;
 									}
 								}
 							}
-						}
-						UNPROTECT(1); /* exp */
 					}
-					UNPROTECT(1); /* xp */
+					UNPROTECT(1); /* exp / eval_result */
 				}
 #ifdef RSERV_DEBUG
 				printf("reply sent.\n");

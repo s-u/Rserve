@@ -191,7 +191,7 @@ struct phdr { /* always 16 bytes */
 
 #define CMD_login        0x001 /* "name\npwd" : - */
 #define CMD_voidEval     0x002 /* string : - */
-#define CMD_eval         0x003 /* string : encoded SEXP */
+#define CMD_eval         0x003 /* string | encoded SEXP : encoded SEXP */
 #define CMD_shutdown     0x004 /* [admin-pwd] : - */
 
 /* security/encryption - all since 1.7-0 */
