@@ -1592,6 +1592,13 @@ int Rserve_prepare_child(args_t *arg) {
     parentPID = getppid();
     closesocket(arg->ss); /* close server socket */
 
+#ifdef CAN_TCP_NODELAY
+    {
+     	int opt = 1;
+        setsockopt(arg->s, IPPROTO_TCP, TCP_NODELAY, (const char*) &opt, sizeof(opt));
+    }
+#endif
+
 	performConfig(SU_CLIENT);
 
 #endif
