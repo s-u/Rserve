@@ -642,6 +642,7 @@ static void http_input_iteration(args_t *c) {
 							http_close(c);
 							return;
 						}
+						url++;
 						if (!strncmp(bol + rll - 3, "1.0", 3)) c->attr |= HTTP_1_0;
 						if (!strncmp(bol, "GET ", 4))  c->method = METHOD_GET;
 						if (!strncmp(bol, "POST ", 5)) c->method = METHOD_POST;
