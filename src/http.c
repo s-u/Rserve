@@ -1,5 +1,6 @@
 #include "RSserver.h"
 #include "tls.h"
+#include "http.h"
 #include "websockets.h" /* for connection upgrade */
 #include <sisocks.h>
 #include <string.h>
