@@ -38,7 +38,12 @@
 	FastRWeb without an external webserver. This protocol is
 	disabled by default and can be enabled by setting "http.port"
 	configuration directive to the desired port to listen to.
-	(Also see TLS support below for https server)
+	(Also see TLS support below for https server).
+
+	The http.raw.body configuration option (default is false which
+	results in the same behavior as Rhttpd) can be used to force
+	passing body in raw form to the handler (useful for the
+	FastRWeb handler which does its own parsing).
 
 	** WebSockets **
 	this protocol is used by HTML5 web browsers for direct access

@@ -9,7 +9,7 @@
  * requests that have longer headers will be rejected with 413
  * Note that cookies can be quite big and some browsers send them
  * in one line, so this should not be too small */
-#define LINE_BUF_SIZE 8192
+#define LINE_BUF_SIZE 32768
 
 /* debug output - change the DBG(X) X to enable debugging output */
 #ifdef RSERV_DEBUG
@@ -286,7 +286,7 @@ static SEXP R_ContentTypeName;
 static SEXP parse_request_body(args_t *c) {
     if (!c || !c->body) return R_NilValue;
 	
-    if (c->attr & CONTENT_FORM_UENC) { /* URL encoded form - return parsed form */
+    if ((c->attr & CONTENT_FORM_UENC) && !(c->srv->flags & HTTP_RAW_BODY)) { /* URL encoded form - return parsed form */
 		c->body[c->content_length] = 0; /* the body is guaranteed to have an extra byte for the termination */
 		return parse_query(c->body);
     } else { /* something else - pass it as a raw vector */

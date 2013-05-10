@@ -654,6 +654,7 @@ static int http_port = -1;
 static int https_port = -1;
 static int switch_qap_tls = 0;
 static int ws_upgrade = 0;
+static int http_raw_body = 0;
 
 static int use_ipv6 = 0;
 
@@ -770,6 +771,10 @@ static int setConfig(const char *c, const char *p) {
 	}
 	if (!strcmp(c, "http.upgrade.websockets")) {
 		ws_upgrade = (*p == '1' || *p == 'y' || *p == 'e' || *p == 'T') ? 1 : 0;
+		return 1;
+	}
+	if (!strcmp(c, "http.raw.body")) {
+		http_raw_body = (*p == '1' || *p == 'y' || *p == 'e' || *p == 'T') ? 1 : 0;
 		return 1;
 	}
 	if (!strcmp(c,"websockets.port")) {
@@ -3310,7 +3315,9 @@ SEXP run_Rserve(SEXP cfgFile, SEXP cfgPars) {
 
 	if (http_port > 0) {
 		int flags =  (enable_ws_qap ? WS_PROT_QAP : 0) | (enable_ws_text ? WS_PROT_TEXT : 0);
-		server_t *srv = create_HTTP_server(http_port, ws_upgrade ? (flags | HTTP_WS_UPGRADE) : 0);
+		server_t *srv = create_HTTP_server(http_port, flags |
+										   (ws_upgrade ? HTTP_WS_UPGRADE : 0) |
+										   (http_raw_body ? HTTP_RAW_BODY : 0));
 		if (!srv) {
 			release_server_stack(ss);
 			Rf_error("Unable to start HTTP server");
@@ -3320,7 +3327,9 @@ SEXP run_Rserve(SEXP cfgFile, SEXP cfgPars) {
 
 	if (https_port > 0) {
 		int flags =  (enable_ws_qap ? WS_PROT_QAP : 0) | (enable_ws_text ? WS_PROT_TEXT : 0);
-		server_t *srv = create_HTTP_server(https_port, SRV_TLS | (ws_upgrade ? (flags | HTTP_WS_UPGRADE) : 0));
+		server_t *srv = create_HTTP_server(https_port, SRV_TLS | flags |
+										   (ws_upgrade ? HTTP_WS_UPGRADE : 0) |
+										   (http_raw_body ? HTTP_RAW_BODY : 0));
 		if (!srv) {
 			release_server_stack(ss);
 			Rf_error("Unable to start HTTPS server");
