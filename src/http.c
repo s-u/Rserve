@@ -345,8 +345,8 @@ static void process_request(args_t *c)
 		SET_TAG(CDR(CDR(x)), install("silent"));
 		DBG(Rprintf("eval(try(.http.request('%s'),silent=TRUE))\n", c->url));
 		
-		/* evaluate the above in the tools namespace */
-		x = PROTECT(eval(x, R_FindNamespace(mkString("tools"))));
+		/* evaluate the above in the global namespace */
+		x = PROTECT(eval(x, R_GlobalEnv));
 		
 		/* the result is expected to have one of the following forms:
 
