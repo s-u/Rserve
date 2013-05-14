@@ -69,10 +69,15 @@ SEXP decode_to_SEXP(unsigned int **buf)
     case XT_ARRAY_INT:
 	l = ln / 4;
 	val = allocVector(INTSXP, l);
+#ifdef NATIVE_COPY
+	memcpy(INTEGER(val), b, l * sizeof(int));
+	b += l;
+#else
 	i = 0;
 	while (i < l) {
 	    INTEGER(val)[i] = ptoi(*b); i++; b++;
 	}
+#endif
 	*buf = b;
 	break;
 
@@ -96,24 +101,34 @@ SEXP decode_to_SEXP(unsigned int **buf)
     case XT_ARRAY_DOUBLE:
 	l = ln / 8;
 	val = allocVector(REALSXP, l);
+#ifdef NATIVE_COPY
+	memcpy(REAL(val), b, sizeof(double) * l);
+	b += l * 2;
+#else
 	i = 0;
 	while (i < l) {
 	    fixdcpy(REAL(val) + i, b);
 	    b += 2;
 	    i++;
 	}
+#endif
 	*buf = b;
 	break;
 	
     case XT_ARRAY_CPLX:
 	l = ln / 16;
 	val = allocVector(CPLXSXP, l);
+#ifdef NATIVE_COPY
+	memcpy(COMPLEX(val), b, sizeof(*COMPLEX(val)) * l);
+	b += l * 4;
+#else
 	i = 0;
 	while (i < l) {
 	    fixdcpy(&(COMPLEX(val)[i].r),b); b+=2;
 	    fixdcpy(&(COMPLEX(val)[i].i),b); b+=2;
 	    i++;
 	}
+#endif
 	*buf = b;
 	break;
 

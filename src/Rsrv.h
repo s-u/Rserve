@@ -390,6 +390,7 @@ extern void fixdcpy(void *t,void *s);
 #define dtop(X) (X)
 #define ptod(X) (X)
 #define fixdcpy(T,S) ((double*)(T))[0]=((double*)(S))[0];
+#define NATIVE_COPY 1
 #endif
 
 #ifndef HAVE_CONFIG_H

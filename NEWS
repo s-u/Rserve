@@ -358,6 +358,11 @@
 	(which implies that it is the responsibility of the caller to
 	protect the result if needed).
 
+    o	Both QAP encoding and decoding now use native copy operations
+	on little-endian machines which can increase the speed
+	considerably when the compiler cannot do this optimization
+	on its own (most commoly used compilers don't).
+
     o	assigning logical NAs now uses the proper NA_LOGICAL value
 	that is also recognized by R. (PR#276)
 

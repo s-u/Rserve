@@ -186,11 +186,16 @@ unsigned int* storeSEXP(unsigned int* buf, SEXP x, rlen_t storage_size) {
 		*buf=itop(XT_ARRAY_DOUBLE|hasAttr);
 		buf++;
 		attrFixup;
+#ifdef NATIVE_COPY
+		memcpy(buf, REAL(x), sizeof(double) * LENGTH(x));
+		buf += LENGTH(x) * sizeof(double) / sizeof(*buf);
+#else
 		while(i < LENGTH(x)) {
 			fixdcpy(buf, REAL(x) + i);
 			buf += 2; /* sizeof(double)=2*sizeof(int) */
 			i++;
 		}
+#endif
 		goto didit;
     }
 
@@ -199,6 +204,10 @@ unsigned int* storeSEXP(unsigned int* buf, SEXP x, rlen_t storage_size) {
 		*buf = itop(XT_ARRAY_CPLX|hasAttr);
 		buf++;
 		attrFixup;
+#ifdef NATIVE_COPY
+		memcpy(buf, COMPLEX(x), LENGTH(x) * sizeof(*COMPLEX(x)));
+		buf += LENGTH(x) * sizeof(*COMPLEX(x)) / sizeof(*buf);
+#else
 		while(i < LENGTH(x)) {
 			fixdcpy(buf, &(COMPLEX(x)[i].r));
 			buf += 2; /* sizeof(double)=2*sizeof(int) */
@@ -206,6 +215,7 @@ unsigned int* storeSEXP(unsigned int* buf, SEXP x, rlen_t storage_size) {
 			buf += 2; /* sizeof(double)=2*sizeof(int) */
 			i++;
 		}
+#endif
 		goto didit;
     }
 
@@ -286,11 +296,16 @@ unsigned int* storeSEXP(unsigned int* buf, SEXP x, rlen_t storage_size) {
 		*buf = itop(XT_ARRAY_INT | hasAttr);
 		buf++;
 		attrFixup;
+#ifdef NATIVE_COPY
+		memcpy(buf, iptr, n * sizeof(int));
+		buf += n;
+#else
 		while(i < n) {
 			*buf = itop(iptr[i]);
 			buf++;
 			i++;
 		}
+#endif
 		goto didit;
     }
 
