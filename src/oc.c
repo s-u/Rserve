@@ -1,0 +1,95 @@
+#include <stdlib.h>
+
+#include "oc.h"
+#include "sha1.h"
+
+#ifndef NO_CONFIG_H
+#include "config.h"
+#endif
+
+#ifdef HAVE_TLS
+#include <openssl/rand.h>
+#endif
+
+static SEXP oc_env;
+
+SEXP oc_resolve(const char *ref) {
+    SEXP val;
+    if (!oc_env) return R_NilValue;
+    val = findVarInFrame(oc_env, install(ref));
+    if (val == R_UnboundValue) val = R_NilValue;
+    return val;
+}
+
+/* this is where we generate tokens. The current apporach is to generate good random
+   168-bits and encode them using slightly modified base-64 encoding into a string.
+   If we can't get good random bits, we generate more pseudo-random bytes and run
+   SHA1 on it.
+   The result is almost a valid identifier except that it can start with a number. */
+static int rand_inited;
+
+static const char b64map[] = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_.";
+
+/* currently we use 21 bytes = 168 bits --> 28 bytes encoded */
+#define MAX_OC_TOKEN_LEN 31
+
+static void oc_new(char *dst) {
+    int have_hash = 0, i;
+    unsigned char hash[21];
+
+#ifdef HAVE_TLS
+    if (RAND_bytes(hash, 21) || RAND_pseudo_bytes(hash, 21))
+	have_hash = 1;
+#endif
+
+    if (!have_hash) {
+	unsigned char rbuf[64];
+	if (!rand_inited) {
+	    /* FIXME: srandomdev() may or may not be available - we should use a configure test ... */
+	    srandomdev();
+	    rand_inited = 1;
+	}	
+	for (i = 0; i < sizeof(rbuf); i++) rbuf[i] = random();
+	/* we use random -> SHA1 .. is it an overkill? */
+	sha1hash(rbuf, sizeof(rbuf) - 1, hash);
+	/* the last byte is the hold-out byte -- just because SHA gives only 160 bits */
+	hash[20] = rbuf[sizeof(rbuf) - 1];
+    }
+    for (i = 0; i < 21; i += 3) {
+	*(dst++) = b64map[hash[i] & 63];
+	*(dst++) = b64map[((hash[i] >> 6) | (hash[i + 1] << 2)) & 63];
+	*(dst++) = b64map[((hash[i + 1] >> 4) | (hash[i + 2] << 4)) & 63];
+	*(dst++) = b64map[hash[i + 2] >> 2];
+    }
+    *dst = 0;
+}
+
+char *oc_register(SEXP what, char *dst, int len) {
+    if (len <= MAX_OC_TOKEN_LEN) return NULL;
+    if (!oc_env) {
+	SEXP env = eval(PROTECT(lang3(install("new.env"), ScalarLogical(TRUE), R_EmptyEnv)), R_GlobalEnv);
+	UNPROTECT(1);
+	if (TYPEOF(env) != ENVSXP) return NULL;
+	oc_env = env;
+	R_PreserveObject(oc_env);
+    }
+    oc_new(dst);
+    Rf_defineVar(install(dst), what, oc_env);
+    return dst;
+}
+
+/* --- R-side API --- */
+
+/* Note that we don't expose oc_resolve, because we don't want to facilitate
+   unwanted discovery (although code that can poke around like that has
+   already broken through some barriers) */
+SEXP Rserve_oc_register(SEXP what) {
+    char token[MAX_OC_TOKEN_LEN + 1];
+    SEXP res;
+    if (!oc_register(what, token, sizeof(token)))
+	Rf_error("Cannot create OC reference registry");
+    res = PROTECT(mkString(token));
+    setAttrib(res, R_ClassSymbol, mkString("OCref"));
+    UNPROTECT(1);
+    return res;
+}
