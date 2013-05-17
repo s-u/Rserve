@@ -1,6 +1,7 @@
 #include "Rsrv.h"
 #include "websockets.h"
 #include "md5.h"
+#include "sha1.h"
 
 #include <sisocks.h>
 #include <string.h>
@@ -69,8 +70,6 @@ static unsigned long count_digits(const char *c) {
 	return n;	
 }
 
-/* from sha1.c */
-void sha1hash(const char *buf, int len, unsigned char hash[20]);
 /* from base64.c */
 void base64encode(const unsigned char *src, int len, char *dst);
 /* from Rserve.c */

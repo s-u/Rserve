@@ -258,6 +258,7 @@ void sha1hash(const char *buf, int len, unsigned char hash[20]);
 #include "websockets.h"
 #include "http.h"
 #include "tls.h"
+#include "oc.h"
 
 struct args {
 	server_t *srv; /* server that instantiated this connection */
@@ -2206,6 +2207,7 @@ void Rserve_QAP1_connected(void *thp) {
 		can_control = 1;
 
     while((rn = srv->recv(a, (char*)&ph, sizeof(ph))) == sizeof(ph)) {
+		SEXP eval_result = 0;
 		size_t plen = 0;
 		SEXP pp = R_NilValue; /* packet payload (as a raw vector) for special commands */
 #ifdef RSERV_DEBUG
@@ -2224,6 +2226,14 @@ void Rserve_QAP1_connected(void *thp) {
 #endif
 		process = 0;
 		pars = 0;
+
+			/* in OC mode everything but OCcall is invalid */
+		if ((a->srv->flags & SRV_QAP_OC) && ph.cmd != CMD_OCcall) {
+			sendResp(a, SET_STAT(RESP_ERR, ERR_disabled));
+			free(sendbuf); free(sfbuf);
+			closesocket(s);
+			return;
+		}
 
 		if ((ph.cmd & CMD_SPECIAL_MASK) == CMD_SPECIAL_MASK) {
 			/* this is a very special case - we load the packet payload into a raw vector directly to prevent unnecessaru copying */
@@ -2338,6 +2348,43 @@ v						break;
 #ifdef RSERV_DEBUG
 		printf("CMD=%08x, pars=%d\n", ph.cmd, pars);
 #endif
+
+		if (ph.cmd == CMD_OCcall) {
+			int valid = 0;
+			SEXP val = R_NilValue;
+			if (pars >= 1 && (parT[0] == DT_SEXP || parT[0] == (DT_SEXP | DT_LARGE))) {
+				int boffs = 0;
+				unsigned int *sptr;
+				if (parT[0] & DT_LARGE) boffs++;
+				sptr = ((unsigned int*)parP[0]) + boffs;
+				val = QAP_decode(&sptr);
+				if (val && TYPEOF(val) == LANGSXP) {
+					SEXP ocref = CAR(val);
+					if (TYPEOF(ocref) == STRSXP && LENGTH(ocref) == 1) {
+						SEXP ocv = oc_resolve(CHAR(STRING_ELT(ocref, 0)));
+						if (ocv && ocv != R_NilValue) {
+							/* valid reference -- replace it in the call */
+							SETCAR(val, ocv);
+							valid = 1;
+						}
+					}
+				}
+			}
+			/* invalid calls lead to immediate termination with no message */
+			if (!valid) {
+				free(sendbuf); free(sfbuf);
+				closesocket(s);				
+				return;
+			}
+			PROTECT(val);
+#ifdef RSERV_DEBUG
+			printf("  running eval on SEXP (after OC replacement): ");
+			printSEXP(val);
+#endif
+			eval_result = R_tryEval(val, R_GlobalEnv, &Rerror);
+			UNPROTECT(1);
+			process = 1;
+		}
 
 		if (ph.cmd == CMD_switch) {
 			if (pars < 1 || parT[0] != DT_STRING) 
@@ -2809,7 +2856,6 @@ v						break;
 
 		if (ph.cmd == CMD_voidEval || ph.cmd == CMD_eval || ph.cmd == CMD_detachedVoidEval) {
 			int is_large = (parT[0] & DT_LARGE) ? 1 : 0;
-			SEXP eval_result = 0;
 			if (is_large) parT[0] ^= DT_LARGE;
 			process = 1;
 			Rerror = 0;
@@ -2881,120 +2927,124 @@ v						break;
 				}
 				UNPROTECT(1); /* xp */
 			}
-			if (eval_result) {
-				exp = PROTECT(eval_result);
+		}
+
+		/* any command above can set eval_result -- in that case we 
+		   encode the result and send it as the reply */
+		if (eval_result) {
+			exp = PROTECT(eval_result);
 #ifdef RSERV_DEBUG
-				printf("expression(s) evaluated (Rerror=%d).\n",Rerror);
-				if (!Rerror) printSEXP(exp);
+			printf("expression(s) evaluated (Rerror=%d).\n",Rerror);
+			if (!Rerror) printSEXP(exp);
 #endif
-				if (ph.cmd == CMD_detachedVoidEval && s == -1)
-					s = resume_session();
-				if (Rerror) {
-					sendResp(a, SET_STAT(RESP_ERR, (Rerror < 0) ? Rerror : -Rerror));
-				} else {
-					if (ph.cmd == CMD_voidEval || ph.cmd == CMD_detachedVoidEval)
-						sendResp(a, RESP_OK);
-					else {
-							char *sendhead = 0;
-							int canProceed = 1;
-							/* check buffer size vs REXP size to avoid dangerous overflows
-							   todo: resize the buffer as necessary
-							*/
-							rlen_t rs = QAP_getStorageSize(exp);
-							/* increase the buffer by 25% for safety */
-							/* FIXME: there are issues with multi-byte strings that expand when
-							   converted. They should be convered by this margin but it is an ugly hack!! */
-							rs += (rs >> 2);
+			if (ph.cmd == CMD_detachedVoidEval && s == -1)
+				s = resume_session();
+			if (Rerror) {
+				sendResp(a, SET_STAT(RESP_ERR, (Rerror < 0) ? Rerror : -Rerror));
+			} else {
+				if (ph.cmd == CMD_voidEval || ph.cmd == CMD_detachedVoidEval)
+					sendResp(a, RESP_OK);
+				else {
+					char *sendhead = 0;
+					int canProceed = 1;
+					/* check buffer size vs REXP size to avoid dangerous overflows
+					   todo: resize the buffer as necessary
+					*/
+					rlen_t rs = QAP_getStorageSize(exp);
+					/* increase the buffer by 25% for safety */
+					/* FIXME: there are issues with multi-byte strings that expand when
+					   converted. They should be convered by this margin but it is an ugly hack!! */
+					rs += (rs >> 2);
 #ifdef RSERV_DEBUG
-							printf("result storage size = %ld bytes\n",(long)rs);
+					printf("result storage size = %ld bytes\n",(long)rs);
 #endif
-							if (rs > sendBufSize - 64L) { /* is the send buffer too small ? */
-								canProceed = 0;
-								if (maxSendBufSize && rs + 64L > maxSendBufSize) { /* first check if we're allowed to resize */
+					if (rs > sendBufSize - 64L) { /* is the send buffer too small ? */
+						canProceed = 0;
+						if (maxSendBufSize && rs + 64L > maxSendBufSize) { /* first check if we're allowed to resize */
+							unsigned int osz = (rs > 0xffffffff) ? 0xffffffff : rs;
+							osz = itop(osz);
+#ifdef RSERV_DEBUG
+							printf("ERROR: object too big (sendBuf=%ld)\n", sendBufSize);
+#endif
+							sendRespData(a, SET_STAT(RESP_ERR, ERR_object_too_big), 4, &osz);
+						} else { /* try to allocate a large, temporary send buffer */
+							tempSB = rs + 64L;
+							tempSB &= rlen_max << 12;
+							tempSB += 0x1000;
+#ifdef RSERV_DEBUG
+							printf("Trying to allocate temporary send buffer of %ld bytes.\n", (long)tempSB);
+#endif
+							free(sendbuf);
+							sendbuf = (char*)malloc(tempSB);
+							if (!sendbuf) {
+								tempSB = 0;
+#ifdef RSERV_DEBUG
+								printf("Failed to allocate temporary send buffer of %ld bytes. Restoring old send buffer of %ld bytes.\n", (long)tempSB, (long)sendBufSize);
+#endif
+								sendbuf = (char*)malloc(sendBufSize);
+								if (!sendbuf) { /* we couldn't re-allocate the buffer */
+#ifdef RSERV_DEBUG
+									fprintf(stderr,"FATAL: out of memory while re-allocating send buffer to %ld (fallback#1)\n", sendBufSize);
+#endif
+									sendResp(a, SET_STAT(RESP_ERR, ERR_out_of_mem));
+									free(buf); free(sfbuf);
+									closesocket(s);
+									return;
+								} else {
 									unsigned int osz = (rs > 0xffffffff) ? 0xffffffff : rs;
 									osz = itop(osz);
 #ifdef RSERV_DEBUG
-									printf("ERROR: object too big (sendBuf=%ld)\n", sendBufSize);
+									printf("ERROR: object too big (sendBuf=%ld) and couldn't allocate big enough send buffer\n", sendBufSize);
 #endif
 									sendRespData(a, SET_STAT(RESP_ERR, ERR_object_too_big), 4, &osz);
-								} else { /* try to allocate a large, temporary send buffer */
-									tempSB = rs + 64L;
-									tempSB &= rlen_max << 12;
-									tempSB += 0x1000;
-#ifdef RSERV_DEBUG
-									printf("Trying to allocate temporary send buffer of %ld bytes.\n", (long)tempSB);
-#endif
-									free(sendbuf);
-									sendbuf = (char*)malloc(tempSB);
-									if (!sendbuf) {
-										tempSB = 0;
-#ifdef RSERV_DEBUG
-										printf("Failed to allocate temporary send buffer of %ld bytes. Restoring old send buffer of %ld bytes.\n", (long)tempSB, (long)sendBufSize);
-#endif
-										sendbuf = (char*)malloc(sendBufSize);
-										if (!sendbuf) { /* we couldn't re-allocate the buffer */
-#ifdef RSERV_DEBUG
-											fprintf(stderr,"FATAL: out of memory while re-allocating send buffer to %ld (fallback#1)\n", sendBufSize);
-#endif
-											sendResp(a, SET_STAT(RESP_ERR, ERR_out_of_mem));
-											free(buf); free(sfbuf);
-											closesocket(s);
-											return;
-										} else {
-											unsigned int osz = (rs > 0xffffffff) ? 0xffffffff : rs;
-											osz = itop(osz);
-#ifdef RSERV_DEBUG
-											printf("ERROR: object too big (sendBuf=%ld) and couldn't allocate big enough send buffer\n", sendBufSize);
-#endif
-											sendRespData(a, SET_STAT(RESP_ERR, ERR_object_too_big), 4, &osz);
-										}
-									} else canProceed = 1;
 								}
-							}
-							if (canProceed) {
-								/* first we have 4 bytes of a header saying this is an encoded SEXP, then comes the SEXP */
-								char *sxh = sendbuf + 8;
-								tail = (char*)QAP_storeSEXP((unsigned int*)sxh, exp, rs);
-
-								/* set type to DT_SEXP and correct length */
-								if ((tail - sxh) > 0xfffff0) { /* we must use the "long" format */
-									rlen_t ll = tail - sxh;
-									((unsigned int*)sendbuf)[0] = itop(SET_PAR(DT_SEXP | DT_LARGE, ll & 0xffffff));
-									((unsigned int*)sendbuf)[1] = itop(ll >> 24);
-									sendhead = sendbuf;
-								} else {
-									sendhead = sendbuf + 4;
-									((unsigned int*)sendbuf)[1] = itop(SET_PAR(DT_SEXP,tail - sxh));
-								}
+							} else canProceed = 1;
+						}
+					}
+					if (canProceed) {
+						/* first we have 4 bytes of a header saying this is an encoded SEXP, then comes the SEXP */
+						char *sxh = sendbuf + 8;
+						tail = (char*)QAP_storeSEXP((unsigned int*)sxh, exp, rs);
+						
+						/* set type to DT_SEXP and correct length */
+						if ((tail - sxh) > 0xfffff0) { /* we must use the "long" format */
+							rlen_t ll = tail - sxh;
+							((unsigned int*)sendbuf)[0] = itop(SET_PAR(DT_SEXP | DT_LARGE, ll & 0xffffff));
+							((unsigned int*)sendbuf)[1] = itop(ll >> 24);
+							sendhead = sendbuf;
+						} else {
+							sendhead = sendbuf + 4;
+							((unsigned int*)sendbuf)[1] = itop(SET_PAR(DT_SEXP,tail - sxh));
+						}
 #ifdef RSERV_DEBUG
-								printf("stored SEXP; length=%ld (incl. DT_SEXP header)\n",(long) (tail - sendhead));
+						printf("stored SEXP; length=%ld (incl. DT_SEXP header)\n",(long) (tail - sendhead));
 #endif
-								sendRespData(a, RESP_OK, tail - sendhead, sendhead);
-								if (tempSB) { /* if this is just a temporary sendbuffer then shrink it back to normal */
+						sendRespData(a, RESP_OK, tail - sendhead, sendhead);
+						if (tempSB) { /* if this is just a temporary sendbuffer then shrink it back to normal */
 #ifdef RSERV_DEBUG
-									printf("Releasing temporary sendbuf and restoring old size of %ld bytes.\n", sendBufSize);
+							printf("Releasing temporary sendbuf and restoring old size of %ld bytes.\n", sendBufSize);
 #endif
-									free(sendbuf);
-									sendbuf = (char*)malloc(sendBufSize);
-									if (!sendbuf) { /* this should be really rare since tempSB was much larger */
+							free(sendbuf);
+							sendbuf = (char*)malloc(sendBufSize);
+							if (!sendbuf) { /* this should be really rare since tempSB was much larger */
 #ifdef RSERV_DEBUG
-										fprintf(stderr,"FATAL: out of memory while re-allocating send buffer to %ld (fallback#2),\n", sendBufSize);
+								fprintf(stderr,"FATAL: out of memory while re-allocating send buffer to %ld (fallback#2),\n", sendBufSize);
 #endif
-										sendResp(a, SET_STAT(RESP_ERR, ERR_out_of_mem));
+								sendResp(a, SET_STAT(RESP_ERR, ERR_out_of_mem));
 										free(buf); free(sfbuf);
 										closesocket(s);
 										return;		    
-									}
-								}
 							}
+						}
 					}
-					UNPROTECT(1); /* exp / eval_result */
 				}
-#ifdef RSERV_DEBUG
-				printf("reply sent.\n");
-#endif
+				UNPROTECT(1); /* exp / eval_result */
 			}
-		}
+#ifdef RSERV_DEBUG
+			printf("reply sent.\n");
+#endif
+		} /* END  if (eval_result) */
+
     respSt:
 
 		if (s == -1) { rn = 0; break; }

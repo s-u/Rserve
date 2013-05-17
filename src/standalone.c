@@ -7,6 +7,9 @@
 
 extern int Rf_initEmbeddedR(int, char**);
 
+/* R API from oc.c */
+SEXP Rserve_oc_register(SEXP what);
+
 /* main function - start Rserve */
 int main(int argc, char **argv)
 {
@@ -169,11 +172,18 @@ int main(int argc, char **argv)
 			{"Rserve_ctrlEval", (DL_FUNC) &Rserve_ctrlEval, 1},
 			{"Rserve_ctrlSource", (DL_FUNC) &Rserve_ctrlSource, 1},
 			{"Rserve_oobSend", (DL_FUNC) &Rserve_oobSend, 2},
+			{"Rserve_oc_register", (DL_FUNC) &Rserve_oc_register, 1},
 			{NULL, NULL, 0}
 		};
         R_registerRoutines(R_getEmbeddingDllInfo(), 0, mainCallMethods, 0, 0);
 #endif		
     }
+
+	R_CallMethodDef ocCallMethods[]  = {
+		{"Rserve_oc_register", (DL_FUNC) &Rserve_oc_register, 1},
+		{NULL, NULL, 0}
+	};
+	R_registerRoutines(R_getEmbeddingDllInfo(), 0, ocCallMethods, 0, 0);
 	
 #if defined RSERV_DEBUG || defined Win32
     printf("Rserve: Ok, ready to answer queries.\n");
