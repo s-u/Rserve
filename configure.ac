@@ -104,7 +104,7 @@ AC_HEADER_TIME
 # Checks for library functions.
 AC_FUNC_FORK
 AC_TYPE_SIGNAL
-AC_CHECK_FUNCS([memset mkdir rmdir select socket])
+AC_CHECK_FUNCS([memset mkdir rmdir select socket srandomdev])
 
 # Check whether we can use crypt (and if we do if it's in the crypt library)
 AC_SEARCH_LIBS(crypt, crypt,

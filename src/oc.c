@@ -42,11 +42,15 @@ static void oc_new(char *dst) {
 	have_hash = 1;
 #endif
 
-    if (!have_hash) {
+    if (!have_hash) { /* should only be used if TLS is not available or it fails */
 	unsigned char rbuf[64];
 	if (!rand_inited) {
-	    /* FIXME: srandomdev() may or may not be available - we should use a configure test ... */
+#ifdef HAVE_SRANDOMDEV
 	    srandomdev();
+#else
+	    /* fall back -- mix of time and pid is the best we can do ... */
+	    srandom(time(NULL) ^ (getpid() << 12));
+#endif
 	    rand_inited = 1;
 	}	
 	for (i = 0; i < sizeof(rbuf); i++) rbuf[i] = random();
