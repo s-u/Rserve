@@ -19,6 +19,9 @@ server_t *create_server(int port, const char *localSocketName, int localSocketMo
 #endif
 	struct sockaddr_un lusa;
     
+#ifdef RSERV_DEBUG
+	printf(" - create_server(port = %d, socket = %s, mode = %d, flags = 0x%x)\n", port, localSocketName ? localSocketName : "<NULL>", localSocketMode, flags);
+#endif
 	initsocks();
 	if (localSocketName) {
 #ifndef unix

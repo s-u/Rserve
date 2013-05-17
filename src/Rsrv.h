@@ -124,6 +124,9 @@ struct phdr { /* always 16 bytes */
 #define IS_OOB_MSG(X)   (((X) & 0x0ffff000) == OOB_MSG)
 #define OOB_USR_CODE(X) ((X) & 0xfff)
 
+/* flag for create_server: Use QAP object-cap mode */
+#define SRV_QAP_OC 0x40
+
 /* stat codes; 0-0x3f are reserved for program specific codes - e.g. for R
    connection they correspond to the stat of Parse command.
    the following codes are returned by the Rserv itself
@@ -198,6 +201,15 @@ struct phdr { /* always 16 bytes */
 #define CMD_switch       0x005 /* string (protocol)  : - */
 #define CMD_keyReq       0x006 /* string (request) : bytestream (key) */ 
 #define CMD_secLogin     0x007 /* bytestream (encrypted auth) : - */
+
+#define CMD_OCcall       0x00f /* SEXP : SEXP  -- it is the only command
+								  supported in object-capability mode
+								  and it requires that the SEXP is a
+								  language construct with OC reference
+								  in the first position */
+#define CMD_OCinit  0x434f7352 /* SEXP -- 'RsOC' - command sent from
+								  the server in OC mode with the packet
+								  of initial capabilities. */
 
 /* file I/O routines. server may answe */
 #define CMD_openFile     0x010 /* fn : - */

@@ -193,19 +193,19 @@ int main(int argc, char **argv)
     umask(umask_value);
 #endif
     
-	if (enable_qap && !create_Rserve_QAP1(0)) {
+	if (enable_qap && !create_Rserve_QAP1(qap_oc ? SRV_QAP_OC : 0)) {
 		fprintf(stderr, "ERROR: unable to start Rserve server\n");
 		return 1;
 	}
 
- 	if (tls_port > 0 && !create_Rserve_QAP1(SRV_TLS)) {
+ 	if (tls_port > 0 && !create_Rserve_QAP1(SRV_TLS | (qap_oc ? SRV_QAP_OC : 0))) {
 		fprintf(stderr, "ERROR: unable to start Rserve TLS server\n");
 		return 1;
 	}
 
 	http_flags = 0;
 	if (ws_upgrade) {
-		http_flags = (enable_ws_qap ? WS_PROT_QAP : 0) | (enable_ws_text ? WS_PROT_TEXT : 0);
+		http_flags = (enable_ws_qap ? WS_PROT_QAP : 0) | (enable_ws_text ? WS_PROT_TEXT : 0) | (ws_qap_oc ? SRV_QAP_OC : 0);
 		if (http_flags)
 			http_flags |= HTTP_WS_UPGRADE;
 		else
@@ -226,7 +226,7 @@ int main(int argc, char **argv)
 			if (!ws_upgrade)
 				fprintf(stderr, "WARNING: Invalid or missing websockets.port, WebSockets server will not start\n");
 		} else
-			create_WS_server(ws_port, (enable_ws_qap ? WS_PROT_QAP : 0) | (enable_ws_text ? WS_PROT_TEXT : 0));
+			create_WS_server(ws_port, (enable_ws_qap ? WS_PROT_QAP : 0) | (enable_ws_text ? WS_PROT_TEXT : 0) | (ws_qap_oc ? SRV_QAP_OC : 0));
 	}
 
 	setup_signal_handlers();

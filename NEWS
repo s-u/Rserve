@@ -13,6 +13,7 @@
    ***  preliminary IPv6 support; RSA secure authentication
    ***  .Rserve.done global env hook for optiopnal cleanup
    ***  auth.function setting to allow custom authentication
+   ***  Object-capability mode for hardened, secure services
    ***	---- END - see below for details ----
 
     o	This is the first release in the new 1.x Rserve series. Many
@@ -143,6 +144,29 @@
 	servers, i.e., if you want to enable TLS/QAP only, you have to
 	set tls.qap.port but also add "qap disable" to disable the
 	plain Rserve access.
+
+    o	QAP servers (classic Rserve QAP, QAP/TLS and WebSocket/QAP)
+	support object-capability (OC) mode in which all Rserve
+	commands are disabled except for CMD_OCcall. All messages
+	including the initial handshake are always QAP and the initial
+	message defines capabilities (here opaque references to
+	closures) that can be called. This mode can be enabled using
+
+	  qap.oc enable    ## for Rserve QAP and QAP/TLS
+	  ws.qap.oc enable ## for WebSocket/QAP
+	
+	In this mode the configuration *must* define a function
+	oc.init (typically using eval or source configuration
+	directives) which has to supply OC references that can be used
+	in calls. If the evaluation of oc.init() fails, the connection
+	is closed immediately. The use of invalid OC references or any
+	other commands other than CMD_OCcall results in immediate
+	connection termination. This allows creation of hardened,
+	secure services that can disallow arbitrary code execution.
+
+	NOTE: this mode is inherenty incompatible with all classic
+	Rserve clients. The first four bytes of the initial packet are
+	"RsOC" instead of "Rsrv"
 
     o	Rserve can now be started from within an existing R session
 	using run.Rserve() command. This allows the user to prepare a

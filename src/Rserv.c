@@ -646,6 +646,7 @@ struct source_entry {
 } *src_list=0, *src_tail=0;
 
 static int ws_port = -1, enable_qap = 1, enable_ws_qap = 0, enable_ws_text = 0;
+static int ws_qap_oc = 0, qap_oc = 0;
 /* FIXME: self.* commands can be loaded either from Rserve.so or from stand-alone binary.
    This will cause a mess since some things are private and some are not - we have to sort that out.
    In the meantime a quick hack is to make the relevant config (here enable_oob) global */
@@ -712,6 +713,14 @@ static int setConfig(const char *c, const char *p) {
 	}
 	if (!strcmp(c, "switch.qap.tls")) {
 		switch_qap_tls = (*p == '1' || *p == 'y' || *p == 'e' || *p == 'T') ? 1 : 0;
+		return 1;
+	}
+	if (!strcmp(c, "qap.oc") || !strcmp(c, "rserve.oc")) {
+		qap_oc = (*p == '1' || *p == 'y' || *p == 'e' || *p == 'T') ? 1 : 0;
+		return 1;
+	}
+	if (!strcmp(c, "websocket.qap.oc")) {
+		ws_qap_oc = (*p == '1' || *p == 'y' || *p == 'e' || *p == 'T') ? 1 : 0;
 		return 1;
 	}
 	if (!strcmp(c, "random.uid")) {
@@ -2102,35 +2111,92 @@ void Rserve_QAP1_connected(void *thp) {
 
 	if ((a->srv->flags & SRV_TLS) && shared_tls(0))
 		add_tls(a, shared_tls(0), 1);
-    
-    strcpy(buf,IDstring);
-    if (authReq) {
-#ifdef HAS_CRYPT
-		/* advertize crypt */
-		memcpy(buf+16,"ARuc",4);
-		salt[0]='K';
-		salt[1]=code64[rand()&63];
-		salt[2]=code64[rand()&63];
-		salt[3]=' '; salt[4]=0;
-		memcpy(buf+20,salt,4);
-		/* append plaintext if enabled */
-		if (usePlain) memcpy(buf + 24,"ARpt",4);
-#else
-		/* if crypt is not an option, we may need to advertize plain text if enabled */
-		if (usePlain) memcpy(buf + 16, "ARpt", 4);
+
+	if (a->srv->flags & SRV_QAP_OC) { /* use OC handshake instead of regular QAP ID string */
+		rlen_t rs;
+		int Rerr = 0;
+		SEXP oc;
+
+#ifdef RSERV_DEBUG
+		printf("evaluating oc.init()\n");
 #endif
-    }
+
+		oc = R_tryEval(PROTECT(LCONS(install("oc.init"), R_NilValue)), R_GlobalEnv, &Rerr);
+		UNPROTECT(1);
+		if (Rerr) { /* cannot get any capabilities, bail out */
+#ifdef RSERV_DEBUG
+			printf("ERROR: failed to eval oc.init() - aborting!");
+#endif
+			free(sendbuf); free(sfbuf);
+			closesocket(s);
+			return;			
+		}
+		PROTECT(oc);
+		a->flags |= F_OUT_BIN; /* in OC everything is binary */
+		rs = QAP_getStorageSize(oc);
+#ifdef RSERV_DEBUG
+		printf("oc.init storage size = %ld bytes\n",(long)rs);
+#endif
+		if (rs > sendBufSize - 64L) { /* is the send buffer too small ? */
+			unsigned int osz = (rs > 0xffffffff) ? 0xffffffff : rs;
+			osz = itop(osz);
+#ifdef RSERV_DEBUG
+			printf("ERROR: object too big (sendBuf=%ld)\n", sendBufSize);
+#endif
+			/* FIXME: */
+			sendRespData(a, SET_STAT(RESP_ERR, ERR_object_too_big), 4, &osz);
+			free(sendbuf); free(sfbuf);
+			closesocket(s);
+			return;
+		} else {
+			char *sxh = sendbuf + 8, *sendhead = 0;
+			char *tail = (char*)QAP_storeSEXP((unsigned int*)sxh, oc, rs);
+
+			/* set type to DT_SEXP and correct length */
+			if ((tail - sxh) > 0xfffff0) { /* we must use the "long" format */
+				rlen_t ll = tail - sxh;
+				((unsigned int*)sendbuf)[0] = itop(SET_PAR(DT_SEXP | DT_LARGE, ll & 0xffffff));
+				((unsigned int*)sendbuf)[1] = itop(ll >> 24);
+				sendhead = sendbuf;
+			} else {
+				sendhead = sendbuf + 4;
+				((unsigned int*)sendbuf)[1] = itop(SET_PAR(DT_SEXP,tail - sxh));
+			}
+#ifdef RSERV_DEBUG
+			printf("stored SEXP; length=%ld (incl. DT_SEXP header)\n",(long) (tail - sendhead));
+#endif
+			sendRespData(a, CMD_OCinit, tail - sendhead, sendhead);
+		}
+	} else {
+		strcpy(buf,IDstring);
+		if (authReq) {
+#ifdef HAS_CRYPT
+			/* advertize crypt */
+			memcpy(buf+16,"ARuc",4);
+			salt[0]='K';
+			salt[1]=code64[rand()&63];
+			salt[2]=code64[rand()&63];
+			salt[3]=' '; salt[4]=0;
+			memcpy(buf+20,salt,4);
+			/* append plaintext if enabled */
+			if (usePlain) memcpy(buf + 24,"ARpt",4);
+#else
+			/* if crypt is not an option, we may need to advertize plain text if enabled */
+			if (usePlain) memcpy(buf + 16, "ARpt", 4);
+#endif
+		}
 #ifdef HAVE_TLS
-	if (switch_qap_tls) {
-		char *ep = buf + 16;
-		while (*ep != '-') ep += 4;
-		memcpy(ep, "TLS\n", 4);
-	}
+		if (switch_qap_tls) {
+			char *ep = buf + 16;
+			while (*ep != '-') ep += 4;
+			memcpy(ep, "TLS\n", 4);
+		}
 #endif
 #ifdef RSERV_DEBUG
-    printf("sending ID string.\n");
+		printf("sending ID string.\n");
 #endif
-    srv->send(a, (char*)buf, 32);
+		srv->send(a, (char*)buf, 32);
+	}
 
 	/* everything is binary from now on */
 	a->flags |= F_OUT_BIN;
@@ -3303,7 +3369,7 @@ SEXP run_Rserve(SEXP cfgFile, SEXP cfgPars) {
 	ss = create_server_stack();
 
 	if (enable_qap) {
-		server_t *srv = create_Rserve_QAP1(0);
+		server_t *srv = create_Rserve_QAP1(qap_oc ? SRV_QAP_OC : 0);
 		if (!srv) {
 			release_server_stack(ss);
 			Rf_error("Unable to start Rserve server");
@@ -3312,7 +3378,7 @@ SEXP run_Rserve(SEXP cfgFile, SEXP cfgPars) {
 	}
 
 	if (tls_port > 0) {
-		server_t *srv = create_Rserve_QAP1(SRV_TLS);
+		server_t *srv = create_Rserve_QAP1(SRV_TLS | (qap_oc ? SRV_QAP_OC : 0));
 		if (!srv) {
 			release_server_stack(ss);
 			Rf_error("Unable to start Rserve server");
@@ -3321,7 +3387,7 @@ SEXP run_Rserve(SEXP cfgFile, SEXP cfgPars) {
 	}
 
 	if (http_port > 0) {
-		int flags =  (enable_ws_qap ? WS_PROT_QAP : 0) | (enable_ws_text ? WS_PROT_TEXT : 0);
+		int flags =  (enable_ws_qap ? WS_PROT_QAP : 0) | (enable_ws_text ? WS_PROT_TEXT : 0) | (ws_qap_oc ? SRV_QAP_OC : 0);
 		server_t *srv = create_HTTP_server(http_port, flags |
 										   (ws_upgrade ? HTTP_WS_UPGRADE : 0) |
 										   (http_raw_body ? HTTP_RAW_BODY : 0));
