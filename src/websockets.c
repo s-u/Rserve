@@ -391,12 +391,19 @@ static void WS_send_resp(args_t *arg, int rsp, rlen_t len, const void *buf) {
 				memcpy(sbuf + pl, buf, send_here - pl);
 			n = send(arg->s, sbuf, send_here, 0);
 			if (pl) {
+#ifdef RSERV_DEBUG
 				fprintf(stderr, "WS_send_resp: sending 4+ frame (ver %02d), n = %d / %d (of total %ld)\n", arg->ver, n, send_here, flen);
+#endif
 				{ int i, m = send_here; if (m > 100) m = 100; for (i = 0; i < m; i++) fprintf(stderr, " %02x", (int) sbuf[i]); fprintf(stderr,"\n"); }
-			} else
+			} else {
+#ifdef RSERV_DEBUG
 				fprintf(stderr, "WS_send_resp: continuation (%d bytes)\n", n);
+#endif
+			}
 			if (n != send_here) {
+#ifdef RSERV_DEBUG
 				fprintf(stderr, "WS_send_resp: write failed (%d expected, got %d)\n", send_here, n);
+#endif
 				return;
 			}
 			buf = ((char*)buf) + send_here - pl;
@@ -416,12 +423,16 @@ static int  WS_send_data(args_t *arg, const void *buf, rlen_t len) {
 			memcpy(sbuf + 1, buf, len);
 			sbuf[len + 1] = 0xff;
 			n = send(arg->s, sbuf, len + 2, 0);
+#ifdef RSERV_DEBUG
 			fprintf(stderr, "WS_send_data: sending 00 frame, n = %d / %d\n", n, (int) len + 2);
+#endif
 			if (n == len + 2) return len;
 			if (n < len + 2 && n >= len) return len - 1;
 			return n;
 		} else {
+#ifdef RSERV_DEBUG
 			fprintf(stderr, "ERROR in WS_send_data: data too large\n");
+#endif
 			return -1;
 		}
 	} else {
@@ -438,12 +449,16 @@ static int  WS_send_data(args_t *arg, const void *buf, rlen_t len) {
 			/* no masking or other stuff */
 			memcpy(sbuf + pl, buf, len);
 			n = send(arg->s, sbuf, len + pl, 0);
+#ifdef RSERV_DEBUG
 			fprintf(stderr, "WS_send_data: sending 4+ frame (ver %02d), n = %d / %d\n", arg->ver, n, (int) len + pl);
+#endif
 			if (n == len + pl) return len;
 			if (n < len + pl && n >= len) return len - 1;
 			return n;
 		} else {
+#ifdef RSERV_DEBUG
 			fprintf(stderr, "ERROR in WS_send_data: data too large\n");
+#endif
 			return -1;
 		}		
 	}
@@ -451,21 +466,27 @@ static int  WS_send_data(args_t *arg, const void *buf, rlen_t len) {
 }
 
 static int  WS_recv_data(args_t *arg, void *buf, rlen_t read_len) {
+#ifdef RSERV_DEBUG
 	fprintf(stderr, "WS_recv_data for %d (bp = %d)\n", (int) read_len, arg->bp);
+#endif
 	if (arg->ver == 0) {
 		/* make sure we have at least one (in frame) or two (oof) bytes in the buffer */
 		int min_size = (arg->flags & F_INFRAME) ? 1 : 2;
 		while (arg->bp < min_size) {
 			int n = recv(arg->s, arg->buf + arg->bp, arg->bl - arg->bp, 0);
+#ifdef RSERV_DEBUG
 			fprintf(stderr, "WS_recv_data: needs ver 00 frame, reading %d bytes in addition to %d\n", n, arg->bp);
 			{ int i; fprintf(stderr, "Buffer: "); for (i = 0; i < n; i++) fprintf(stderr, " %02x", (int) (unsigned char) arg->buf[i]); fprintf(stderr,"\n"); }
+#endif
 			if (n < 1) return n;
 			arg->bp += n;
 		}
 
 		if (!(arg->flags & F_INFRAME)) {
 			if (arg->buf[0] != 0x00) {
+#ifdef RSERV_DEBUG
 				fprintf(stderr, "ERROR: WS_recv_data: ver0 yet not a text frame (0x%02x)\n", (int) (unsigned char) arg->buf[0]);
+#endif
 				return -1;
 			}
 			/* now we're in-frame - this is silly but makes the processing easier */
@@ -478,7 +499,9 @@ static int  WS_recv_data(args_t *arg, void *buf, rlen_t read_len) {
 	    if ((arg->flags & F_INFRAME) && arg->bp > 0) {
 			unsigned char *b = (unsigned char*) arg->buf;
 			int i = 0;
+#ifdef RSERV_DEBUG
 			fprintf(stderr, "WS_recv_data: have %d bytes of a frame, requested %d, returning what we have\n", arg->bp, (int) read_len);
+#endif
 			while (i < arg->bp && i < read_len && b[i] != 0xff) i++;
 			if (i >= arg->bp) { /* end of buffer, still in frame */
 				memcpy(buf, arg->buf, i);
@@ -502,7 +525,9 @@ static int  WS_recv_data(args_t *arg, void *buf, rlen_t read_len) {
 	} /* ver 00 always returns before this */
 
 	if ((arg->flags & F_INFRAME) && arg->bp > 0) { /* do we have content of a frame what has not been picked up yet? */
+#ifdef RSERV_DEBUG
 		fprintf(stderr, "WS_recv_data: have %d bytes of a frame, requested %d, returning what we have\n", arg->bp, (int) read_len);
+#endif
 		if (read_len > arg->bp) read_len = arg->bp; /* at most all buffer */
 		if (read_len > arg->l1) read_len = arg->l1; /* and not beyond the current frame */
 		memcpy(buf, arg->buf, read_len);
@@ -520,8 +545,10 @@ static int  WS_recv_data(args_t *arg, void *buf, rlen_t read_len) {
 		int n = recv(arg->s, arg->buf, arg->bl, 0);
 		if (n < 1) return n;
 		arg->bp = n;
+#ifdef RSERV_DEBUG
 		fprintf(stderr, "INFO: WS_recv_data: read %d bytes:\n", n);
 		{ int i; for (i = 0; i < n; i++) fprintf(stderr, " %02x", (int) (unsigned char) arg->buf[i]); fprintf(stderr,"\n"); }
+#endif
 	}
 	if (arg->flags & F_INFRAME) { /* in frame with new content */
 		if (read_len > arg->l1) /* we can do at most the end of the frame */
@@ -565,13 +592,17 @@ static int  WS_recv_data(args_t *arg, void *buf, rlen_t read_len) {
 			len = (fr[2] << 8) | fr[3];
 		else if (len == 127) {
 			if (fr[2] || fr[3]) {
+#ifdef RSERV_DEBUG
 				fprintf(stderr, "WS_recv_data: requested frame length is way too big - we support only up to 256TB\n");
+#endif
 				return -1;
 			}
 #define SH(X,Y) (((long)X) << Y)
 			len = SH(fr[4], 48) | SH(fr[5], 40) | SH(fr[5], 32) | SH(fr[6], 24) | SH(fr[7], 16) | SH(fr[8], 8) | (long)fr[9];
 		}
+#ifdef RSERV_DEBUG
 		fprintf(stderr, "INFO: WS_recv_data frame type=%02x, len=%d, more=%d, mask=%d (need=%d)\n", ct, (int) len, more, mask, need);
+#endif
 		at_least = need + len;
 		if (at_least > arg->bl)
 			at_least = arg->bl;
@@ -579,21 +610,29 @@ static int  WS_recv_data(args_t *arg, void *buf, rlen_t read_len) {
 		
 		while (arg->bp < at_least) {
 			int n = recv(arg->s, arg->buf + arg->bp, at_least - arg->bp, 0);
+#ifdef RSERV_DEBUG
 			fprintf(stderr, "INFO: read extra %d bytes in addition to %d (need %d)\n", n, arg->bp, need);
+#endif
 			if (n < 1) return n;
 			arg->bp += n;
 		}
 		/* FIXME: more recent protocols require MASK at all times */
 		if (mask) {
+#ifdef RSERV_DEBUG
 			{ int i; for (i = 0; i < payload; i++) fprintf(stderr, " %02x", (int) (unsigned char) arg->buf[need + i]); fprintf(stderr,"\n"); }
+#endif
 			SET_F_MASK(arg->flags, do_mask(arg->buf + need, payload, 0, arg->buf + need - 4));
 			memcpy(&arg->l2, arg->buf + need - 4, 4);
+#ifdef RSERV_DEBUG
 			{ int i; for (i = 0; i < payload; i++) fprintf(stderr, " %02x", (int) (unsigned char) arg->buf[need + i]); fprintf(stderr,"\n"); }
+#endif
 		} else arg->flags &= ~ F_MASK;
 		
 		/* if the frame fits in the buffer (payload == len) and the read will read it all, we can deliver the whole frame */
 		if (payload == len && read_len >= payload) {
+#ifdef RSERV_DEBUG
 			fprintf(stderr, "INFO: WS_recv_data frame has %d bytes, requested %d, returning entire frame\n", (int) len, (int) read_len);
+#endif
 			memcpy(buf, arg->buf + need, len);
 			if (arg->bp > at_least) { /* this is unlikely but possible if we got multiple frames in the first read */
 				memmove(arg->buf, arg->buf + at_least, arg->bp - at_least);
@@ -603,7 +642,9 @@ static int  WS_recv_data(args_t *arg, void *buf, rlen_t read_len) {
 		}
 		
 		/* left-over */
+#ifdef RSERV_DEBUG
 		fprintf(stderr, "INFO: WS_recv_data frame has %d bytes (of %ld frame), requested %d, returning partial frame\n", payload, len, (int) read_len);
+#endif
 		/* we can only read all we got */
 		if (read_len > payload) read_len = payload;
 		memcpy(buf, arg->buf + need, read_len);

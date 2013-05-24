@@ -11,6 +11,12 @@
 #include <openssl/rand.h>
 #endif
 
+#ifndef HAVE_SRANDOMDEV
+/* the fall-back is to use time and pid so we need those extra headers */
+#include <time.h>
+#include <unistd.h>
+#endif
+
 static SEXP oc_env;
 
 SEXP oc_resolve(const char *ref) {
