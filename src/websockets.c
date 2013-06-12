@@ -2,6 +2,7 @@
 #include "websockets.h"
 #include "md5.h"
 #include "sha1.h"
+#include "tls.h"
 
 #include <sisocks.h>
 #include <string.h>
@@ -12,7 +13,8 @@ struct args {
 	server_t *srv; /* server that instantiated this connection */
     SOCKET s;
 	SOCKET ss;
-	void *res1, *res2;
+	struct args *tls_arg; /* if set it is used to wire send/recv calls */
+	void *res2;
 	/* the following entries are not populated by Rserve but can be used by server implemetations */
 	char *buf, *sbuf;
 	int   ver, bp, bl, sp, sl, flags;
@@ -22,6 +24,26 @@ struct args {
 static int  WS_recv_data(args_t *arg, void *buf, rlen_t read_len);
 static void WS_send_resp(args_t *arg, int rsp, rlen_t len, const void *buf);
 static int  WS_send_data(args_t *arg, const void *buf, rlen_t len);
+
+static int WS_wire_send(args_t *arg, const void *buf, rlen_t len) {
+	return (arg->tls_arg) ? arg->tls_arg->srv->send(arg->tls_arg, buf, len) : send(arg->s, buf, len, 0);
+}
+static int WS_wire_recv(args_t *arg, void *buf, rlen_t len) {
+	return (arg->tls_arg) ? arg->tls_arg->srv->recv(arg->tls_arg, buf, len) : recv(arg->s, buf, len, 0);
+}
+static void WS_wire_close(args_t *arg) {
+	if (arg->tls_arg) {
+		close_tls(arg->tls_arg);
+		closesocket(arg->tls_arg->s);
+		if (arg->s != arg->tls_arg->s) closesocket(arg->s);
+		arg->tls_arg->s = -1;
+		free(arg->tls_arg->srv);
+		free(arg->tls_arg);
+		arg->tls_arg = 0;
+	} else
+		closesocket(arg->s);
+	arg->s = -1;
+}
 
 static int do_mask(char *msg, int len, int koff, char *key) {
 	int i = 0;
@@ -95,12 +117,25 @@ static void WS_connected(void *parg) {
 		return;
 	}
 
+	/* if TLS is requested then we need to synthesize arg and srv
+	   for the TLS leg.
+	   FIXME: check that disassociating arg->s and tls_arg->s has
+	   no bad side-effects.
+	*/
+	if (arg->srv->flags & WS_TLS) {
+		args_t *tls_arg = calloc(1, sizeof(args_t));
+		tls_arg->s = arg->s;
+		tls_arg->srv = calloc(1, sizeof(server_t));
+		add_tls(tls_arg, shared_tls(0), 1);
+		arg->tls_arg = tls_arg;
+	} else arg->tls_arg = 0;
+
 	buf = (char*) malloc(LINE_BUF_SIZE);
 	if (!buf) {
 		char lbuf[64];
 		strcpy(lbuf, "HTTP/1.1 500 Out of memory\r\n\r\n");
-		send(s, lbuf, strlen(lbuf), 0);
-		closesocket(s);
+		WS_wire_send(arg, lbuf, strlen(lbuf));
+		WS_wire_close(arg);
 		arg->s = -1;
 		return;
 	}
@@ -112,7 +147,7 @@ static void WS_connected(void *parg) {
 	printf("INFO:WS: connection accepted for WebSockets\n");
 #endif
 
-	while ((n = recv(s, buf + bp, LINE_BUF_SIZE - bp - 1, 0)) > 0) {
+	while ((n = WS_wire_recv(arg, buf + bp, LINE_BUF_SIZE - bp - 1)) > 0) {
 		char *c = buf, *nl = c;
 #ifdef RSERV_DEBUG
 		buf[bp + n] = 0;
@@ -180,8 +215,8 @@ static void WS_connected(void *parg) {
 		if (nl == buf) {
 			if (bp >= LINE_BUF_SIZE - 1) { /* no line in the entire buffer */
 				strcpy(buf, "HTTP/1.1 400 Bad Request (line overflow)\r\n\r\n");
-				send(s, buf, strlen(buf), 0);
-				closesocket(s);
+				WS_wire_send(arg, buf, strlen(buf));
+				WS_wire_close(arg);
 				arg->s = -1;
 				free_header(&h);
 				free(buf);
@@ -201,8 +236,8 @@ static void WS_connected(void *parg) {
 	}
 	if (empty_lines < 1) {
 		strcpy(buf, "HTTP/1.1 400 Bad Request (connection failed before EOH)\r\n\r\n");
-		send(s, buf, strlen(buf), 0);
-		closesocket(s);
+		WS_wire_send(arg, buf, strlen(buf));
+		WS_wire_close(arg);
 		arg->s = -1;
 		free(buf);
 		free_header(&h);
@@ -221,11 +256,11 @@ static void WS_connected(void *parg) {
 		unsigned char hash[16];
 
 		if (bp < 8) {
-			n = recv(s, buf + bp, 8 - bp, 0);
+			n = WS_wire_recv(arg, buf + bp, 8 - bp);
 			if (n < 8 - bp) {
 				strcpy(buf, "HTTP/1.1 400 Bad Request (Key3 incomplete)\r\n\r\n");
-				send(s, buf, strlen(buf), 0);
-				closesocket(s);
+				WS_wire_send(arg, buf, strlen(buf));
+				WS_wire_close(arg);
 				arg->s = -1;
 				free(buf);
 				free_header(&h);
@@ -234,8 +269,8 @@ static void WS_connected(void *parg) {
 		}
 		if (!h.origin || !h.key1 || !h.key2 || !h.host) {
 			strcpy(buf, "HTTP/1.1 400 Bad Request (at least one key header is missing)\r\n\r\n");
-			send(s, buf, strlen(buf), 0);
-			closesocket(s);
+			WS_wire_send(arg, buf, strlen(buf));
+			WS_wire_close(arg);
 			arg->s = -1;
 			free(buf);
 			free_header(&h);
@@ -258,7 +293,7 @@ static void WS_connected(void *parg) {
 				 h.origin, h.host, h.path, h.protocol ? "Sec-WebSocket-Protocol: " : "", h.protocol ? h.protocol : "", h.protocol ? "\r\n" : "");
 		bp = strlen(buf);
 		memcpy(buf + bp, hash, 16);
-		send(s, buf, bp + 16, 0);
+		WS_wire_send(arg, buf, bp + 16);
 #ifdef RSERV_DEBUG
 		printf("Responded with WebSockets.00 handshake\n");
 #endif
@@ -272,7 +307,7 @@ static void WS_connected(void *parg) {
 		base64encode(hash, sizeof(hash) - 1, b64);
 		/* FIXME: if the client requests multiple protocols, we should be picking one but we don't */
 		snprintf(buf, LINE_BUF_SIZE, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: %s\r\n%s%s%s\r\n", b64, h.protocol ? "Sec-WebSocket-Protocol: " : "", h.protocol ? h.protocol : "", h.protocol ? "\r\n" : "");
-		send(s, buf, strlen(buf), 0);
+		WS_wire_send(arg, buf, strlen(buf));
 #ifdef RSERV_DEBUG
 		printf("Responded with WebSockets.04+ handshake (version = %02d)\n", h.version);
 #endif
@@ -389,7 +424,7 @@ static void WS_send_resp(args_t *arg, int rsp, rlen_t len, const void *buf) {
 			int n, send_here = (len + pl > arg->sl) ? arg->sl : (len + pl);
 			if (send_here > pl)
 				memcpy(sbuf + pl, buf, send_here - pl);
-			n = send(arg->s, sbuf, send_here, 0);
+			n = WS_wire_send(arg, sbuf, send_here);
 			if (pl) {
 #ifdef RSERV_DEBUG
 				fprintf(stderr, "WS_send_resp: sending 4+ frame (ver %02d), n = %d / %d (of total %ld)\n", arg->ver, n, send_here, flen);
@@ -422,7 +457,7 @@ static int  WS_send_data(args_t *arg, const void *buf, rlen_t len) {
 			sbuf[0] = 0;
 			memcpy(sbuf + 1, buf, len);
 			sbuf[len + 1] = 0xff;
-			n = send(arg->s, sbuf, len + 2, 0);
+			n = WS_wire_send(arg, sbuf, len + 2);
 #ifdef RSERV_DEBUG
 			fprintf(stderr, "WS_send_data: sending 00 frame, n = %d / %d\n", n, (int) len + 2);
 #endif
@@ -448,7 +483,7 @@ static int  WS_send_data(args_t *arg, const void *buf, rlen_t len) {
 			}
 			/* no masking or other stuff */
 			memcpy(sbuf + pl, buf, len);
-			n = send(arg->s, sbuf, len + pl, 0);
+			n = WS_wire_send(arg, sbuf, len + pl);
 #ifdef RSERV_DEBUG
 			fprintf(stderr, "WS_send_data: sending 4+ frame (ver %02d), n = %d / %d\n", arg->ver, n, (int) len + pl);
 #endif
@@ -473,7 +508,7 @@ static int  WS_recv_data(args_t *arg, void *buf, rlen_t read_len) {
 		/* make sure we have at least one (in frame) or two (oof) bytes in the buffer */
 		int min_size = (arg->flags & F_INFRAME) ? 1 : 2;
 		while (arg->bp < min_size) {
-			int n = recv(arg->s, arg->buf + arg->bp, arg->bl - arg->bp, 0);
+			int n = WS_wire_recv(arg, arg->buf + arg->bp, arg->bl - arg->bp);
 #ifdef RSERV_DEBUG
 			fprintf(stderr, "WS_recv_data: needs ver 00 frame, reading %d bytes in addition to %d\n", n, arg->bp);
 			{ int i; fprintf(stderr, "Buffer: "); for (i = 0; i < n; i++) fprintf(stderr, " %02x", (int) (unsigned char) arg->buf[i]); fprintf(stderr,"\n"); }
@@ -542,7 +577,7 @@ static int  WS_recv_data(args_t *arg, void *buf, rlen_t read_len) {
 	}
 	/* make sure we have at least one byte in the buffer */
 	if (arg->bp == 0) {
-		int n = recv(arg->s, arg->buf, arg->bl, 0);
+		int n = WS_wire_recv(arg, arg->buf, arg->bl);
 		if (n < 1) return n;
 		arg->bp = n;
 #ifdef RSERV_DEBUG
@@ -576,7 +611,7 @@ static int  WS_recv_data(args_t *arg, void *buf, rlen_t read_len) {
 			arg->flags &= ~ F_IN_BIN;
 		SET_F_FT(arg->flags, ct);
 		if (arg->bp == 1) {
-			int n = recv(arg->s, arg->buf + 1, arg->bl - 1, 0);
+			int n = WS_wire_recv(arg, arg->buf + 1, arg->bl - 1);
 			if (n < 1) return n;
 			arg->bp = n + 1;
 		}
@@ -584,7 +619,7 @@ static int  WS_recv_data(args_t *arg, void *buf, rlen_t read_len) {
 		len = fr[1] & 127;
 		need = 2 + (mask ? 4 : 0) + ((len < 126) ? 0 : ((len == 126) ? 2 : 8));
 		while (arg->bp < need) {
-			int n = recv(arg->s, arg->buf + arg->bp, arg->bl - arg->bp, 0);
+			int n = WS_wire_recv(arg, arg->buf + arg->bp, arg->bl - arg->bp);
 			if (n < 1) return n;
 			arg->bp += n;
 		}
@@ -609,7 +644,7 @@ static int  WS_recv_data(args_t *arg, void *buf, rlen_t read_len) {
 		payload = at_least - need;
 		
 		while (arg->bp < at_least) {
-			int n = recv(arg->s, arg->buf + arg->bp, at_least - arg->bp, 0);
+			int n = WS_wire_recv(arg, arg->buf + arg->bp, at_least - arg->bp);
 #ifdef RSERV_DEBUG
 			fprintf(stderr, "INFO: read extra %d bytes in addition to %d (need %d)\n", n, arg->bp, need);
 #endif

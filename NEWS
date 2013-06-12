@@ -91,7 +91,7 @@
 	HTTP or WebSockets are used, it is recommended to use QAP on a
 	local unix socket for better access control.
 
-    o	Rserve now supports SSL/TLS connections on QAP and HTTP
+    o	Rserve now supports SSL/TLS connections on QAP, HTTP and WS
 	protocols. The TLS key/CA entries are common for all
 	protocols. The relevant new configuration directives are:
 
@@ -113,8 +113,9 @@
 	Dedicated TLS servers can be enabled by specifying the port
 	for the corresponding protocol:
 
- 	  qap.tls.port <port>    - for Rserve/QAP
-	  http.tls.port <port>   - for HTTPS
+ 	  qap.tls.port <port>        - for Rserve/QAP
+	  http.tls.port <port>       - for HTTPS
+	  websockets.tls.port <port> - for WebSockets
 
 	(there are synonyms "https.port" for "http.tls.port" and
 	 "tls.port" for "qap.tls.port", however, the *.tls.port

@@ -231,11 +231,15 @@ int main(int argc, char **argv)
 	}
 
 	if (enable_ws_text || enable_ws_qap) {
-		if (ws_port < 1) {
+		if (ws_port < 1 && wss_port < 1) {
 			if (!ws_upgrade)
-				fprintf(stderr, "WARNING: Invalid or missing websockets.port, WebSockets server will not start\n");
-		} else
-			create_WS_server(ws_port, (enable_ws_qap ? WS_PROT_QAP : 0) | (enable_ws_text ? WS_PROT_TEXT : 0) | (ws_qap_oc ? SRV_QAP_OC : 0));
+				fprintf(stderr, "WARNING: Invalid or missing websockets port, WebSockets server will not start\n");
+		} else {
+			if (ws_port > 0)
+				create_WS_server(ws_port, (enable_ws_qap ? WS_PROT_QAP : 0) | (enable_ws_text ? WS_PROT_TEXT : 0) | (ws_qap_oc ? SRV_QAP_OC : 0));
+			if (wss_port > 0)
+				create_WS_server(wss_port, (enable_ws_qap ? WS_PROT_QAP : 0) | (enable_ws_text ? WS_PROT_TEXT : 0) | (ws_qap_oc ? SRV_QAP_OC : 0) | WS_TLS);
+		}
 	}
 
 	setup_signal_handlers();

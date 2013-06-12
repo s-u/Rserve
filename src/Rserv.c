@@ -646,7 +646,7 @@ struct source_entry {
     char line[8];
 } *src_list=0, *src_tail=0;
 
-static int ws_port = -1, enable_qap = 1, enable_ws_qap = 0, enable_ws_text = 0;
+static int ws_port = -1, enable_qap = 1, enable_ws_qap = 0, enable_ws_text = 0, wss_port = 0;
 static int ws_qap_oc = 0, qap_oc = 0;
 /* FIXME: self.* commands can be loaded either from Rserve.so or from stand-alone binary.
    This will cause a mess since some things are private and some are not - we have to sort that out.
@@ -853,6 +853,13 @@ static int setConfig(const char *c, const char *p) {
 		if (*p) {
 			int np = satoi(p);
 			if (np > 0) https_port = np;
+		}
+		return 1;
+	}
+	if (!strcmp(c, "websockets.tls.port")) {
+		if (*p) {
+			int np = satoi(p);
+			if (np > 0) wss_port = np;
 		}
 		return 1;
 	}
@@ -3431,7 +3438,7 @@ SEXP run_Rserve(SEXP cfgFile, SEXP cfgPars) {
 		server_t *srv = create_Rserve_QAP1(SRV_TLS | (qap_oc ? SRV_QAP_OC : 0));
 		if (!srv) {
 			release_server_stack(ss);
-			Rf_error("Unable to start Rserve server");
+			Rf_error("Unable to start TLS/Rserve server");
 		}
 		push_server(ss, srv);
 	}
@@ -3443,7 +3450,7 @@ SEXP run_Rserve(SEXP cfgFile, SEXP cfgPars) {
 										   (http_raw_body ? HTTP_RAW_BODY : 0));
 		if (!srv) {
 			release_server_stack(ss);
-			Rf_error("Unable to start HTTP server");
+			Rf_error("Unable to start HTTP server on port %d", http_port);
 		}
 		push_server(ss, srv);
 	}
@@ -3455,22 +3462,30 @@ SEXP run_Rserve(SEXP cfgFile, SEXP cfgPars) {
 										   (http_raw_body ? HTTP_RAW_BODY : 0));
 		if (!srv) {
 			release_server_stack(ss);
-			Rf_error("Unable to start HTTPS server");
+			Rf_error("Unable to start HTTPS server on port %d", https_port);
 		}
 		push_server(ss, srv);
 	}
 
 	if (enable_ws_text || enable_ws_qap) {
 		server_t *srv;
-		if (ws_port < 1 && !ws_upgrade) {
+		if (ws_port < 1 && wss_port < 1 && !ws_upgrade) {
 			release_server_stack(ss);
-			Rf_error("Invalid or missing websockets.port");
+			Rf_error("Invalid or missing websockets port");
 		}
 		if (ws_port > 0) {
-			srv = create_WS_server(ws_port, (enable_ws_qap ? WS_PROT_QAP : 0) | (enable_ws_text ? WS_PROT_TEXT : 0));
+			srv = create_WS_server(ws_port, (enable_ws_qap ? WS_PROT_QAP : 0) | (enable_ws_text ? WS_PROT_TEXT : 0) | (ws_qap_oc ? SRV_QAP_OC : 0));
 			if (!srv) {
 				release_server_stack(ss);
-				Rf_error("Unable to start WebSockets server");
+				Rf_error("Unable to start WebSockets server on port %d", ws_port);
+			}
+			push_server(ss, srv);
+		}
+		if (wss_port > 0) {
+			srv = create_WS_server(wss_port, (enable_ws_qap ? WS_PROT_QAP : 0) | (enable_ws_text ? WS_PROT_TEXT : 0) | (ws_qap_oc ? SRV_QAP_OC : 0) | WS_TLS);
+			if (!srv) {
+				release_server_stack(ss);
+				Rf_error("Unable to start TLS/WebSockets server on port %d", wss_port);
 			}
 			push_server(ss, srv);
 		}
