@@ -1607,7 +1607,7 @@ int Rserve_prepare_child(args_t *arg) {
     srandom(rseed);
     
     parentPID = getppid();
-    closesocket(arg->ss); /* close server socket */
+    close_all_srv_sockets(); /* close all server sockets - this includes arg->ss */
 
 #ifdef CAN_TCP_NODELAY
     {
@@ -2068,7 +2068,7 @@ void Rserve_QAP1_connected(void *thp) {
 		srandom(rseed);
     
 		parentPID = getppid();
-		closesocket(a->ss); /* close server socket */
+		close_all_srv_sockets(); /* close all server sockets - this includes a->ss */
 		
 		performConfig(SU_CLIENT);
     }
@@ -3166,12 +3166,6 @@ int rm_server(server_t *srv) {
 	printf("INFO: removing server %p (total %d servers left)\n", (void*) srv, servers);
 #endif
 	return 1;
-}
-
-void server_fin(void *x) {
-	server_t *srv = (server_t*) x;
-	if (srv)
-		closesocket(srv->ss);
 }
 
 int server_recv(args_t *arg, void *buf, rlen_t len) {

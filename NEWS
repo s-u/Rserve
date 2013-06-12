@@ -388,8 +388,12 @@
 	considerably when the compiler cannot do this optimization
 	on its own (most commoly used compilers don't).
 
-    o	assigning logical NAs now uses the proper NA_LOGICAL value
+    o	Assigning logical NAs now uses the proper NA_LOGICAL value
 	that is also recognized by R. (PR#276)
+
+    o	Forked child processes will now close all server sockets so
+	that any server can be restarted without closing existing
+	children.
 
 
 --- In order to support new ideas a major re-organization of Rserve ---

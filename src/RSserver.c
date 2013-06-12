@@ -10,6 +10,44 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
+/* keep track of all bound server sockets so they can be easily all closed after fork
+   this is important for two reasons: so ports don't get stuck bound after the server
+   has been shut down but children are still around, and so that a rogue child cannot
+   impersonate the server after the server has been shut down (since the port may have
+   been bound at higher privileges than the child may have at this point) */
+#define MAX_SRVS 512
+static int active_srv_sockets[MAX_SRVS];
+
+static void add_active_srv_socket(int s) {
+	int i = 0;
+	while (active_srv_sockets[i] && i < MAX_SRVS) {
+		if (active_srv_sockets[i] == s) return;
+		i++;
+	}
+	if (i < MAX_SRVS)
+		active_srv_sockets[i] = s;
+}
+
+static void rm_active_srv_socket(int s) {
+	int i = 0;
+	while (i < MAX_SRVS) {
+		if (active_srv_sockets[i] == s) {
+			active_srv_sockets[i] = 0;
+			break;
+		}
+		i++;
+	}
+}
+
+/* this is typically used after fork in the child process */
+void close_all_srv_sockets() {
+	int i = 0;
+	while (i < MAX_SRVS) {
+		if (active_srv_sockets[i]) closesocket(active_srv_sockets[i]);
+		i++;
+	}
+}
+
 server_t *create_server(int port, const char *localSocketName, int localSocketMode, int flags) {
 	server_t *srv;
 	SAIN ssa;
@@ -87,11 +125,20 @@ server_t *create_server(int port, const char *localSocketName, int localSocketMo
 	} /* if (localSocketName) else */
 #endif
     
+	add_active_srv_socket(ss);
+
 	FCF("listen", listen(ss, LISTENQ));
 
 	return srv;
 }
 
+void server_fin(void *x) {
+	server_t *srv = (server_t*) x;
+	if (srv) {
+		closesocket(srv->ss);
+		if (srv->ss != -1) rm_active_srv_socket(srv->ss);
+	}
+}
 
 #define NSPS 16
 struct server_stack {

@@ -59,6 +59,9 @@ void serverLoop();
    returns 0 for the child */
 int Rserve_prepare_child(args_t *arg);
 
+/* this one is called by the former to close all server sockets in the child */
+void close_all_srv_sockets();
+
 #endif
 
 /*--- The following makes the indenting behavior of emacs compatible
