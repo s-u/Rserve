@@ -17,6 +17,9 @@ int main(int argc, char **argv)
 	char **top_argv;
 	int    top_argc;
 
+	main_argv = argv;
+	main_argc = argc;
+
     rserve_rev[0] = 0;
     { /* cut out the SVN revision from the Id string */
 		const char *c = strstr(rserve_ver_id, ".c ");

@@ -371,6 +371,15 @@
 	manage resources that are unsafe to share with forked
 	processes (e.g. sockets etc.).
 
+    o	The server and client process can be tagged with extra
+	information in argv[0] so it is possible to distinguish the
+	server and children. This behavior can be enabled using
+
+	    tag.argv enable
+
+	Note, however, that this not always possible and it will have
+	impact on programs that use argv[0] such as killall.
+
     o	All commands based on eval now also accept DT_SEXP in addition
 	to DT_STRING. In such case the parse step is skipped and the
 	expression is evaluated directly. The intended use of this

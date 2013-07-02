@@ -303,6 +303,10 @@ int parent_pipe = -1;   /* pipe to the master process or -1 if not available */
 int can_control = 0;    /* control commands will be rejected unless this flag is set */
 int child_control = 0;  /* enable/disable the ability of children to send commands to the master process */
 int self_control = 0;   /* enable/disable the ability to use control commands from within the R process */
+static int tag_argv = 0;/* tag the ARGV with client/server IDs */
+
+char **main_argv; /* this is only set by standalone! */
+int    main_argc;
 
 rlen_t maxSendBufSize = 0; /* max. sendbuf for auto-resize. 0=no limit */
 
@@ -710,6 +714,10 @@ static int performConfig(int when) {
 static int setConfig(const char *c, const char *p) {
 	if (!strcmp(c, "remote")) {
 		localonly = (*p == '1' || *p == 'y' || *p == 'e' || *p == 'T') ? 0 : 1;
+		return 1;
+	}
+	if (!strcmp(c, "tag.argv")) {
+		tag_argv = (*p == '1' || *p == 'y' || *p == 'e' || *p == 'T') ? 1 : 0;
 		return 1;
 	}
 	if (!strcmp(c, "switch.qap.tls")) {
@@ -1598,6 +1606,8 @@ int Rserve_prepare_child(args_t *arg) {
     }
 
 	/* child part */
+	if (main_argv && tag_argv && strlen(main_argv[0]) >= 8)
+		strcpy(main_argv[0] + strlen(main_argv[0]) - 8, "/RsrvCHx");
 	is_child = 1;
 	if (cinp[0] != -1) { /* if we have a vaild pipe to the parent set it up */
 		parent_pipe = cinp[1];
@@ -2058,6 +2068,8 @@ void Rserve_QAP1_connected(void *thp) {
 			return;
 		}
 
+		if (main_argv && tag_argv && strlen(main_argv[0]) >= 8)
+			strcpy(main_argv[0] + strlen(main_argv[0]) - 8, "/RsrvCHq");
 		/* child part */
 		is_child = 1;
 		if (cinp[0] != -1) { /* if we have a vaild pipe to the parent set it up */
@@ -3199,6 +3211,11 @@ void serverLoop() {
     int selRet = 0;
     fd_set readfds;
 #endif
+
+	if (main_argv && tag_argv == 1 && strlen(main_argv[0]) >= 8) {
+		strcpy(main_argv[0] + strlen(main_argv[0]) - 8, "/RsrvSRV");
+		tag_argv = 2;
+	}
     
     while(active && (servers || children)) { /* main serving loop */
 		int i;
