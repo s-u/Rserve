@@ -380,6 +380,10 @@
 	Note, however, that this not always possible and it will have
 	impact on programs that use argv[0] such as killall.
 
+    o	Added configuration option pid.file and command-line option
+	--RS-pidfile which instructs Rserve to write its process id
+	(pid) into that file at startup.
+
     o	All commands based on eval now also accept DT_SEXP in addition
 	to DT_STRING. In such case the parse step is skipped and the
 	expression is evaluated directly. The intended use of this

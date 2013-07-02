@@ -102,6 +102,13 @@ int main(int argc, char **argv)
 				else
 					setConfig("source", argv[i]);
 			}
+			if (!strcmp(argv[i] + 2, "RS-pidfile")) {
+				isRSP = 1;
+				if (++i == argc)
+					fprintf(stderr,"Missing file specification for --RS-pidfile.\n");
+				else
+					setConfig("pid.file", argv[i]);
+			}
 			if (!strcmp(argv[i] + 2, "RS-enable-control")) {
 				isRSP = 1;
 				setConfig("control", "enable");

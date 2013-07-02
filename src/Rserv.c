@@ -830,6 +830,14 @@ static int setConfig(const char *c, const char *p) {
 		set_tls_cert(tls, p);
 		return 1;
 	}
+	if (!strcmp(c, "pid.file") && *p) {
+		FILE *f = fopen(p, "w");
+		if (f) {
+			fprintf(f, "%d\n", getpid());
+			fclose(f);
+		} else fprintf(stderr, "WARNING: cannot write into pid file '%s'\n", p);
+		return 1;
+	}
 	if (!strcmp(c, "rsa.key")) {
 #ifdef HAVE_RSA
 		if (*p) {
