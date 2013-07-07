@@ -31,7 +31,7 @@ int main(int argc, char **argv)
     }
 
 #ifdef RSERV_DEBUG
-    printf("Rserve %d.%d-%d (%s) (C)Copyright 2002-2012 Simon Urbanek\n%s\n\n",RSRV_VER>>16,(RSRV_VER>>8)&255,RSRV_VER&255, rserve_rev, rserve_ver_id);
+    printf("Rserve %d.%d-%d (%s) (C)Copyright 2002-2013 Simon Urbanek\n%s\n\n",RSRV_VER>>16,(RSRV_VER>>8)&255,RSRV_VER&255, rserve_rev, rserve_ver_id);
 #endif
     if (!isByteSexOk()) {
 		fprintf(stderr, "FATAL ERROR: This program was not correctly compiled - the endianess is wrong!\nUse -DSWAPEND when compiling on PPC or similar platforms.\n");
@@ -230,14 +230,22 @@ int main(int argc, char **argv)
 		else
 			fprintf(stderr, "WARNING: http.upgrade.websockets is enabled but no WS sub-protocol is enabled, ignoring\n");
 	}
-	if (http_port > 0 && !create_HTTP_server(http_port, http_flags)) {
-		fprintf(stderr, "ERROR: unable to start Rserve HTTP server\n");
-		return 1;
+	if (http_port > 0) {
+		server_t *srv = create_HTTP_server(http_port, http_flags);
+		if (!srv) {
+			fprintf(stderr, "ERROR: unable to start Rserve HTTP server\n");
+			return 1;
+		}
+		srv->fork = fork_http;
 	}
 
-	if (https_port > 0 && !create_HTTP_server(https_port, http_flags | SRV_TLS)) {
-		fprintf(stderr, "ERROR: unable to start Rserve HTTPS server\n");
-		return 1;
+	if (https_port > 0) {
+		server_t *srv = create_HTTP_server(https_port, http_flags | SRV_TLS);
+		if (!srv) {
+			fprintf(stderr, "ERROR: unable to start Rserve HTTPS server\n");
+			return 1;
+		}
+		srv->fork = fork_https;
 	}
 
 	if (enable_ws_text || enable_ws_qap) {
@@ -245,10 +253,14 @@ int main(int argc, char **argv)
 			if (!ws_upgrade)
 				fprintf(stderr, "WARNING: Invalid or missing websockets port, WebSockets server will not start\n");
 		} else {
-			if (ws_port > 0)
-				create_WS_server(ws_port, (enable_ws_qap ? WS_PROT_QAP : 0) | (enable_ws_text ? WS_PROT_TEXT : 0) | (ws_qap_oc ? SRV_QAP_OC : 0));
-			if (wss_port > 0)
-				create_WS_server(wss_port, (enable_ws_qap ? WS_PROT_QAP : 0) | (enable_ws_text ? WS_PROT_TEXT : 0) | (ws_qap_oc ? SRV_QAP_OC : 0) | WS_TLS);
+			if (ws_port > 0) {
+				server_t *srv = create_WS_server(ws_port, (enable_ws_qap ? WS_PROT_QAP : 0) | (enable_ws_text ? WS_PROT_TEXT : 0) | (ws_qap_oc ? SRV_QAP_OC : 0));
+				if (srv) srv->fork = fork_ws;
+			}
+			if (wss_port > 0) {
+				server_t *srv = create_WS_server(wss_port, (enable_ws_qap ? WS_PROT_QAP : 0) | (enable_ws_text ? WS_PROT_TEXT : 0) | (ws_qap_oc ? SRV_QAP_OC : 0) | WS_TLS);
+				if (srv) srv->fork = fork_ws;
+			}
 		}
 	}
 

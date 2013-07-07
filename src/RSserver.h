@@ -16,6 +16,7 @@ typedef void (*work_fn_t)(void *par);
 typedef void (*send_fn_t)(args_t *arg, int rsp, rlen_t len, const void *buf);
 typedef int  (*buf_fn_t) (args_t *arg, void *buf, rlen_t len);
 typedef int  (*cbuf_fn_t) (args_t *arg, const void *buf, rlen_t len);
+typedef int  (*fork_fn_t) (args_t *arg);
 
 /* definition of a server */
 typedef struct server {
@@ -27,6 +28,7 @@ typedef struct server {
 	send_fn_t send_resp;  /* send response */
 	cbuf_fn_t send;       /* direct send */
 	buf_fn_t  recv;       /* direct receive */
+    fork_fn_t fork;       /* fork */
 	struct server *parent;/* parent server - used only by multi-layer servers */
 } server_t;
 

@@ -384,6 +384,12 @@
 	--RS-pidfile which instructs Rserve to write its process id
 	(pid) into that file at startup.
 
+    o	Added configuration directives http.user, https.user and
+	websockets.user which take a username and perform
+	setuid/setgid/initgroups immediately after forking.
+	This minimizes the amount of code that is run with
+	elevated privileges in cases where user switching is desired.
+
     o	All commands based on eval now also accept DT_SEXP in addition
 	to DT_STRING. In such case the parse step is skipped and the
 	expression is evaluated directly. The intended use of this

@@ -320,11 +320,68 @@ static char *auth_fn;       /* authentication function */
 static int umask_value = 0;
 #endif
 
+static char *http_user, *https_user, *ws_user;
+
 static char **allowed_ips = 0;
 
 void stop_server_loop() {
 	active = 0;
 }
+
+#ifdef unix
+#ifdef HAVE_SYS_TYPES_H
+#include <sys/types.h>
+#endif
+#include <unistd.h>
+#include <grp.h>
+#include <pwd.h>
+ 
+static int set_user(const char *usr) {
+    struct passwd *p = getpwnam(usr);
+	if (!p) return 0;
+	if (setgid(p->pw_gid)) return 0;
+	initgroups(p->pw_name, p->pw_gid);
+	if (setuid(p->pw_uid)) return 0;
+	return 1;
+}
+
+static int fork_http(args_t *arg) {
+	int res = fork();
+	if (res == 0 && http_user && !set_user(http_user)) {
+#ifdef STANDALONE_RSERVE
+		fprintf(stderr, "ERROR: failed to set user '%s', aborting\n", http_user);
+#endif
+		exit(1);
+	}
+	return res;
+}
+
+static int fork_https(args_t *arg) {
+	int res = fork();
+	if (res == 0 && https_user && !set_user(https_user)) {
+#ifdef STANDALONE_RSERVE
+		fprintf(stderr, "ERROR: failed to set user '%s', aborting\n", https_user);
+#endif
+		exit(1);
+	}
+	return res;
+}
+
+static int fork_ws(args_t *arg) {
+	int res = fork();
+	if (res == 0 && ws_user && !set_user(ws_user)) {
+#ifdef STANDALONE_RSERVE
+		fprintf(stderr, "ERROR: failed to set user '%s', aborting\n", ws_user);
+#endif
+		exit(1);
+	}
+	return res;
+}
+#else
+static int fork_http(args_t *arg) { return -1; }
+static int fork_https(args_t *arg) { return -1; }
+static int fork_ws(args_t *arg) { return -1; }
+#endif
 
 #ifdef STANDALONE_RSERVE
 static const char *rserve_ver_id = "$Id$";
@@ -947,6 +1004,18 @@ static int setConfig(const char *c, const char *p) {
 			fprintf(stderr, "su value invalid - must be 'now', 'server' or 'client'.\n");
 			return -1;
 		}
+		return 1;
+	}
+	if (!strcmp(c, "http.user") && *p) {
+		http_user = strdup(p);
+		return 1;
+	}
+	if (!strcmp(c, "https.user") && *p) {
+		https_user = strdup(p);
+		return 1;
+	}
+	if (!strcmp(c, "websockets.user") && *p) {
+		ws_user = strdup(p);
 		return 1;
 	}
 	if (!strcmp(c,"uid") && *p) {
@@ -1573,7 +1642,7 @@ SEXP Rserve_oobMsg(SEXP exp, SEXP code) {
    ... ?
  */
 int RS_fork(args_t *arg) {
-	return fork();
+	return (arg->srv && arg->srv->fork) ? arg->srv->fork(arg) : fork();
 }
 
 /* return 0 if the child was prepared. Returns the result of fork() is forked and this is the parent */
@@ -2056,7 +2125,7 @@ void Rserve_QAP1_connected(void *thp) {
 		if ((child_control || self_control) && pipe(cinp) != 0)
 			cinp[0] = -1;
 
-		if ((lastChild = fork()) != 0) { /* parent/master part */
+		if ((lastChild = RS_fork(a)) != 0) { /* parent/master part */
 			/* close the connection socket - the child has it already */
 			closesocket(a->s);
 			if (cinp[0] != -1) { /* if we have a valid pipe register the child */
