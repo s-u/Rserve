@@ -335,10 +335,15 @@ void stop_server_loop() {
 #include <unistd.h>
 #include <grp.h>
 #include <pwd.h>
- 
+
+static void prepare_set_user(int uid, int gid) {
+	/* FIXME: deal with permissions on the working directory and R_TempDir ... */
+}
+
 static int set_user(const char *usr) {
     struct passwd *p = getpwnam(usr);
 	if (!p) return 0;
+	prepare_set_user(p->pw_uid, p->pw_gid);
 	if (setgid(p->pw_gid)) return 0;
 	initgroups(p->pw_name, p->pw_gid);
 	if (setuid(p->pw_uid)) return 0;
@@ -754,10 +759,12 @@ static int performConfig(int when) {
 		load_pwd_cache();/* load pwd file into memory before su */
 	if (when == SU_CLIENT && random_uid) { /* FIXME: we */
 		int ruid = get_random_uid();
+		prepare_set_user(ruid, random_gid ? ruid : 0);
 		if (random_gid)
 			setgid(ruid);
 		setuid(ruid);
 	} else if (su_time == when) {
+		if (requested_uid) prepare_set_user(requested_uid, requested_gid);
 		if (requested_gid) setgid(requested_gid);
 		if (requested_uid) setuid(requested_uid);
 	}
@@ -1934,6 +1941,9 @@ static int auth_user(const char *usr, const char *pwd, const char *salt) {
 #endif
 					
 				} else {
+					if (auto_uid)
+						prepare_set_user(u_uid ? u_uid : default_uid,
+										 auto_gid ? (u_gid ? u_gid : default_gid) : 0);
 					if (auto_gid)
 						setgid(u_gid ? u_gid : default_gid);
 					if (auto_uid)
