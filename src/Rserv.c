@@ -1614,7 +1614,7 @@ SEXP Rserve_oobMsg(SEXP exp, SEXP code) {
 				free(orb);
 				Rf_error("read error while reading OOB msg respose, aborting connection");
 			}
-			/* parse the payload - we ony support SEXPs though */
+			/* parse the payload - we ony support SEXPs though (and DT_STRING) */
 			{
 				unsigned int *hi = (unsigned int*) orb, pt = PAR_TYPE(ptoi(hi[0]));
 				unsigned long psz = PAR_LEN(ptoi(hi[0]));
@@ -1623,6 +1623,17 @@ SEXP Rserve_oobMsg(SEXP exp, SEXP code) {
 					psz |= hi[1] << 24;
 					pt ^= DT_LARGE;
 					hi++;
+				}
+				if (pt == DT_STRING) {
+					const char *s = (const char *) ++hi, *se = s + psz;
+					while (se-- > s) if (!*se) break;
+					if (se == s && *s) {
+						free(orb);
+						Rf_error("unterminated string in OOB msg response");
+					}
+					res = mkString(s);
+					free(orb);
+					return res;
 				}
 				if (pt != DT_SEXP) {
 					free(orb);
