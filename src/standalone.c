@@ -178,27 +178,19 @@ int main(int argc, char **argv)
     }
 	
 	performConfig(SU_SERVER);
-	
-    if (self_control) { /* register routines for self-control */
-#if R_VERSION < R_Version(2,9,0)
-		fprintf(stderr, "WARNING: R.control is disabled becasue your R version is too old.\n");
-#else
+
+	{ /* NOTE: R_registerRoutines *replaces* all existing registrations !!
+		 So we have to register everything for all. */
 		R_CallMethodDef mainCallMethods[]  = {
 			{"Rserve_ctrlEval", (DL_FUNC) &Rserve_ctrlEval, 1},
 			{"Rserve_ctrlSource", (DL_FUNC) &Rserve_ctrlSource, 1},
 			{"Rserve_oobSend", (DL_FUNC) &Rserve_oobSend, 2},
 			{"Rserve_oobMsg", (DL_FUNC) &Rserve_oobMsg, 2},
+			{"Rserve_oc_register", (DL_FUNC) &Rserve_oc_register, 1},
 			{NULL, NULL, 0}
 		};
-        R_registerRoutines(R_getEmbeddingDllInfo(), 0, mainCallMethods, 0, 0);
-#endif		
-    }
-
-	R_CallMethodDef ocCallMethods[]  = {
-		{"Rserve_oc_register", (DL_FUNC) &Rserve_oc_register, 1},
-		{NULL, NULL, 0}
-	};
-	R_registerRoutines(R_getEmbeddingDllInfo(), 0, ocCallMethods, 0, 0);
+		R_registerRoutines(R_getEmbeddingDllInfo(), 0, mainCallMethods, 0, 0);
+	}
 	
 #if defined RSERV_DEBUG || defined Win32
     printf("Rserve: Ok, ready to answer queries.\n");
