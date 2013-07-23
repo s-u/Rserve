@@ -64,8 +64,11 @@ int main(int argc, char **argv)
 				isRSP = 1;
 				if (++i == argc)
 					fprintf(stderr,"Missing limit specification for --RS-dumplimit.\n");
-				else
-					dumpLimit=satoi(argv[i]);
+				else {
+#ifdef RSERV_DEBUG
+					dumpLimit = satoi(argv[i]);
+#endif
+				}
 			}
 			if (!strcmp(argv[i] + 2, "RS-socket")) {
 				isRSP = 1;

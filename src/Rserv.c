@@ -117,6 +117,10 @@ the use of DT_LARGE/XT_LARGE.
      challenge (thus safe from sniffing).
 */
 
+#ifndef NO_CONFIG_H
+#include "config.h"
+#endif
+
 #if defined STANDALONE_RSERVE || defined RSERVE_PKG
 
 #define USE_RINTERNALS 1
@@ -278,8 +282,6 @@ struct args {
 	char res[128]; /* reserved space for server-specific fields */
 };
 
-int dumpLimit=128;
-
 static int port = default_Rsrv_port;
 static int tls_port = -1;
 static int active = 1; /* 1 = server loop is active, 0 = shutdown */
@@ -327,6 +329,8 @@ static char **allowed_ips = 0;
 void stop_server_loop() {
 	active = 0;
 }
+
+#include "rsdebug.h"
 
 #ifdef unix
 #ifdef HAVE_SYS_TYPES_H
@@ -464,20 +468,6 @@ static int satoi(const char *str) {
 	}
 	return atoi(str);
 }
-
-#ifdef RSERV_DEBUG
-static void printDump(const void *b, int len) {
-    int i = 0;
-    if (len < 1) { printf("DUMP FAILED (len=%d)\n", len); };
-    printf("DUMP [%d]:",len);
-    while(i < len) {
-		printf(" %02x",((const unsigned char*)b)[i++]);
-		if (dumpLimit && i > dumpLimit) { printf(" ..."); break; };
-    }
-    printf("\n");
-}
-#endif
-
 
 static char *getParseName(int n) {
     switch(n) {
@@ -641,7 +631,9 @@ void Rserve_QAP1_send_resp(args_t *arg, int rsp, rlen_t len, const void *buf) {
 	struct phdr ph;
 	rlen_t i = 0;
     memset(&ph, 0, sizeof(ph));
-    ph.cmd = itop(rsp | CMD_RESP);	
+	/* do not tag OOB with CMD_RESP */
+	if (!(rsp & CMD_OOB)) rsp |= CMD_RESP;
+    ph.cmd = itop(rsp);	
     ph.len = itop(len);
 #ifdef __LP64__
 	ph.res = itop(len >> 32);
@@ -654,6 +646,23 @@ void Rserve_QAP1_send_resp(args_t *arg, int rsp, rlen_t len, const void *buf) {
 	else {
 		printf("BODY ");
 		printDump(buf, len);
+	}
+
+	if (io_log) {
+		struct timeval tv;
+		snprintf(io_log_fn, sizeof(io_log_fn), "/tmp/Rserve-io-%d.log", getpid());
+		FILE *f = fopen(io_log_fn, "a");
+		if (f) {
+			double ts = 0;
+			if (!gettimeofday(&tv, 0))
+				ts = ((double) tv.tv_sec) + ((double) tv.tv_usec) / 1000000.0;
+			if (first_ts < 1.0) first_ts = ts;
+			fprintf(f, "%.3f [+%4.3f]  SRV --> CLI  [sendRespData]  (%x, %ld bytes)\n   HEAD ", ts, ts - first_ts, rsp, (long) len);
+			fprintDump(f, &ph, sizeof(ph));
+			fprintf(f, "   BODY ");
+			if (len) fprintDump(f, buf, len); else fprintf(f, "<none>\n");
+			fclose(f);
+		}
 	}
 #endif
     
@@ -776,6 +785,12 @@ static int performConfig(int when) {
 /* attempts to set a particular configuration setting
    returns: 1 = setting accepted, 0 = unknown setting, -1 = setting known but failed */
 static int setConfig(const char *c, const char *p) {
+	if (!strcmp(c, "log.io")) {
+#ifdef RSERV_DEBUG
+		io_log = (*p == '1' || *p == 'y' || *p == 'e' || *p == 'T') ? 1 : 0;
+#endif
+		return 1;
+	}
 	if (!strcmp(c, "remote")) {
 		localonly = (*p == '1' || *p == 'y' || *p == 'e' || *p == 'T') ? 0 : 1;
 		return 1;
@@ -1583,6 +1598,22 @@ SEXP Rserve_oobMsg(SEXP exp, SEXP code) {
 #else
 		plen = ph.len;
 #endif
+#ifdef RSERV_DEBUG
+		if (io_log) {
+			struct timeval tv;
+			snprintf(io_log_fn, sizeof(io_log_fn), "/tmp/Rserve-io-%d.log", getpid());
+			FILE *f = fopen(io_log_fn, "a");
+			if (f) {
+				double ts = 0;
+				if (!gettimeofday(&tv, 0))
+					ts = ((double) tv.tv_sec) + ((double) tv.tv_usec) / 1000000.0;
+				if (first_ts < 1.0) first_ts = ts;
+				fprintf(f, "%.3f [+%4.3f]  SRV <-- CLI  [OOB recv]  (%x, %ld bytes)\n   HEAD ", ts, ts - first_ts, ph.cmd, (long) plen);
+				fprintDump(f, &ph, sizeof(ph));
+				fclose(f);
+			}
+		}
+#endif
 		if (plen) {
 			char *orb = (char*) malloc(plen + 8);
 			if (!orb) {
@@ -1608,6 +1639,16 @@ SEXP Rserve_oobMsg(SEXP exp, SEXP code) {
 				if (n > 0) i += n;
 				if (i >= plen || n < 1) break;
 			}
+#ifdef RSERV_DEBUG
+			if (io_log) {
+				FILE *f = fopen(io_log_fn, "a");
+				if (f) {
+					fprintf(f, "   BODY ");
+					if (i) fprintDump(f, orb, i); else fprintf(f, "<none>\n");
+					fclose(f);
+				}
+			}
+#endif
 			if (i < plen) { /* uh, oh, the stream is corrupted */
 				closesocket(a->s);
 				a->s = -1;
@@ -2344,6 +2385,23 @@ void Rserve_QAP1_connected(void *thp) {
 		process = 0;
 		pars = 0;
 
+#ifdef RSERV_DEBUG
+		if (io_log) {
+			struct timeval tv;
+			snprintf(io_log_fn, sizeof(io_log_fn), "/tmp/Rserve-io-%d.log", getpid());
+			FILE *f = fopen(io_log_fn, "a");
+			if (f) {
+				double ts = 0;
+				if (!gettimeofday(&tv, 0))
+					ts = ((double) tv.tv_sec) + ((double) tv.tv_usec) / 1000000.0;
+				if (first_ts < 1.0) first_ts = ts;
+				fprintf(f, "%.3f [+%4.3f]  SRV <-- CLI  [QAP loop]  (%x, %ld bytes)\n   HEAD ", ts, ts - first_ts, ph.cmd, (long) plen);
+				fprintDump(f, &ph, sizeof(ph));
+				fclose(f);
+			}
+		}
+#endif
+
 			/* in OC mode everything but OCcall is invalid */
 		if ((a->srv->flags & SRV_QAP_OC) && ph.cmd != CMD_OCcall) {
 			sendResp(a, SET_STAT(RESP_ERR, ERR_disabled));
@@ -2395,6 +2453,18 @@ void Rserve_QAP1_connected(void *thp) {
 					if (rn > 0) i += rn;
 					if (i >= plen || rn < 1) break;
 				}
+
+#ifdef RSERV_DEBUG
+				if (io_log) {
+					FILE *f = fopen(io_log_fn, "a");
+					if (f) {
+						fprintf(f, "   BODY ");
+						if (i) fprintDump(f, buf, i); else fprintf(f, "<none>\n");
+						fclose(f);
+					}
+				}
+#endif
+
 				if (i < plen) break;
 				memset(buf + plen, 0, 8);
 		

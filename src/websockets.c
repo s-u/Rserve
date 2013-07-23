@@ -391,6 +391,8 @@ void WS13_upgrade(args_t *arg, const char *key, const char *protocol, const char
 }
 
 
+#include "rsdebug.h"
+
 static void WS_send_resp(args_t *arg, int rsp, rlen_t len, const void *buf) {
 	unsigned char *sbuf = (unsigned char*) arg->sbuf;
 	if (arg->ver == 0) {
@@ -404,6 +406,25 @@ static void WS_send_resp(args_t *arg, int rsp, rlen_t len, const void *buf) {
 		ph.len = itop(len);
 #ifdef __LP64__
 		ph.res = itop(len >> 32);
+#endif
+
+#ifdef RSERV_DEBUG
+		if (io_log) {
+			struct timeval tv;
+			snprintf(io_log_fn, sizeof(io_log_fn), "/tmp/Rserve-io-%d.log", getpid());
+			FILE *f = fopen(io_log_fn, "a");
+			if (f) {
+				double ts = 0;
+				if (!gettimeofday(&tv, 0))
+					ts = ((double) tv.tv_sec) + ((double) tv.tv_usec) / 1000000.0;
+				if (first_ts < 1.0) first_ts = ts;
+				fprintf(f, "%.3f [+%4.3f]  SRV --> CLI  [WS_send_resp]  (%x, %ld bytes)\n   HEAD ", ts, ts - first_ts, rsp, (long) len);
+				fprintDump(f, &ph, sizeof(ph));
+				fprintf(f, "   BODY ");
+				if (len) fprintDump(f, buf, len); else fprintf(f, "<none>\n");
+				fclose(f);
+			}
+		}
 #endif
 
 		sbuf[pl++] = ((arg->flags & F_OUT_BIN) ? 1 : 0) + ((arg->ver < 4) ? 0x04 : 0x81); /* text/binary, 4+ has inverted FIN bit */
