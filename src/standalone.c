@@ -7,6 +7,8 @@
 
 extern int Rf_initEmbeddedR(int, char**);
 
+#include <R_ext/Rdynload.h>
+
 /* R API from oc.c */
 SEXP Rserve_oc_register(SEXP what);
 
@@ -157,7 +159,7 @@ int main(int argc, char **argv)
     /* windows uses this in init, unix doesn't so we set it here */
     R_Interactive = Rsrv_interactive;
 #endif
-	
+
     if (src_list) { /* do any sourcing if necessary */
 		struct source_entry *se=src_list;
 #ifdef RSERV_DEBUG
@@ -185,6 +187,7 @@ int main(int argc, char **argv)
 			{"Rserve_ctrlEval", (DL_FUNC) &Rserve_ctrlEval, 1},
 			{"Rserve_ctrlSource", (DL_FUNC) &Rserve_ctrlSource, 1},
 			{"Rserve_oobSend", (DL_FUNC) &Rserve_oobSend, 2},
+			{"Rserve_oobMsg", (DL_FUNC) &Rserve_oobMsg, 2},
 			{NULL, NULL, 0}
 		};
         R_registerRoutines(R_getEmbeddingDllInfo(), 0, mainCallMethods, 0, 0);
