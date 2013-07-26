@@ -23,7 +23,7 @@ else
 fi
 
 echo "Removing CVS/SVN and backup stuff ..."
-find . -name CVS -o -name \*~ -o -name .svn|xargs rm -rf
+find . -name CVS -o -name \*~ -o -name .svn -o -name .git\*|xargs rm -rf
 
 # copy header files so they are available to the client
 cp src/Rsrv.h src/include/sisocks.h src/client/cxx/
@@ -43,7 +43,7 @@ fi
 rm -rf clients
 ln -s src/client clients
 
-(cd src/client/java-new; make && make -C Rserve)
+(cd src/client/java; make && make -C Rserve)
 
 # no INDEX since 1.8
 #echo "Updating INDEX ..."
