@@ -402,7 +402,7 @@ static void WS_send_resp(args_t *arg, int rsp, rlen_t len, const void *buf) {
 		int pl = 0;
 		long flen = len + sizeof(ph);
 		memset(&ph, 0, sizeof(ph));
-		ph.cmd = itop(rsp | CMD_RESP);	
+		ph.cmd = itop(rsp | ((rsp & CMD_OOB) ? 0 : CMD_RESP));
 		ph.len = itop(len);
 #ifdef __LP64__
 		ph.res = itop(len >> 32);
