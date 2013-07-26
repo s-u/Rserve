@@ -21,9 +21,9 @@ Rserve <- function(debug=FALSE, port, args=NULL, quote=(length(args) > 1), wait,
       return(invisible(system(fn, wait=wait, ...)))
     }
   }
-  name <- if (!debug) "Rserve-bin.so" else "Rserve-dbg.so"
+  name <- if (!debug) "Rserve" else "Rserve.dbg"
   fn <- system.file(package="Rserve", "libs", .Platform$r_arch, name)
-  if (!nchar(fn)) fn <- if (!debug) "Rserve" else "Rserve.dbg"
+  if (!nchar(fn)) fn <- name
   if (!missing(port)) args <- c( args, "--RS-port", as.integer(port) )
   if (length(args)) fn <- paste(fn, paste(if (isTRUE(quote)) shQuote(args, "sh") else args, collapse=' '))
   cmd <- paste(file.path(R.home(),"bin","R"), "CMD", fn)
