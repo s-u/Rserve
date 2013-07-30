@@ -446,16 +446,13 @@ static void WS_send_resp(args_t *arg, int rsp, rlen_t len, const void *buf) {
 			if (send_here > pl)
 				memcpy(sbuf + pl, buf, send_here - pl);
 			n = WS_wire_send(arg, sbuf, send_here);
+#ifdef RSERV_DEBUG
 			if (pl) {
-#ifdef RSERV_DEBUG
 				fprintf(stderr, "WS_send_resp: sending 4+ frame (ver %02d), n = %d / %d (of total %ld)\n", arg->ver, n, send_here, flen);
-#endif
 				{ int i, m = send_here; if (m > 100) m = 100; for (i = 0; i < m; i++) fprintf(stderr, " %02x", (int) sbuf[i]); fprintf(stderr,"\n"); }
-			} else {
-#ifdef RSERV_DEBUG
+			} else
 				fprintf(stderr, "WS_send_resp: continuation (%d bytes)\n", n);
 #endif
-			}
 			if (n != send_here) {
 #ifdef RSERV_DEBUG
 				fprintf(stderr, "WS_send_resp: write failed (%d expected, got %d)\n", send_here, n);
