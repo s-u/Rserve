@@ -390,6 +390,15 @@
 	This minimizes the amount of code that is run with
 	elevated privileges in cases where user switching is desired.
 
+    o	Added configuration directive
+
+	   daemon disable
+
+	which can be used to prevent Rserve from daemonizing. It has
+	effect only in builds of Rserve that support daemonization.
+	Note that -DNODAEMON build flag disables daemonization
+	entirely and can be used in any Rserve version.
+
     o	All commands based on eval now also accept DT_SEXP in addition
 	to DT_STRING. In such case the parse step is skipped and the
 	expression is evaluated directly. The intended use of this

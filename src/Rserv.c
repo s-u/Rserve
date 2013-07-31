@@ -307,6 +307,10 @@ int child_control = 0;  /* enable/disable the ability of children to send comman
 int self_control = 0;   /* enable/disable the ability to use control commands from within the R process */
 static int tag_argv = 0;/* tag the ARGV with client/server IDs */
 
+#ifdef DAEMON
+int daemonize = 1;
+#endif
+
 char **main_argv; /* this is only set by standalone! */
 int    main_argc;
 
@@ -788,6 +792,12 @@ static int setConfig(const char *c, const char *p) {
 	if (!strcmp(c, "log.io")) {
 #ifdef RSERV_DEBUG
 		io_log = (*p == '1' || *p == 'y' || *p == 'e' || *p == 'T') ? 1 : 0;
+#endif
+		return 1;
+	}
+	if (!strcmp(c, "deamon")) {
+#ifdef DAEMON
+		daemonize = (*p == '1' || *p == 'y' || *p == 'e' || *p == 'T') ? 1 : 0;
 #endif
 		return 1;
 	}

@@ -197,14 +197,15 @@ int main(int argc, char **argv)
 #endif      
     
 #if defined DAEMON && defined unix
-    /* ok, we're in unix, so let's daemonize properly */
-    if (fork() != 0) {
-		puts("Rserv started in daemon mode.");
-		exit(0);
-    }
-    
-    setsid();
-    chdir("/");
+	if (daemonize) {
+		/* ok, we're in unix, so let's daemonize properly */
+		if (fork() != 0) {
+			puts("Rserv started in daemon mode.");
+			exit(0);
+		}
+		setsid();
+		chdir("/");
+	} else puts("Rserve started in non-daemon mode.");
 #endif
 #ifdef unix
     umask(umask_value);
