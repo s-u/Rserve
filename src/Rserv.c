@@ -3128,8 +3128,8 @@ v						break;
 
 		/* any command above can set eval_result -- in that case we 
 		   encode the result and send it as the reply */
-		if (eval_result) {
-			exp = PROTECT(eval_result);
+		if (eval_result || Rerror) {
+			if (eval_result) exp = PROTECT(eval_result);
 #ifdef RSERV_DEBUG
 			printf("expression(s) evaluated (Rerror=%d).\n",Rerror);
 			if (!Rerror) printSEXP(exp);
@@ -3235,7 +3235,7 @@ v						break;
 						}
 					}
 				}
-				UNPROTECT(1); /* exp / eval_result */
+				if (eval_result) UNPROTECT(1); /* exp / eval_result */
 			}
 #ifdef RSERV_DEBUG
 			printf("reply sent.\n");
