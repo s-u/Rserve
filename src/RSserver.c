@@ -11,6 +11,11 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
+/* AF_LOCAL is the POSIX version of AF_UNIX - we need this e.g. for AIX */
+#ifndef AF_LOCAL
+#define AF_LOCAL AF_UNIX
+#endif
+
 /* keep track of all bound server sockets so they can be easily all closed after fork
    this is important for two reasons: so ports don't get stuck bound after the server
    has been shut down but children are still around, and so that a rogue child cannot
