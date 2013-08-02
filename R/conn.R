@@ -37,7 +37,7 @@ Rserve <- function(debug=FALSE, port, args=NULL, quote=(length(args) > 1), wait,
 }
 
 run.Rserve <- function(..., config.file="/etc/Rserve.conf")
-  .Call("run_Rserve", as.character(config.file), sapply(list(...), as.character))
+  .Call(run_Rserve, as.character(config.file), sapply(list(...), as.character))
 
 self.ctrlEval <- function(expr) {
   if (!is.loaded("Rserve_ctrlEval")) stop("This command can only be run inside Rserve with r-control enabled")
