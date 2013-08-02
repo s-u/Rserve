@@ -15,6 +15,6 @@ Description: Rserve acts as a socket server (TCP/IP or local sockets)
 	     linking to R code. Rserve supports remote connection,
 	     user authentication and file transfer. A simple R client
 	     is included in this package as well.
-License: GPL-2
+License: GPL-2 | file LICENSE
 URL: http://www.rforge.net/Rserve/
 OS_type: unix
