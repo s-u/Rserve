@@ -2513,7 +2513,7 @@ void Rserve_QAP1_connected(void *thp) {
 #endif
 						sendResp(a, SET_STAT(RESP_ERR, ERR_inv_par));
 						process = 1; ph.cmd = 0;
-v						break;
+						break;
 					}
 #endif
 					if (parLen & 3) unaligned=1;         
