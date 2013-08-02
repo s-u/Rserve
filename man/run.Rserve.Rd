@@ -8,9 +8,9 @@
   instance. Rserve takes over until it is shut down or receives a user
   interrupt signal. The main difference between \code{\link{Rserve}} and
   \code{run.Rserve} is that \code{Rserve} starts a new process, whereas
-  \code{run.Rserve} turn the current R session into Rserve. This is only
+  \code{run.Rserve} turns the current R session into Rserve. This is only
   possible if there are no UI elements or other parts that could
-  interfere with the peration of \code{Rserve}.
+  interfere with the prepation of \code{Rserve}.
 }
 \usage{
 run.Rserve(..., config.file = "/etc/Rserve.conf")
@@ -22,13 +22,13 @@ run.Rserve(..., config.file = "/etc/Rserve.conf")
     present in the configuration file. So argument \code{foo="bar"}
     has the same meaning as \code{foo bar} in the configuration
     file. The only exception is that logical values can be used instead
-    of \code{enable}/\code{disable}. Some setting such as \code{uid} are
+    of \code{enable}/\code{disable}. Some settings such as \code{uid} are
     not relevant and thus ignored.
   }
   \item{config.file}{
     path of the configuration file to load in the Rserve. It will be
-    loaded before the above settings and is optional, i.e. if not
-    present it will be ignored
+    loaded before the above settings and is optional, i.e. if the
+    file is not present or readable it will be ignored.
   }
 }
 %\details{
