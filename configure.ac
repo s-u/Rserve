@@ -71,6 +71,7 @@ AC_SUBST(RLD)
 
 AC_ARG_VAR([OPENSSL_INCLUDES],[optional path to the include directory for OpenSSL headers])
 AC_ARG_VAR([PKG_CPPFLAGS],[additional pre-processor flags])
+AC_ARG_VAR([PKG_LIBS],[additional linker library flags])
 if test "x${OPENSSL_INCLUDES}" != x; then
    CPPFLAGS="${CPPFLAGS} -I${OPENSSL_INCLUDES}"
 fi
