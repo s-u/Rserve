@@ -35,6 +35,10 @@
 #define unix
 #endif
 
+#if defined STANDALONE_RSERVE && defined RSERVE_PKG
+#undef RSERVE_PKG
+#endif
+
 #if defined SOCK_ERRORS || defined USE_SNPRINTF
 #include <stdio.h>
 #endif
@@ -176,6 +180,24 @@ int sockerrorchecks(char *buf, int blen, int res) {
   return res;
 }
 
+#ifdef RSERVE_PKG /* use error instead of exit */
+
+#include <R.h>
+
+int sockerrorcheck(char *sn, int rtb, int res) {
+    if ((signed int)res == -1) {
+	char sock_err_buf[72];
+	sockerrorchecks(sock_err_buf, sizeof(sock_err_buf), res);
+	if (rtb)
+	    Rf_error("%s socket error #%d (%s)", sn, (int) sockerrno, sock_err_buf);
+	else
+	    Rf_warning("%s socket error #%d (%s)", sn, (int) sockerrno, sock_err_buf);
+    }
+    return res;
+}
+
+#else
+
 /* check socket error and add to log file if necessary */
 int sockerrorcheck(char *sn, int rtb, int res) {
   if (!sockerrlog) sockerrlog=stderr;
@@ -212,6 +234,8 @@ int sockerrorcheck(char *sn, int rtb, int res) {
   }
   return res;
 }
+#endif
+
 #else
 extern int suppmode;
 extern int socklasterr;

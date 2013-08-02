@@ -335,6 +335,7 @@ void stop_server_loop() {
 }
 
 #include "rsdebug.h"
+#include "rserr.h"
 
 #ifdef unix
 #ifdef HAVE_SYS_TYPES_H
@@ -450,13 +451,13 @@ static int set_string_encoding(const char *enc, int verbose) {
 	else if (!strcmp(enc, "utf8")) string_encoding = CE_UTF8;
 	else {
 		if (verbose)
-			fprintf(stderr, "WARNING: invalid encoding value '%s' - muse be one of 'native', 'latin1' or 'utf8'.\n", enc);
+			RSEprintf("WARNING: invalid encoding value '%s' - muse be one of 'native', 'latin1' or 'utf8'.\n", enc);
 		return 0;
 	}
 	return 1;
 #else
 	if (verbose)
-		fprintf(stderr, "WARNING: 'encoding' defined but this Rserve has no encoding support.\n");
+		RSEprintf("WARNING: 'encoding' defined but this Rserve has no encoding support.\n");
 	return 0;
 #endif
 }
@@ -764,7 +765,7 @@ static int performConfig(int when) {
 	if (when == SU_NOW) {
 		if (requested_chroot && chroot(requested_chroot)) {
 			perror("chroot");
-			fprintf(stderr,"chroot(\"%s\"): failed.\n", requested_chroot);
+			RSEprintf("chroot(\"%s\"): failed.\n", requested_chroot);
 			fail++;
 		}
 	}
@@ -833,14 +834,14 @@ static int setConfig(const char *c, const char *p) {
 		const char *c = p;
 		int lo = atoi(c);
 		if (lo < 1)
-			fprintf(stderr, "ERROR: invalid random.uid.range start (%d)\n", lo);
+			RSEprintf("ERROR: invalid random.uid.range start (%d)\n", lo);
 		else {
 			while (*c >= '0' && *c <= '9') c++;
 			while (*c && (*c < '0' || *c > '9')) c++;
 			if (*c) {
 				int hi = atoi(c);
 				if (hi <= lo)
-					fprintf(stderr, "ERROR: invalid random.uid.range (%d..%d)\n", lo, hi);
+					RSEprintf("ERROR: invalid random.uid.range (%d..%d)\n", lo, hi);
 				else {
 					random_uid_low  = lo;
 					random_uid_high = hi;
@@ -924,7 +925,7 @@ static int setConfig(const char *c, const char *p) {
 		if (f) {
 			fprintf(f, "%d\n", getpid());
 			fclose(f);
-		} else fprintf(stderr, "WARNING: cannot write into pid file '%s'\n", p);
+		} else RSEprintf("WARNING: cannot write into pid file '%s'\n", p);
 		return 1;
 	}
 	if (!strcmp(c, "rsa.key")) {
@@ -937,13 +938,13 @@ static int setConfig(const char *c, const char *p) {
 					int n = fread(buf, 1, 65535, f);
 					buf[n] = 0;
 					if (rsa_load_key(buf) == -1)
-						fprintf(stderr, "ERROR: not a valid RSA private key in '%s'\n", p);
-				} else fprintf(stderr, "ERROR: cannot allocate memory for the RSA key\n");
+						RSEprintf("ERROR: not a valid RSA private key in '%s'\n", p);
+				} else RSEprintf("ERROR: cannot allocate memory for the RSA key\n");
 				fclose(f);
-			} else fprintf(stderr, "ERROR: cannot open rsa.key file '%s'\n", p);
+			} else RSEprintf("ERROR: cannot open rsa.key file '%s'\n", p);
 		}
 #else
-		fprintf(stderr, "WARNING: rsa.key specified but RSA is not supported in this build!\n");
+		RSEprintf("WARNING: rsa.key specified but RSA is not supported in this build!\n");
 #endif
 		return 1;
 	}
@@ -1033,7 +1034,7 @@ static int setConfig(const char *c, const char *p) {
 		else if (*p == 's') su_time = SU_SERVER;
 		else if (*p == 'c') su_time = SU_CLIENT;
 		else {
-			fprintf(stderr, "su value invalid - must be 'now', 'server' or 'client'.\n");
+			RSEprintf("su value invalid - must be 'now', 'server' or 'client'.\n");
 			return -1;
 		}
 		return 1;
@@ -1076,7 +1077,7 @@ static int setConfig(const char *c, const char *p) {
 		l = allowed_ips;
 		while (*l) l++;
 		if (l - allowed_ips >= 127) {
-			fprintf(stderr, "WARNING: Maximum of allowed IPs (127) exceeded, ignoring 'allow %s'\n", p);
+			RSEprintf("WARNING: Maximum of allowed IPs (127) exceeded, ignoring 'allow %s'\n", p);
 			return -1;
 		} else {
 			*l = strdup(p);
@@ -1096,11 +1097,11 @@ static int setConfig(const char *c, const char *p) {
 	if (!strcmp(c, "workdir.mode")) {
 		int cm = satoi(p);
 		if (!cm)
-			fprintf(stderr, "ERROR: invalid workdir.mode\n");
+			RSEprintf("ERROR: invalid workdir.mode\n");
 		else {
 			wd_mode = cm;
 			if ((wd_mode & 0700) != 0700)
-				fprintf(stderr, "WARNING: workdir.mode does not contain 0700 - this may cause problems\n");
+				RSEprintf("WARNING: workdir.mode does not contain 0700 - this may cause problems\n");
 		}
 		return 1;
 	}
@@ -1200,7 +1201,7 @@ static int loadConfig(const char *fn)
     fclose(f);
 #ifndef HAS_CRYPT
     if (!usePlain) {
-		fprintf(stderr,"Warning: useplain=no, but this Rserve has no crypt support!\nSet useplain=yes or compile with crypt support (if your system supports crypt).\nFalling back to plain text password.\n");
+		RSEprintf("WARNING: useplain=no, but this Rserve has no crypt support!\nSet useplain=yes or compile with crypt support (if your system supports crypt).\nFalling back to plain text password.\n");
 		usePlain=1;
     }
 #endif
@@ -1237,7 +1238,11 @@ static void sigHandler(int i) {
 }
 
 static void brkHandler(int i) {
+#ifdef STANDALONE_RSERVE
     fprintf(stderr, "\nCaught break signal, shutting down Rserve.\n");
+#else
+	Rprintf("Caught break signal, shutting down Rserve.\n");
+#endif
     active = 0;
     /* kill(getpid(), SIGUSR1); */
 }
@@ -1792,7 +1797,7 @@ void Rserve_text_connected(void *thp) {
 
 	char *buf = (char*) malloc(bl--);
 	if (!buf) {
-		fprintf(stderr, "ERROR: cannot allocate buffer\n");
+		RSEprintf("ERROR: cannot allocate buffer\n");
 		return;
 	}
 
@@ -1845,7 +1850,7 @@ void Rserve_text_connected(void *thp) {
 					if (tl > bl) {
 						sb = (char*) malloc(tl);
 						if (!sb) {
-							fprintf(stderr, "ERROR: cannot allocate buffer for the result string\n");
+							RSEprintf("ERROR: cannot allocate buffer for the result string\n");
 							snprintf(buf, bl, "ERROR: cannot allocate buffer for the result string\n");
 							srv->send(arg, buf, strlen(buf));
 						}
@@ -1871,7 +1876,7 @@ void Rserve_text_connected(void *thp) {
 			bp = 0;
 		} else { /* continuation of a frame */
 			if (bp >= bl) {
-				fprintf(stderr, "WARNING: frame exceeds max size, ignoring\n");
+				RSEprintf("WARNING: frame exceeds max size, ignoring\n");
 				while ((arg->flags & F_INFRAME) && srv->recv(arg, buf, bl) > 0) ;
 				bp = 0;
 			}
@@ -2244,7 +2249,7 @@ void Rserve_QAP1_connected(void *thp) {
     buf = (char*) malloc(inBuf + 8);
     sfbuf = (char*) malloc(sfbufSize);
     if (!buf || !sfbuf) {
-		fprintf(stderr,"FATAL: cannot allocate initial buffers. closing client connection.\n");
+		RSEprintf("FATAL: cannot allocate initial buffers. closing client connection.\n");
 		s = a->s;
 		free(a);
 		closesocket(s);
@@ -2520,7 +2525,7 @@ v						break;
 					if (pars > 15) break;
 				} /* we don't parse more than 16 parameters */
 			} else {
-				printf("discarding buffer because too big (awaiting %ld bytes)\n", (long)plen);
+				RSEprintf("WARNING: discarding buffer because too big (awaiting %ld bytes)\n", (long)plen);
 				size_t i = plen, chk = (inBuf < max_sio_chunk) ? inBuf : max_sio_chunk;
 				while((rn = srv->recv(a, (char*)buf, (i < chk) ? i : chk))) {
 					if (rn > 0) i -= rn;
@@ -3335,7 +3340,7 @@ static server_t *server[MAX_SERVERS];
 int add_server(server_t *srv) {
 	if (!srv) return 0;
 	if (servers >= MAX_SERVERS) {
-		fprintf(stderr, "ERROR: too many servers\n");
+		RSEprintf("ERROR: too many servers\n");
 		return 0;
 	}
 	server[servers++] = srv;

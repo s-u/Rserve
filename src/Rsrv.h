@@ -423,6 +423,11 @@ extern int isByteSexOk();
 #define isByteSexOk 1
 #endif
 
+/* STANDALONE_RSERVE takes precedence over RSERVE_PKG */
+#if defined STANDALONE_RSERVE && defined RSERVE_PKG
+#undef RSERVE_PKG
+#endif
+
 #endif
 
 /*--- The following makes the indenting behavior of emacs compatible

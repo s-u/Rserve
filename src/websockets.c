@@ -4,6 +4,9 @@
 #include "sha1.h"
 #include "tls.h"
 
+#include "rsdebug.h"
+#include "rserr.h"
+
 #include <sisocks.h>
 #include <string.h>
 #include <stdio.h>
@@ -390,9 +393,6 @@ void WS13_upgrade(args_t *arg, const char *key, const char *protocol, const char
 	Rserve_QAP1_connected(arg);
 }
 
-
-#include "rsdebug.h"
-
 static void WS_send_resp(args_t *arg, int rsp, rlen_t len, const void *buf) {
 	unsigned char *sbuf = (unsigned char*) arg->sbuf;
 	if (arg->ver == 0) {
@@ -733,7 +733,7 @@ void serverLoop(void);
 typedef void (*sig_fn_t)(int);
 
 static void brkHandler_R(int i) {
-    Rprintf("\nCaught break signal, shutting down WebSockets.\n");
+    Rprintf("Caught break signal, shutting down WebSockets.\n");
     stop_server_loop();
 }
 #endif

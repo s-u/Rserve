@@ -1,4 +1,5 @@
 #include "RSserver.h"
+#include "rserr.h"
 
 #define SOCK_ERRORS
 #define LISTENQ 16
@@ -63,14 +64,14 @@ server_t *create_server(int port, const char *localSocketName, int localSocketMo
 	initsocks();
 	if (localSocketName) {
 #ifndef unix
-		fprintf(stderr,"Local sockets are not supported on non-unix systems.\n");
+		RSEprintf("ERROR: Local sockets are not supported on non-unix systems.\n");
 		return 0;
 #else
 		ss = FCF("open socket", socket(AF_LOCAL, SOCK_STREAM, 0));
 		memset(&lusa, 0, sizeof(lusa));
 		lusa.sun_family = AF_LOCAL;
 		if (strlen(localSocketName) > sizeof(lusa.sun_path) - 2) {
-			fprintf(stderr,"Local socket name is too long for this system.\n");
+			RSEprintf("ERROR: Local socket name is too long for this system.\n");
 			return 0;
 		}
 		strcpy(lusa.sun_path, localSocketName);
@@ -85,7 +86,7 @@ server_t *create_server(int port, const char *localSocketName, int localSocketMo
 
 	srv = (server_t*) calloc(1, sizeof(server_t));
 	if (!srv) {
-		fprintf(stderr, "ERROR: cannot allocate memory for server structure\n");
+		RSEprintf("ERROR: cannot allocate memory for server structure\n");
 		return 0;
 	}
 

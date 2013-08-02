@@ -2,6 +2,7 @@
 #include "tls.h"
 #include "http.h"
 #include "websockets.h" /* for connection upgrade */
+#include "rserr.h"
 #include <sisocks.h>
 #include <string.h>
 #include <stdio.h>
@@ -863,7 +864,7 @@ static void HTTP_connected(void *parg) {
 	}
 
 	if (!(arg->line_buf = (char*) malloc(LINE_BUF_SIZE))) {
-		fprintf(stderr, "ERROR: unable to allocate line buffer\n");
+		RSEprintf("ERROR: unable to allocate line buffer\n");
 		free(arg);
 		return;
 	}

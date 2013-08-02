@@ -44,7 +44,7 @@ static void fprintDump(FILE *f, const void *b, int len) {
     i = 0;
     fprintf(f, "  |");
     while (i < len) {
-	char c = ((const char*)b)[i++];
+	unsigned char c = ((const unsigned char*)b)[i++];
 	if (c < 32 || c > 127) c = '.';
 	fputc(c, f);
 	if (dumpLimit && i > dumpLimit) break;
