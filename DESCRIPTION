@@ -17,3 +17,4 @@ Description: Rserve acts as a socket server (TCP/IP or local sockets)
 	     is included in this package as well.
 License: GPL-2
 URL: http://www.rforge.net/Rserve/
+OS_type: unix
