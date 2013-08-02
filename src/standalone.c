@@ -146,8 +146,6 @@ int main(int argc, char **argv)
 			top_argv[top_argc++]=argv[i];
     }
 	
-    R_SignalHandlers = 0; /* disable signal handlers */
-
 	performConfig(SU_NOW);
 	
     stat = Rf_initEmbeddedR(top_argc,top_argv);
@@ -158,6 +156,16 @@ int main(int argc, char **argv)
 #ifndef WIN32
     /* windows uses this in init, unix doesn't so we set it here */
     R_Interactive = Rsrv_interactive;
+
+	/* we let R install sig handlers, but remove those that are bad */
+	signal(SIGSEGV, SIG_DFL);
+	signal(SIGILL, SIG_DFL);
+#ifdef SIGBUS
+	signal(SIGBUS, SIG_DFL);
+#endif
+	/* FIXME: not sure about SIGPIPE - it's ok to use R's handling when
+	   caused by R code, but it's unclear if it can be caused by
+	   Rserve's internal code which would prefer death to surrender ... */
 #endif
 
     if (src_list) { /* do any sourcing if necessary */

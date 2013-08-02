@@ -1236,13 +1236,11 @@ static void sigHandler(int i) {
 		active = 0;
 }
 
-#if defined RSERV_DEBUG || defined RSERVE_PKG
 static void brkHandler(int i) {
-    printf("\nCaught break signal, shutting down Rserve.\n");
+    fprintf(stderr, "\nCaught break signal, shutting down Rserve.\n");
     active = 0;
     /* kill(getpid(), SIGUSR1); */
 }
-#endif
 #endif
 
 /* used for generating salt code (2x random from this array) */
@@ -1714,6 +1712,8 @@ int RS_fork(args_t *arg) {
 	return (arg->srv && arg->srv->fork) ? arg->srv->fork(arg) : fork();
 }
 
+static void restore_signal_handlers(); /* forward decl */
+
 /* return 0 if the child was prepared. Returns the result of fork() is forked and this is the parent */
 int Rserve_prepare_child(args_t *arg) {
 #ifdef FORKED  
@@ -1752,6 +1752,8 @@ int Rserve_prepare_child(args_t *arg) {
     }
 
 	/* child part */
+	restore_signal_handlers(); /* the handlers handle server shutdown so not needed in the child */
+
 	if (main_argv && tag_argv && strlen(main_argv[0]) >= 8)
 		strcpy(main_argv[0] + strlen(main_argv[0]) - 8, "/RsrvCHx");
 	is_child = 1;
@@ -2220,6 +2222,7 @@ void Rserve_QAP1_connected(void *thp) {
 		if (main_argv && tag_argv && strlen(main_argv[0]) >= 8)
 			strcpy(main_argv[0] + strlen(main_argv[0]) - 8, "/RsrvCHq");
 		/* child part */
+		restore_signal_handlers(); /* the handlers handle server shutdown so not needed in the child */
 		is_child = 1;
 		if (cinp[0] != -1) { /* if we have a vaild pipe to the parent set it up */
 			parent_pipe = cinp[1];
@@ -3290,30 +3293,32 @@ v						break;
 #ifdef unix
 typedef void (*sig_fn_t)(int);
 
-static sig_fn_t old_HUP, old_TERM, old_INT;
+/* NULL ptr is used on some systems as SIG_DFL so we have
+   to define our own value for "not set" */
+static void sig_not_set(int x) {}
+
+sig_fn_t old_HUP = sig_not_set, old_TERM = sig_not_set, old_INT = sig_not_set;
 
 static void setup_signal_handlers() {
 #ifdef FORKED
-	if (!old_HUP) old_HUP = signal(SIGHUP, sigHandler);
-	if (!old_TERM) old_TERM = signal(SIGTERM, sigHandler);
-#if defined RSERV_DEBUG || defined RSERVE_PKG
-	if (!old_INT) old_INT = signal(SIGINT, brkHandler);
-#endif
+	if (old_HUP == sig_not_set) old_HUP = signal(SIGHUP, sigHandler);
+	if (old_TERM == sig_not_set) old_TERM = signal(SIGTERM, sigHandler);
+	if (old_INT == sig_not_set) old_INT = signal(SIGINT, brkHandler);
 #endif
 }
 
 static void restore_signal_handlers() {
-	if (old_HUP) {
+	if (old_HUP != sig_not_set) {
 		signal(SIGHUP, old_HUP);
-		old_HUP = 0;
+		old_HUP = sig_not_set;
 	}
-	if (old_TERM) {
+	if (old_TERM != sig_not_set) {
 		signal(SIGTERM, old_TERM);
-		old_TERM = 0;
+		old_TERM = sig_not_set;
 	}
-	if (old_INT) {
+	if (old_INT != sig_not_set) {
 		signal(SIGINT, old_INT);
-		old_INT = 0;
+		old_INT = sig_not_set;
 	}
 }
 #else
