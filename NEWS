@@ -1,7 +1,7 @@
  NEWS/Changelog for Rserve
 ---------------------------
 
-1.7-0	(under development)
+1.7-0	2013-07-02
 
    ***	---- HEADLINE NEWS ----
    ***	new protocols: HTTP, HTTPS, WebSockets and TLS/QAP
@@ -183,12 +183,6 @@
 	itself but offer asynchronous notification to clients that
 	support it (one typical use are WS-QAP1 tunnels	to web
 	browsers that allow status updates as R code is evaluated).
-
-    o	Rserve now includes a pool manager RSpool that facilitates the
-	creation of pre-spawned worker Rserve instances. This is in
-	particular useful on Windows, making it possible to support
-	some number of parallel connections.
-	(experimental, currently unfinished)
 
     o	Rserve accepts additional command line arguments:
 	--RS-source <file>   (same as "source <file>" in cfg file)
@@ -422,6 +416,13 @@
     o	Forked child processes will now close all server sockets so
 	that any server can be restarted without closing existing
 	children.
+
+    o	Signal handling has been streamlined: the server process
+	captures HUP, TERM and INT which will lead to clean
+	shutdown. Child processes restore signal handlers back to R so
+	that regular R signal handling rules apply. Note that
+	interrupt during eval will result in RESP_ERR with code 127
+	even if try() is used.
 
 
 --- In order to support new ideas a major re-organization of Rserve ---
