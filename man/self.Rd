@@ -19,12 +19,13 @@ self.oobMessage(what, code = 0L)
   \code{self.ctrlEval} issues a control command to the Rserve parent
   instance that evaluates the given expression in the server. The
   expression is only queued for evaluation which will happen
-  asynchronously in the server (see \code{\link{RSserverEval}} for
-  details). Note that the current session is unaffected by the command.
+  asynchronously in the server (see \code{RSserverEval} in
+  \code{RSclient} package for details). Note that the current session is
+  unaffected by the command.
 
   \code{self.ctrlSource} issues a control command to the Rserve parent
   instance to source the given file in the server, see
-  \code{\link{RSserverSource}} for details.
+  \code{RSserverSource} in the \code{RSclient} package for details.
 
   \code{self.oobSend} sends a out-of-band (OOB) message with the encoded
   content of \code{what} to the client connected to this session. The
@@ -36,7 +37,7 @@ self.oobMessage(what, code = 0L)
   to dynamically update graphics on the web during evaluation).
 
   \code{self.oobMessage} is like \code{self.oobSend} except that it
-  waits for a response and returs the response.
+  waits for a response and returns the response.
 }
 \arguments{
   \item{expr}{R expression to evaluate remotely}
