@@ -69,6 +69,12 @@ AC_SUBST(R_HOME)
 AC_SUBST(RINC)
 AC_SUBST(RLD)
 
+AC_ARG_VAR([OPENSSL_INCLUDES],[optional path to the include directory for OpenSSL headers])
+AC_ARG_VAR([PKG_CPPFLAGS],[additional pre-processor flags])
+if test "x${OPENSSL_INCLUDES}" != x; then
+   CPPFLAGS="${CPPFLAGS} -I${OPENSSL_INCLUDES}"
+fi
+
 # Checks for programs.
 AC_PROG_CC
 
@@ -178,11 +184,13 @@ fi
 # on some platforms libR expects dl code in the binary
 AC_CHECK_LIB(dl, dlopen)
 
-# cehck RSA/crypto
-AC_SEARCH_LIBS(RSA_generate_key, [crypto ssl openssl], [AC_DEFINE(HAVE_RSA, 1, [RSA crypto support])])
+# check RSA/crypto
+AC_CHECK_HEADER([openssl/rsa.h],
+[AC_SEARCH_LIBS(RSA_generate_key, [crypto ssl openssl], [AC_DEFINE(HAVE_RSA, 1, [RSA crypto support])])])
 
 # check SSL support
-AC_SEARCH_LIBS(SSL_CTX_load_verify_locations, [ssl openssl], [AC_DEFINE(HAVE_TLS, 1, [TLS/SSL support])])
+AC_CHECK_HEADER([openssl/ssl.h],
+[AC_SEARCH_LIBS(SSL_CTX_load_verify_locations, [ssl openssl], [AC_DEFINE(HAVE_TLS, 1, [TLS/SSL support])])])
 
 AC_CONFIG_FILES([src/Makevars])
 AC_CONFIG_FILES([src/client/cxx/Makefile])
