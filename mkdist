@@ -44,6 +44,9 @@ rm -rf clients
 ln -s src/client clients
 
 (cd src/client/java; make && make -C Rserve)
+## install the Java client JARs
+mkdir -p inst/java
+mv src/client/java/*.jar inst/java/
 
 # no INDEX since 1.8
 #echo "Updating INDEX ..."
