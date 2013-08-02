@@ -12,7 +12,6 @@ Rserve <- function(debug=FALSE, port, args=NULL, quote=(length(args) > 1), wait,
       if (!missing(port)) args <- c( args, "--RS-port", as.integer(port) )
       if (nzchar(arch)) arch <- paste("\\", arch, sep='')
       pad <- gsub("/", "\\", shortPathName(paste(R.home(),"\\bin",arch,";",sep='')), fixed=TRUE)
-      if (!exists("Sys.setenv")) Sys.setenv <- Sys.putenv
       if (charmatch(pad, Sys.getenv("PATH"), nomatch=0) == 0)
         Sys.setenv(PATH=paste(pad, Sys.getenv("PATH"), sep=''))
       fn <- if (isTRUE(quote)) paste(shQuote(c(fn, args), "cmd"), collapse=' ') else paste(shQuote(fn, "cmd"), paste(args, collapse=' '))
