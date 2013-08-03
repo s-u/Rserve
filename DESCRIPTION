@@ -1,5 +1,5 @@
 Package: Rserve
-Version: 1.7-1
+Version: 1.7
 Title: Binary R server
 Author: Simon Urbanek <Simon.Urbanek@r-project.org>
 Maintainer: Simon Urbanek <Simon.Urbanek@r-project.org>

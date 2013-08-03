@@ -1,6 +1,9 @@
  NEWS/Changelog for Rserve
 ---------------------------
 
+1.7-2	(under development)
+
+
 1.7-1	2013-07-02
     o	remove a spurious character that prevented compilation on Suns
 
