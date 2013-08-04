@@ -36,7 +36,7 @@ typedef struct server {
 #define LSM_IP_LOCAL 1 /* bind to loopback address only */
 #define LSM_IPV6     2 /* use IPv6 (if available) */
 
-server_t *create_server(int port, const char *localSocketName, int localSocketMode, int flags);
+server_t *create_server(int port, int socketKeepAlive, int socketKeepAliveTime, int socketKeepAliveInterval, int socketKeepAliveProbes, const char *localSocketName, int localSocketMode, int flags);
 int add_server(server_t *srv);
 int rm_server(server_t *srv);
 

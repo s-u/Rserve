@@ -16,6 +16,12 @@
 #define AF_LOCAL AF_UNIX
 #endif
 
+#ifdef unix
+#define	TCP_KEEPINTVL 5
+#define TCP_KEEPCNT	6
+#define TCP_KEEPINIT 7
+#endif
+
 /* keep track of all bound server sockets so they can be easily all closed after fork
    this is important for two reasons: so ports don't get stuck bound after the server
    has been shut down but children are still around, and so that a rogue child cannot
@@ -54,17 +60,17 @@ void close_all_srv_sockets() {
 	}
 }
 
-server_t *create_server(int port, const char *localSocketName, int localSocketMode, int flags) {
+server_t *create_server(int port, int socketKeepAlive, int socketKeepAliveTime, int socketKeepAliveInterval, int socketKeepAliveProbes, const char *localSocketName, int localSocketMode, int flags) {
 	server_t *srv;
 	SAIN ssa;
-	int reuse, ss;
+	int reuse, keepAlive, ss;
 #ifdef HAVE_IPV6
 	struct sockaddr_in6 ssa6;
 #endif
 	struct sockaddr_un lusa;
     
 #ifdef RSERV_DEBUG
-	printf(" - create_server(port = %d, socket = %s, mode = %d, flags = 0x%x)\n", port, localSocketName ? localSocketName : "<NULL>", localSocketMode, flags);
+	printf(" - create_server(port = %d, keep-alive = %d, keep-alive-time = %d, keep-alive-interval = %d, keep-alive-probes = %d, socket = %s, mode = %d, flags = 0x%x)\n", port, socketKeepAlive, socketKeepAliveTime, socketKeepAliveInterval, socketKeepAliveProbes, localSocketName ? localSocketName : "<NULL>", localSocketMode, flags);
 #endif
 	initsocks();
 	if (localSocketName) {
@@ -102,6 +108,22 @@ server_t *create_server(int port, const char *localSocketName, int localSocketMo
 
 	reuse = 1; /* enable socket address reusage */
 	setsockopt(ss, SOL_SOCKET, SO_REUSEADDR, (const char*)&reuse, sizeof(reuse));
+
+	if (socketKeepAlive) {
+		keepAlive = 1; /* enable socket keep alive */
+		setsockopt(ss, SOL_SOCKET, SO_KEEPALIVE, (const char*)&keepAlive, sizeof(keepAlive));
+#ifdef unix
+		if (socketKeepAliveTime != -1) {
+			setsockopt(ss, IPPROTO_TCP, TCP_KEEPINIT, (const char*)&socketKeepAliveTime, sizeof(socketKeepAliveTime));
+		}
+		if (socketKeepAliveInterval != -1) {
+			setsockopt(ss, IPPROTO_TCP, TCP_KEEPINTVL, (const char*)&socketKeepAliveInterval, sizeof(socketKeepAliveInterval));
+		}
+		if (socketKeepAliveProbes != -1) {
+			setsockopt(ss, IPPROTO_TCP, TCP_KEEPCNT, (const char*)&socketKeepAliveProbes, sizeof(socketKeepAliveProbes));
+		}
+#endif
+	}
 
 #ifdef unix
 	if (localSocketName) {

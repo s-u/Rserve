@@ -287,6 +287,11 @@ static int tls_port = -1;
 static int active = 1; /* 1 = server loop is active, 0 = shutdown */
 static int UCIX   = 1; /* unique connection index */
 
+static int socketKeepAlive = 0; /* if set, set keep-alive socket option on the socket when created */
+static int socketKeepAliveTime = -1; /* if set, overrides the process keep-alive initial time if keep alive on our socket was enabled */
+static int socketKeepAliveInterval = -1; /* if set, overrides the process keep-alive interval if keep alive on our socket was enabled */
+static int socketKeepAliveProbes = -1; /* if set, overrides the process keep-alive probes if keep alive on our socket was enabled */
+
 static char *localSocketName = 0; /* if set listen on this local (unix) socket instead of TCP/IP */
 static int localSocketMode = 0;   /* if set, chmod is used on the socket when created */
 
@@ -1107,6 +1112,31 @@ static int setConfig(const char *c, const char *p) {
 	}
 	if (!strcmp(c,"encoding") && *p) {
 		set_string_encoding(p, 1);
+		return 1;
+	}
+	if (!strcmp(c,"keep-alive")) {
+		socketKeepAlive = (p[0] == 'e' || p[0] == 'y' || p[0] == '1' || p[0] == 'T') ? 1 : 0;
+		return 1;
+	}
+	if (!strcmp(c,"keep-alive-time")) {
+		if (*p) {
+			int time = satoi(p);
+			if (time >= 0) socketKeepAliveTime = time;
+		}
+		return 1;
+	}
+	if (!strcmp(c,"keep-alive-interval")) {
+		if (*p) {
+			int interval = satoi(p);
+			if (interval > 0) socketKeepAliveInterval = interval;
+		}
+		return 1;
+	}
+	if (!strcmp(c,"keep-alive-probes")) {
+		if (*p) {
+			int probes = satoi(p);
+			if (probes > 0) socketKeepAliveProbes = probes;
+		}
 		return 1;
 	}
 	if (!strcmp(c,"socket")) {
@@ -3380,7 +3410,7 @@ server_t *create_Rserve_QAP1(int flags) {
 	server_t *srv;
 	if (use_ipv6) flags |= SRV_IPV6;
 	if (localonly) flags |= SRV_LOCAL;
-	srv = create_server((flags & SRV_TLS) ? tls_port : port, localSocketName, localSocketMode, flags);
+	srv = create_server((flags & SRV_TLS) ? tls_port : port, socketKeepAlive, socketKeepAliveTime, socketKeepAliveInterval, socketKeepAliveProbes, localSocketName, localSocketMode, flags);
 	if (srv) {
 		srv->connected = Rserve_QAP1_connected;
 		srv->send_resp = Rserve_QAP1_send_resp;

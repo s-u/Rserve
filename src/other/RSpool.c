@@ -354,7 +354,7 @@ int main(int argc, char **argv) {
 		RSargv[j] = 0;
 	}
 
-	srv = create_server(port, 0, 0, 0);
+	srv = create_server(port, 0, 0, 0, 0, 0, 0, 0);
 	if (!srv) return 0;
 
 	if (max_pool < workers) max_pool = workers;
