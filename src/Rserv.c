@@ -2399,6 +2399,7 @@ void Rserve_QAP1_connected(void *thp) {
 		SEXP eval_result = 0;
 		size_t plen = 0;
 		SEXP pp = R_NilValue; /* packet payload (as a raw vector) for special commands */
+		Rerror = 0;
 #ifdef RSERV_DEBUG
 		printf("\nheader read result: %d\n", rn);
 		if (rn > 0) printDump(&ph, rn);
@@ -3076,7 +3077,6 @@ void Rserve_QAP1_connected(void *thp) {
 			int is_large = (parT[0] & DT_LARGE) ? 1 : 0;
 			if (is_large) parT[0] ^= DT_LARGE;
 			process = 1;
-			Rerror = 0;
 			if (pars < 1 || (parT[0] != DT_STRING && parT[0] != DT_SEXP))
 				sendResp(a, SET_STAT(RESP_ERR, ERR_inv_par));
 			else if (parT[0] == DT_SEXP) {

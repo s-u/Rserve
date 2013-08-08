@@ -5,6 +5,10 @@
     o	when uid/gid is changed, create a new tempdir() and set its
 	permissions as well as the wokring directory's owner to match.
 
+    o	bugfix: if the first command is not any of the eval family
+	the Rserve may respond with an additional, spurious error
+	response
+
 
 1.7-1	2013-07-02
     o	remove a spurious character that prevented compilation on Suns
