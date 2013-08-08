@@ -345,8 +345,26 @@ void stop_server_loop() {
 #include <grp.h>
 #include <pwd.h>
 
+static char tmpdir_buf[1024];
+
+#include <Rembedded.h>
+
+#ifdef unix
+char wdname[512];
+int cinp[2];
+#endif
+
 static void prepare_set_user(int uid, int gid) {
-	/* FIXME: deal with permissions on the working directory and R_TempDir ... */
+	/* create a new tmpdir() and make it owned by uid:gid */
+	snprintf(tmpdir_buf, sizeof(1024), "%s.%d.%d", R_TempDir,
+			 (int) getpid(), (int) uid);
+	mkdir(tmpdir_buf, 0700);
+	/* gid can be 0 to denote no gid change -- but we will be using
+	   0700 anyway so the actual gid is not really relevant */
+	chown(tmpdir_buf, uid, gid);
+	R_TempDir = strdup(tmpdir_buf);
+	if (workdir) /* FIXME: gid=0 will be bad here ! */
+		chown(wdname, uid, gid);
 }
 
 static int set_user(const char *usr) {
@@ -2184,11 +2202,6 @@ void Rserve_QAP1_connected(void *thp) {
     
     SEXP xp,exp;
     FILE *cf=0;
-
-#ifdef unix
-    char wdname[512];
-	int cinp[2];
-#endif
 
 #ifdef FORKED  
 
