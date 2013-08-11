@@ -271,6 +271,14 @@ int main(int argc, char **argv)
 		}
 	}
 
+	if (pidfile) {
+		FILE *f = fopen(pidfile, "w");
+		if (f) {
+			fprintf(f, "%d\n", getpid());
+			fclose(f);
+		} else RSEprintf("WARNING: cannot write into pid file '%s'\n", pidfile);
+	}
+
 	setup_signal_handlers();
 
     serverLoop();
@@ -284,6 +292,10 @@ int main(int argc, char **argv)
 #endif
 
 	restore_signal_handlers();
+
+	if (pidfile) {
+		remove(pidfile);
+	}
 
     return 0;
 }
