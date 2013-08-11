@@ -306,6 +306,7 @@ int can_control = 0;    /* control commands will be rejected unless this flag is
 int child_control = 0;  /* enable/disable the ability of children to send commands to the master process */
 int self_control = 0;   /* enable/disable the ability to use control commands from within the R process */
 static int tag_argv = 0;/* tag the ARGV with client/server IDs */
+static char *pidfile = 0;/* if set by configuration generate pid file */
 
 #ifdef DAEMON
 int daemonize = 1;
@@ -939,11 +940,7 @@ static int setConfig(const char *c, const char *p) {
 		return 1;
 	}
 	if (!strcmp(c, "pid.file") && *p) {
-		FILE *f = fopen(p, "w");
-		if (f) {
-			fprintf(f, "%d\n", getpid());
-			fclose(f);
-		} else RSEprintf("WARNING: cannot write into pid file '%s'\n", p);
+		pidfile = (*p) ? strdup(p) : 0;
 		return 1;
 	}
 	if (!strcmp(c, "rsa.key")) {
