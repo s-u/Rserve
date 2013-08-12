@@ -357,7 +357,7 @@ int cinp[2];
 
 static void prepare_set_user(int uid, int gid) {
 	/* create a new tmpdir() and make it owned by uid:gid */
-	snprintf(tmpdir_buf, sizeof(1024), "%s.%d.%d", R_TempDir,
+	snprintf(tmpdir_buf, sizeof(tmpdir_buf), "%s.%d.%d", R_TempDir,
 			 (int) getpid(), (int) uid);
 	mkdir(tmpdir_buf, 0700);
 	/* gid can be 0 to denote no gid change -- but we will be using
