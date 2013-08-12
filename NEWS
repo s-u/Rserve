@@ -12,6 +12,10 @@
     o	deamonized server would record incorrect pid when pid.file
 	is used (i#5). The pid is now removed on clean sutdown.
 
+    o	added support for keep.alive configuration option - it is
+	global to all servers and if enabled the client sockets are
+	instructed to keep the connection alive by periodic messages.
+
 
 1.7-1	2013-07-02
     o	remove a spurious character that prevented compilation on Suns

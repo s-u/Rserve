@@ -54,6 +54,18 @@ void close_all_srv_sockets() {
 	}
 }
 
+/* provides client socket from accept() to the server so that it can
+   modify the socket as needed according to the server flags */
+void accepted_server(server_t *srv, int cs) {
+#ifdef SO_KEEPALIVE
+	/* if keep-alive is enabled and supported - try to set it */
+	if (srv->flags & SRV_KEEPALIVE) {
+		int ka = 1;
+		setsockopt(cs, SOL_SOCKET, SO_KEEPALIVE, &ka, sizeof(ka));
+	}
+#endif
+}
+
 server_t *create_server(int port, const char *localSocketName, int localSocketMode, int flags) {
 	server_t *srv;
 	SAIN ssa;

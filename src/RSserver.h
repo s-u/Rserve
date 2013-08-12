@@ -4,11 +4,14 @@
 #include "Rsrv.h"
 
 /* this is a voluntary standart flag to request TLS support */
-#define SRV_TLS   0x0800
+#define SRV_TLS       0x0800
 
 /* these flags are global and respected by the default socket server */
-#define SRV_IPV6  0x1000 /* use IPv6 */
-#define SRV_LOCAL 0x4000 /* bind to local loopback interface only */
+#define SRV_IPV6      0x1000 /* use IPv6 */
+#define SRV_LOCAL     0x4000 /* bind to local loopback interface only */
+#define SRV_KEEPALIVE 0x8000 /* enable keep-alive - note that this is really
+							    a client option sice inheritance is not
+								guaranteed */
 
 typedef struct args args_t;
 
@@ -37,6 +40,7 @@ typedef struct server {
 #define LSM_IPV6     2 /* use IPv6 (if available) */
 
 server_t *create_server(int port, const char *localSocketName, int localSocketMode, int flags);
+void accepted_server(server_t *srv, int cs); /* performs additional tasks on client socket (eg SO_KEEPALIVE) */
 int add_server(server_t *srv);
 int rm_server(server_t *srv);
 

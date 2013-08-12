@@ -327,6 +327,8 @@ static char *auth_fn;       /* authentication function */
 static int umask_value = 0;
 #endif
 
+int global_srv_flags = 0;
+
 static char *http_user, *https_user, *ws_user;
 
 static char **allowed_ips = 0;
@@ -846,6 +848,13 @@ static int setConfig(const char *c, const char *p) {
 	}
 	if (!strcmp(c, "tag.argv")) {
 		tag_argv = (*p == '1' || *p == 'y' || *p == 'e' || *p == 'T') ? 1 : 0;
+		return 1;
+	}
+	if (!strcmp(c, "keep.alive")) {
+		if (*p == '1' || *p == 'y' || *p == 'e' || *p == 'T')
+			global_srv_flags |= SRV_KEEPALIVE;
+		else
+			global_srv_flags &= ~ SRV_KEEPALIVE;
 		return 1;
 	}
 	if (!strcmp(c, "switch.qap.tls")) {
@@ -3486,6 +3495,7 @@ void serverLoop() {
 					} else
 #endif
 						sa->s = CF("accept", accept(ss, (SA*)&(sa->sa), &al));
+					accepted_server(srv, sa->s);
 					sa->ucix = UCIX++;
 					sa->ss = ss;
 					sa->srv = srv;
@@ -3655,7 +3665,7 @@ SEXP run_Rserve(SEXP cfgFile, SEXP cfgPars) {
 	ss = create_server_stack();
 
 	if (enable_qap) {
-		server_t *srv = create_Rserve_QAP1(qap_oc ? SRV_QAP_OC : 0);
+		server_t *srv = create_Rserve_QAP1((qap_oc ? SRV_QAP_OC : 0) | global_srv_flags);
 		if (!srv) {
 			release_server_stack(ss);
 			RSsrv_done();
@@ -3665,7 +3675,7 @@ SEXP run_Rserve(SEXP cfgFile, SEXP cfgPars) {
 	}
 
 	if (tls_port > 0) {
-		server_t *srv = create_Rserve_QAP1(SRV_TLS | (qap_oc ? SRV_QAP_OC : 0));
+		server_t *srv = create_Rserve_QAP1(SRV_TLS | (qap_oc ? SRV_QAP_OC : 0) | global_srv_flags);
 		if (!srv) {
 			release_server_stack(ss);
 			RSsrv_done();
@@ -3675,7 +3685,8 @@ SEXP run_Rserve(SEXP cfgFile, SEXP cfgPars) {
 	}
 
 	if (http_port > 0) {
-		int flags =  (enable_ws_qap ? WS_PROT_QAP : 0) | (enable_ws_text ? WS_PROT_TEXT : 0) | (ws_qap_oc ? SRV_QAP_OC : 0);
+		int flags =  (enable_ws_qap ? WS_PROT_QAP : 0) | (enable_ws_text ? WS_PROT_TEXT : 0) |
+			(ws_qap_oc ? SRV_QAP_OC : 0) | global_srv_flags;
 		server_t *srv = create_HTTP_server(http_port, flags |
 										   (ws_upgrade ? HTTP_WS_UPGRADE : 0) |
 										   (http_raw_body ? HTTP_RAW_BODY : 0));
@@ -3688,7 +3699,7 @@ SEXP run_Rserve(SEXP cfgFile, SEXP cfgPars) {
 	}
 
 	if (https_port > 0) {
-		int flags =  (enable_ws_qap ? WS_PROT_QAP : 0) | (enable_ws_text ? WS_PROT_TEXT : 0);
+		int flags =  (enable_ws_qap ? WS_PROT_QAP : 0) | (enable_ws_text ? WS_PROT_TEXT : 0) | global_srv_flags;
 		server_t *srv = create_HTTP_server(https_port, SRV_TLS | flags |
 										   (ws_upgrade ? HTTP_WS_UPGRADE : 0) |
 										   (http_raw_body ? HTTP_RAW_BODY : 0));
@@ -3708,7 +3719,7 @@ SEXP run_Rserve(SEXP cfgFile, SEXP cfgPars) {
 			Rf_error("Invalid or missing websockets port");
 		}
 		if (ws_port > 0) {
-			srv = create_WS_server(ws_port, (enable_ws_qap ? WS_PROT_QAP : 0) | (enable_ws_text ? WS_PROT_TEXT : 0) | (ws_qap_oc ? SRV_QAP_OC : 0));
+			srv = create_WS_server(ws_port, (enable_ws_qap ? WS_PROT_QAP : 0) | (enable_ws_text ? WS_PROT_TEXT : 0) | (ws_qap_oc ? SRV_QAP_OC : 0) | global_srv_flags);
 			if (!srv) {
 				release_server_stack(ss);
 				RSsrv_done();
@@ -3717,7 +3728,7 @@ SEXP run_Rserve(SEXP cfgFile, SEXP cfgPars) {
 			push_server(ss, srv);
 		}
 		if (wss_port > 0) {
-			srv = create_WS_server(wss_port, (enable_ws_qap ? WS_PROT_QAP : 0) | (enable_ws_text ? WS_PROT_TEXT : 0) | (ws_qap_oc ? SRV_QAP_OC : 0) | WS_TLS);
+			srv = create_WS_server(wss_port, (enable_ws_qap ? WS_PROT_QAP : 0) | (enable_ws_text ? WS_PROT_TEXT : 0) | (ws_qap_oc ? SRV_QAP_OC : 0) | WS_TLS | global_srv_flags);
 			if (!srv) {
 				release_server_stack(ss);
 				RSsrv_done();
