@@ -362,6 +362,7 @@ void WS13_upgrade(args_t *arg, const char *key, const char *protocol, const char
 		srv->recv      = WS_recv_data;
 		srv->send      = WS_send_data;
 		srv->fin       = server_fin;
+		srv->flags     = arg->srv->flags;
 	}
 	strncpy(buf, key, sizeof(buf) - 50);
 	strcat(buf, "258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
