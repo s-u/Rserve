@@ -236,9 +236,8 @@ int main(int argc, char **argv)
 		return ex(1);
 	}
 
-	http_flags = 0;
+	http_flags = global_srv_flags | (enable_ws_qap ? WS_PROT_QAP : 0) | (enable_ws_text ? WS_PROT_TEXT : 0) | (ws_qap_oc ? SRV_QAP_OC : 0);
 	if (ws_upgrade) {
-		http_flags = global_srv_flags | (enable_ws_qap ? WS_PROT_QAP : 0) | (enable_ws_text ? WS_PROT_TEXT : 0) | (ws_qap_oc ? SRV_QAP_OC : 0);
 		if (http_flags)
 			http_flags |= HTTP_WS_UPGRADE;
 		else
