@@ -879,7 +879,7 @@ static void HTTP_connected(void *parg) {
 }
 
 server_t *create_HTTP_server(int port, int flags) {
-	server_t *srv = create_server(port, 0, 0, flags);
+	server_t *srv = create_server(port, 0, 0, 0, 0, 0, 0, flags);
 #ifdef RSERV_DEBUG
 	fprintf(stderr, "create_HTTP_server(port = %d, flags=0x%x)\n", port, flags);
 #endif

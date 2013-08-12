@@ -712,7 +712,7 @@ static int  WS_recv_data(args_t *arg, void *buf, rlen_t read_len) {
 }
 
 server_t *create_WS_server(int port, int flags) {
-	server_t *srv = create_server(port, 0, 0, flags);
+	server_t *srv = create_server(port, 0, 0, 0, 0, 0, 0, flags);
 	if (srv) {
 		srv->connected = WS_connected;
 		srv->send_resp = WS_send_resp;
