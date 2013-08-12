@@ -12,6 +12,11 @@ extern int Rf_initEmbeddedR(int, char**);
 /* R API from oc.c */
 SEXP Rserve_oc_register(SEXP what);
 
+static int ex(int res) {
+	RSsrv_done();
+	return res;
+}
+
 /* main function - start Rserve */
 int main(int argc, char **argv)
 {
@@ -151,7 +156,7 @@ int main(int argc, char **argv)
     stat = Rf_initEmbeddedR(top_argc,top_argv);
     if (stat < 0) {
 		printf("Failed to initialize embedded R! (stat=%d)\n",stat);
-		return -1;
+		return 2;
     }
 #ifndef WIN32
     /* windows uses this in init, unix doesn't so we set it here */
@@ -215,18 +220,20 @@ int main(int argc, char **argv)
 		chdir("/");
 	} else puts("Rserve started in non-daemon mode.");
 #endif
+	RSsrv_init();
+
 #ifdef unix
     umask(umask_value);
 #endif
     
 	if (enable_qap && !create_Rserve_QAP1(qap_oc ? SRV_QAP_OC : 0)) {
 		fprintf(stderr, "ERROR: unable to start Rserve server\n");
-		return 1;
+		return ex(1);
 	}
 
  	if (tls_port > 0 && !create_Rserve_QAP1(SRV_TLS | (qap_oc ? SRV_QAP_OC : 0))) {
 		fprintf(stderr, "ERROR: unable to start Rserve TLS server\n");
-		return 1;
+		return ex(1);
 	}
 
 	http_flags = 0;
@@ -241,7 +248,7 @@ int main(int argc, char **argv)
 		server_t *srv = create_HTTP_server(http_port, http_flags);
 		if (!srv) {
 			fprintf(stderr, "ERROR: unable to start Rserve HTTP server\n");
-			return 1;
+			return ex(1);
 		}
 		srv->fork = fork_http;
 	}
@@ -250,7 +257,7 @@ int main(int argc, char **argv)
 		server_t *srv = create_HTTP_server(https_port, http_flags | SRV_TLS);
 		if (!srv) {
 			fprintf(stderr, "ERROR: unable to start Rserve HTTPS server\n");
-			return 1;
+			return ex(1);
 		}
 		srv->fork = fork_https;
 	}
@@ -271,14 +278,6 @@ int main(int argc, char **argv)
 		}
 	}
 
-	if (pidfile) {
-		FILE *f = fopen(pidfile, "w");
-		if (f) {
-			fprintf(f, "%d\n", getpid());
-			fclose(f);
-		} else RSEprintf("WARNING: cannot write into pid file '%s'\n", pidfile);
-	}
-
 	setup_signal_handlers();
 
     serverLoop();
@@ -293,11 +292,7 @@ int main(int argc, char **argv)
 
 	restore_signal_handlers();
 
-	if (pidfile) {
-		remove(pidfile);
-	}
-
-    return 0;
+    return ex(0);
 }
 
 #endif

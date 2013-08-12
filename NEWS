@@ -9,6 +9,9 @@
 	the Rserve may respond with an additional, spurious error
 	response
 
+    o	deamonized server would record incorrect pid when pid.file
+	is used (i#5). The pid is now removed on clean sutdown.
+
 
 1.7-1	2013-07-02
     o	remove a spurious character that prevented compilation on Suns

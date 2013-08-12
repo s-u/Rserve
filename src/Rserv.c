@@ -1,6 +1,6 @@
 /*
  *  Rserv : R-server that allows to use embedded R via TCP/IP
- *  Copyright (C) 2002-12 Simon Urbanek
+ *  Copyright (C) 2002-13 Simon Urbanek
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -805,6 +805,24 @@ static int performConfig(int when) {
 	return fail;
 }
 
+/* called once the server process is setup (e.g. after
+   daemon fork for forked servers) */
+static void RSsrv_init() {
+	if (pidfile) {
+		FILE *f = fopen(pidfile, "w");
+		if (f) {
+			fprintf(f, "%d\n", getpid());
+			fclose(f);
+		} else RSEprintf("WARNING: cannot write into pid file '%s'\n", pidfile);
+	}
+}
+
+static void RSsrv_done() {
+	if (pidfile) {
+		unlink(pidfile);
+		pidfile = 0;
+	}
+}
 
 /* attempts to set a particular configuration setting
    returns: 1 = setting accepted, 0 = unknown setting, -1 = setting known but failed */
@@ -940,7 +958,7 @@ static int setConfig(const char *c, const char *p) {
 		return 1;
 	}
 	if (!strcmp(c, "pid.file") && *p) {
-		pidfile = (*p) ? strdup(p) : 0;
+		pidfile = strdup(p);
 		return 1;
 	}
 	if (!strcmp(c, "rsa.key")) {
@@ -3629,6 +3647,7 @@ SEXP run_Rserve(SEXP cfgFile, SEXP cfgPars) {
 		}
 	}
 	
+	RSsrv_init();
 	/* FIXME: should we really do this ? setuid, chroot etc. are not meant to work inside R ... */
 	performConfig(SU_NOW);
 
@@ -3638,6 +3657,7 @@ SEXP run_Rserve(SEXP cfgFile, SEXP cfgPars) {
 		server_t *srv = create_Rserve_QAP1(qap_oc ? SRV_QAP_OC : 0);
 		if (!srv) {
 			release_server_stack(ss);
+			RSsrv_done();
 			Rf_error("Unable to start Rserve server");
 		}
 		push_server(ss, srv);
@@ -3647,6 +3667,7 @@ SEXP run_Rserve(SEXP cfgFile, SEXP cfgPars) {
 		server_t *srv = create_Rserve_QAP1(SRV_TLS | (qap_oc ? SRV_QAP_OC : 0));
 		if (!srv) {
 			release_server_stack(ss);
+			RSsrv_done();
 			Rf_error("Unable to start TLS/Rserve server");
 		}
 		push_server(ss, srv);
@@ -3659,6 +3680,7 @@ SEXP run_Rserve(SEXP cfgFile, SEXP cfgPars) {
 										   (http_raw_body ? HTTP_RAW_BODY : 0));
 		if (!srv) {
 			release_server_stack(ss);
+			RSsrv_done();
 			Rf_error("Unable to start HTTP server on port %d", http_port);
 		}
 		push_server(ss, srv);
@@ -3671,6 +3693,7 @@ SEXP run_Rserve(SEXP cfgFile, SEXP cfgPars) {
 										   (http_raw_body ? HTTP_RAW_BODY : 0));
 		if (!srv) {
 			release_server_stack(ss);
+			RSsrv_done();
 			Rf_error("Unable to start HTTPS server on port %d", https_port);
 		}
 		push_server(ss, srv);
@@ -3680,12 +3703,14 @@ SEXP run_Rserve(SEXP cfgFile, SEXP cfgPars) {
 		server_t *srv;
 		if (ws_port < 1 && wss_port < 1 && !ws_upgrade) {
 			release_server_stack(ss);
+			RSsrv_done();
 			Rf_error("Invalid or missing websockets port");
 		}
 		if (ws_port > 0) {
 			srv = create_WS_server(ws_port, (enable_ws_qap ? WS_PROT_QAP : 0) | (enable_ws_text ? WS_PROT_TEXT : 0) | (ws_qap_oc ? SRV_QAP_OC : 0));
 			if (!srv) {
 				release_server_stack(ss);
+				RSsrv_done();
 				Rf_error("Unable to start WebSockets server on port %d", ws_port);
 			}
 			push_server(ss, srv);
@@ -3694,6 +3719,7 @@ SEXP run_Rserve(SEXP cfgFile, SEXP cfgPars) {
 			srv = create_WS_server(wss_port, (enable_ws_qap ? WS_PROT_QAP : 0) | (enable_ws_text ? WS_PROT_TEXT : 0) | (ws_qap_oc ? SRV_QAP_OC : 0) | WS_TLS);
 			if (!srv) {
 				release_server_stack(ss);
+				RSsrv_done();
 				Rf_error("Unable to start TLS/WebSockets server on port %d", wss_port);
 			}
 			push_server(ss, srv);
@@ -3703,6 +3729,7 @@ SEXP run_Rserve(SEXP cfgFile, SEXP cfgPars) {
 	if (!server_stack_size(ss)) {
 		Rf_warning("No server protocol is enabled, nothing to do");
 		release_server_stack(ss);
+		RSsrv_done();
 		return ScalarLogical(FALSE);
 	}
 	
@@ -3716,6 +3743,8 @@ SEXP run_Rserve(SEXP cfgFile, SEXP cfgPars) {
 	restore_signal_handlers();
 
 	release_server_stack(ss);
+	
+	RSsrv_done();
 
 	return ScalarLogical(TRUE);
 }
