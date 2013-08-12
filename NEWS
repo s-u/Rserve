@@ -181,8 +181,8 @@
 	message defines capabilities (here opaque references to
 	closures) that can be called. This mode can be enabled using
 
-	  qap.oc enable    ## for Rserve QAP and QAP/TLS
-	  ws.qap.oc enable ## for WebSocket/QAP
+	  qap.oc enable           ## for Rserve QAP and QAP/TLS
+	  websocket.qap.oc enable ## for WebSocket/QAP
 	
 	In this mode the configuration *must* define a function
 	oc.init (typically using eval or source configuration
