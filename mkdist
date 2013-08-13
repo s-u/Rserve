@@ -43,6 +43,11 @@ fi
 rm -rf clients
 ln -s src/client clients
 
+## currently remove the test directory
+## since they need to be run by hand
+## eventually we should have real unit tests...
+rm -rf test
+
 (cd src/client/java; make && make -C Rserve)
 ## install the Java client JARs
 mkdir -p inst/java
@@ -70,3 +75,11 @@ cp /tmp/Rserve.tmp/Rserve_${VER}.tar.gz ..
 rm -rf /tmp/Rserve.tmp
 echo "Done."
 ls -l ../Rserve_${VER}.tar.gz
+
+if [ "x$1" = x-i ]; then
+    R CMD INSTALL ../Rserve_${VER}.tar.gz
+fi
+
+if [ "x$1" = x-c ]; then
+    R CMD check $2 $3 $4 ../Rserve_${VER}.tar.gz
+fi

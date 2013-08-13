@@ -1,0 +1,122 @@
+<!DOCTYPE html>  
+<html>  
+<head>
+<script type="text/javascript">
+tws = function(url, div) {
+  var socket = new WebSocket(url, "QAP1");
+  var mid = 0;
+  socket.binaryType = "arraybuffer";
+  socket.onopen = function(){  
+    document.getElementById(div).innerHTML += "<br>Socket has been opened!";
+  }
+  socket.onclose = function(){  
+    document.getElementById(div).innerHTML += "<br>Socket has been closed!<br>" +
+    ((mid == 2) ? "<font color=#00a000><b>TEST SUCCEEDED<b></font>" : "<font color=red><b>TEST FAILED!</b></font>");
+  }
+  socket.onmessage = function(msg){  
+    document.getElementById(div).innerHTML += "<br>Message from " + msg.origin +": <tt>" + msg.data + " </tt>";
+    mid++;
+    if (mid == 1) {
+       var ab = new ArrayBuffer(24);
+       var a = new Uint8Array(ab);
+       a[0] = 3; // eval
+       a[4] = 8; // 4 + 4
+       a[16] = 4; // DT_STRING
+       a[17] = 4; // length
+       a[20] = 0x66; // 'f'
+       a[21] = 0x28; // '('
+       a[22] = 0x29; // ')'
+       socket.send(ab);
+     } else if (mid == 2) {
+       document.getElementById(div).innerHTML += "<br>OK, closing socket";
+       socket.close();
+     }
+  }  
+  socket.onerror = function(msg){
+    document.getElementById(div).innerHTML += "<br><b>ERROR: "+msg+"</b>";
+  }  
+}
+
+tts = function(url, div) {
+  var socket = new WebSocket(url, "text");
+  var mid = 0;
+  socket.onopen = function(){  
+    document.getElementById(div).innerHTML += "<br>Socket has been opened!";
+  }
+  socket.onclose = function(){  
+    document.getElementById(div).innerHTML += "<br>Socket has been closed!" +
+    ((mid == 2) ? "<br><font color=#00a000><b>TEST SUCCEEDED<b></font>" : "<br><font color=red><b>TEST FAILED!</b></font>");
+  }
+  socket.onmessage = function(msg){  
+    document.getElementById(div).innerHTML += "<br>Message from " + msg.origin +": <tt>" + msg.data + "</tt>";
+    mid++;
+    if (mid == 1) {
+       if (msg.data.indexOf("OK") != 0) {
+          document.getElementById(div).innerHTML += "<br><b>FAILED: bad response</b>";
+          socket.close();
+       } else socket.send("f()");
+     } else if (mid == 2) {
+       document.getElementById(div).innerHTML += "<br>OK, closing socket";
+       socket.close();
+     }
+  }  
+  socket.onerror = function(msg){  
+    document.getElementById(div).innerHTML += "<br><b>ERROR: "+msg+"</b>";
+  }  
+}
+
+window.onload = function() {
+  tws("ws://localhost:8100/socket", "ws1");
+  tws("wss://localhost:8101/socket", "ws2");
+  tts("ws://localhost:8100/socket", "ws3");
+  tts("wss://localhost:8101/socket", "ws4");
+  tws("ws://localhost:8102/socket", "ws5");
+  tws("wss://localhost:8103/socket", "ws6");
+  tts("ws://localhost:8102/socket", "ws7");
+  tts("wss://localhost:8103/socket", "ws8");
+}
+</script>
+</head>
+<body>
+<table><tr><td>
+<div id=ws1>
+<font color=blue>WebSockets QAP1 Test</font><hr>
+</div>
+</td><td>
+<div id=ws2>
+<font color=blue>WebSockets QAP1 + SSL Test</font><hr>
+</div>
+</td></tr>
+<tr><td colspan=2><hr></td></tr>
+<tr><td>
+<div id=ws3>
+<font color=blue>WebSockets text Test</font><hr>
+</div>
+</td><td>
+<div id=ws4>
+<font color=blue>WebSockets text + SSL Test</font><hr>
+</div>
+</td></tr>
+<tr><td colspan=2><hr></td></tr>
+<tr><td>
+<div id=ws5>
+<font color=blue>HTTP Upgrade WebSockets QAP1 Test</font><hr>
+</div>
+</td><td>
+<div id=ws6>
+<font color=blue>HTTP Upgrade WebSockets QAP1 + SSL Test</font><hr>
+</div>
+</td></tr>
+<tr><td colspan=2><hr></td></tr>
+<tr><td>
+<div id=ws7>
+<font color=blue>HTTP Upgrade WebSockets text Test</font><hr>
+</div>
+</td><td>
+<div id=ws8>
+<font color=blue>HTTP Upgrade WebSockets text + SSL Test</font><hr>
+</div>
+</td></tr>
+</table>
+</body>
+</html>

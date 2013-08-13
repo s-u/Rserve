@@ -10,6 +10,8 @@
 
     o	HTTPS->WSS upgrade is now supported
 
+    o	mkdist -i installs the built package, use -c for check
+
 
 1.7-2	2013-08-12
     o	when uid/gid is changed, create a new tempdir() and set its
