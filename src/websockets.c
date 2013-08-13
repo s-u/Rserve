@@ -364,6 +364,7 @@ void WS13_upgrade(args_t *arg, const char *key, const char *protocol, const char
 		srv->recv      = WS_recv_data;
 		srv->send      = WS_send_data;
 		srv->fin       = server_fin;
+		srv->flags     = arg->srv->flags & SRV_QAP_FLAGS; /* pass-through QAP flags */
 		if (arg->srv->flags & WS_TLS) wss_upgrade_srv = srv; else ws_upgrade_srv = srv;
 	}
 
