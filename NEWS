@@ -1,6 +1,9 @@
  NEWS/Changelog for Rserve
 ---------------------------
 
+1.7-3	(under development)
+
+
 1.7-2	2013-08-12
     o	when uid/gid is changed, create a new tempdir() and set its
 	permissions as well as the wokring directory's owner to match.
