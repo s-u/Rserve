@@ -3699,7 +3699,7 @@ SEXP run_Rserve(SEXP cfgFile, SEXP cfgPars) {
 	}
 
 	if (https_port > 0) {
-		int flags =  (enable_ws_qap ? WS_PROT_QAP : 0) | (enable_ws_text ? WS_PROT_TEXT : 0) | global_srv_flags;
+		int flags =  (enable_ws_qap ? WS_PROT_QAP : 0) | (enable_ws_text ? WS_PROT_TEXT : 0) | (ws_qap_oc ? SRV_QAP_OC : 0) | global_srv_flags;
 		server_t *srv = create_HTTP_server(https_port, SRV_TLS | flags |
 										   (ws_upgrade ? HTTP_WS_UPGRADE : 0) |
 										   (http_raw_body ? HTTP_RAW_BODY : 0));
