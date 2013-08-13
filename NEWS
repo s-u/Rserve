@@ -2,6 +2,11 @@
 ---------------------------
 
 1.7-3	(under development)
+    o	the handling of server configuration modes has been
+	inconsistent for some combinations (mostly affected were
+	combinations involving WebSockets upgrade and OC mode on
+	HTTP/WS servers). Also the websockets.qap.oc configuration
+	option has been misspelled.
 
 
 1.7-2	2013-08-12

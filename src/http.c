@@ -320,7 +320,7 @@ static void process_request(args_t *c)
     int code = 200;
     DBG(Rprintf("process request for %p\n", (void*) c));
     if (!c || !c->url) return; /* if there is not enough to process, bail out */
-	if (c->attr & WS_UPGRADE) {
+	if ((c->attr & WS_UPGRADE) && (c->srv->flags & HTTP_WS_UPGRADE)) {
 		WS13_upgrade(c, c->ws_key, c->ws_protocol, c->ws_version);
 		/* the WS swtich messes up args since it replaces it with its own version so
 		   we can't go back to serving - just bail out (NOTE: only works when forked!) */
