@@ -865,7 +865,7 @@ static int setConfig(const char *c, const char *p) {
 		qap_oc = (*p == '1' || *p == 'y' || *p == 'e' || *p == 'T') ? 1 : 0;
 		return 1;
 	}
-	if (!strcmp(c, "websocket.qap.oc")) {
+	if (!strcmp(c, "websockets.qap.oc")) {
 		ws_qap_oc = (*p == '1' || *p == 'y' || *p == 'e' || *p == 'T') ? 1 : 0;
 		return 1;
 	}
