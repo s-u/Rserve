@@ -82,6 +82,13 @@ int add_tls(args_t *c, tls_t *tls, int server) {
 	return SSL_connect(c->ssl);
 }
 
+void copy_tls(args_t *src, args_t *dst) {
+    dst->ssl = src->ssl;
+    dst->s   = src->s;
+    dst->srv->send = src->srv->send;
+    dst->srv->recv = src->srv->recv;
+}
+
 void close_tls(args_t *c) {
     if (c->ssl) {
 	SSL_shutdown(c->ssl);

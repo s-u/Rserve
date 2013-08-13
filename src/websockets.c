@@ -16,8 +16,8 @@ struct args {
 	server_t *srv; /* server that instantiated this connection */
     SOCKET s;
 	SOCKET ss;
+	void *res1; /* used by TLS */
 	struct args *tls_arg; /* if set it is used to wire send/recv calls */
-	void *res2;
 	/* the following entries are not populated by Rserve but can be used by server implemetations */
 	char *buf, *sbuf;
 	int   ver, bp, bl, sp, sl, flags;
@@ -40,6 +40,8 @@ static void WS_wire_close(args_t *arg) {
 		closesocket(arg->tls_arg->s);
 		if (arg->s != arg->tls_arg->s) closesocket(arg->s);
 		arg->tls_arg->s = -1;
+		/* the server is virtual and allocated only for this instance
+		   so it's ok to free it (all other server are re-used) */
 		free(arg->tls_arg->srv);
 		free(arg->tls_arg);
 		arg->tls_arg = 0;
@@ -336,7 +338,7 @@ static void WS_connected(void *parg) {
 	Rserve_QAP1_connected(arg);
 }
 
-static server_t *ws_upgrade_srv; /* virtual server that represents the WS layer in HTTP/WS stack */
+static server_t *ws_upgrade_srv, *wss_upgrade_srv; /* virtual server that represents the WS layer in HTTP/WS stack */
 
 /* upgrade HTTP connection to WS connection, only 13+ protocol is supported this way */
 /* NOTE: not included: origin, host */
@@ -348,10 +350,10 @@ void WS13_upgrade(args_t *arg, const char *key, const char *protocol, const char
 	unsigned char hash[21];
 	char b64[44];
 	server_t *srv;
-	srv = ws_upgrade_srv;
+	srv = (arg->srv->flags & WS_TLS) ? wss_upgrade_srv : ws_upgrade_srv;
 	if (!srv) {
-		srv = ws_upgrade_srv = (server_t*) calloc(1, sizeof(server_t));
-		if (!ws_upgrade_srv) {
+		srv = (server_t*) calloc(1, sizeof(server_t));
+		if (!srv) {
 			snprintf(buf, sizeof(buf), "HTTP/1.1 511 Allocation error\r\n\r\n");
 			arg->srv->send(arg, buf, strlen(buf));
 			return;
@@ -362,7 +364,18 @@ void WS13_upgrade(args_t *arg, const char *key, const char *protocol, const char
 		srv->recv      = WS_recv_data;
 		srv->send      = WS_send_data;
 		srv->fin       = server_fin;
+		if (arg->srv->flags & WS_TLS) wss_upgrade_srv = srv; else ws_upgrade_srv = srv;
 	}
+
+	/* FIXME: can we just use the parent server? */
+	if (arg->srv->flags & SRV_TLS) { /* if this server is connected through TLS we have to create wire TLS pass-through */
+		args_t *tls_arg = calloc(1, sizeof(args_t));
+		tls_arg->srv = calloc(1, sizeof(server_t));
+		copy_tls(arg, tls_arg);
+		arg->tls_arg = tls_arg;
+		fprintf(stderr, "INFO: switching HTTP->WS inside TLS\n");
+	}
+
 	strncpy(buf, key, sizeof(buf) - 50);
 	strcat(buf, "258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
 	sha1hash(buf, strlen(buf), hash);

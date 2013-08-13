@@ -8,6 +8,8 @@
 	HTTP/WS servers). Also the websockets.qap.oc configuration
 	option has been misspelled.
 
+    o	HTTPS->WSS upgrade is now supported
+
 
 1.7-2	2013-08-12
     o	when uid/gid is changed, create a new tempdir() and set its
