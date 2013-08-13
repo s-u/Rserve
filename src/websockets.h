@@ -8,7 +8,8 @@
 /* NOTE: this is not the same as SRV_TLS! It is annoying, but WS needs to 
    chain TLS futher down, if SRC_TLS is set then QAP will be tunneled
    through TLS but we need to wrap WS around it first */
-#define WS_TLS        0x10 
+#define WS_TLS        0x08 
+/* WARNING: HTTP uses 0x10 and 0x20 */
 
 #define WS_PROT_ALL   (WS_PROT_QAP | WS_PROT_TEXT)
 
