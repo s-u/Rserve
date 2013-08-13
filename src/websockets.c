@@ -373,7 +373,6 @@ void WS13_upgrade(args_t *arg, const char *key, const char *protocol, const char
 		tls_arg->srv = calloc(1, sizeof(server_t));
 		copy_tls(arg, tls_arg);
 		arg->tls_arg = tls_arg;
-		fprintf(stderr, "INFO: switching HTTP->WS inside TLS\n");
 	}
 
 	strncpy(buf, key, sizeof(buf) - 50);
