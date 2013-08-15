@@ -58,6 +58,9 @@ rsmsg_t *rsio_read_msg(rsio_t *io);
 int  rsio_write(rsio_t *io, const void *buf, rsmsglen_t len, int cmd, int fd);
 int  rsio_write_msg(rsio_t *io, rsmsg_t *msg); /* mainly to allow easy forwarding */
 
+/* this is a compatibility hack for now so we can attach rsio into a set of select() calls.
+   note that this can be -1 (closed, unconnected, unimplemented, ...) */
+int rsio_select_fd(rsio_t *io);
 
 /* --- non-API --- */
 
@@ -282,6 +285,10 @@ int rsio_write(rsio_t *io, const void *buf, rsmsglen_t len, int cmd, int fd) {
 int rsio_write_msg(rsio_t *io, rsmsg_t *msg) {
     if (!io || !msg) return -2;
     return rsio_write(io, msg->data, msg->len, msg->cmd, (msg->flags & RSMSG_HAS_FD) ? msg->fd : -1);
+}
+
+int rsio_select_fd(rsio_t *io) {
+    return io ? io->fd[io->flags & RSIO_CHILD] : -1;
 }
 
 #ifdef TEST_ME
