@@ -54,12 +54,20 @@ static void oc_new(char *dst) {
 #ifdef HAVE_SRANDOMDEV
 	    srandomdev();
 #else
-	    /* fall back -- mix of time and pid is the best we can do ... */
+#ifdef Win32		
+		srand(time(NULL) ^ (getpid() << 12));
+#else
+		/* fall back -- mix of time and pid is the best we can do ... */
 	    srandom(time(NULL) ^ (getpid() << 12));
+#endif
 #endif
 	    rand_inited = 1;
 	}	
+#ifdef Win32
+	for (i = 0; i < sizeof(rbuf); i++) rbuf[i] = rand();
+#else
 	for (i = 0; i < sizeof(rbuf); i++) rbuf[i] = random();
+#endif
 	/* we use random -> SHA1 .. is it an overkill? */
 	sha1hash(rbuf, sizeof(rbuf) - 1, hash);
 	/* the last byte is the hold-out byte -- just because SHA gives only 160 bits */

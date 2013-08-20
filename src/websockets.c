@@ -742,9 +742,9 @@ server_t *create_WS_server(int port, int flags) {
 
 void serverLoop(void);
 
-#ifdef unix
 typedef void (*sig_fn_t)(int);
 
+#ifdef unix
 static void brkHandler_R(int i) {
     Rprintf("Caught break signal, shutting down WebSockets.\n");
     stop_server_loop();

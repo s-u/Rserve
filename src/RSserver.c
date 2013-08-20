@@ -73,7 +73,10 @@ server_t *create_server(int port, const char *localSocketName, int localSocketMo
 #ifdef HAVE_IPV6
 	struct sockaddr_in6 ssa6;
 #endif
+
+#ifdef unix
 	struct sockaddr_un lusa;
+#endif
     
 #ifdef RSERV_DEBUG
 	printf(" - create_server(port = %d, socket = %s, mode = %d, flags = 0x%x)\n", port, localSocketName ? localSocketName : "<NULL>", localSocketMode, flags);

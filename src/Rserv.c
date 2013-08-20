@@ -163,8 +163,12 @@ the use of DT_LARGE/XT_LARGE.
 #ifdef WIN32
 typedef int socklen_t;
 #define CAN_TCP_NODELAY
+#define _WINSOCKAPI_
 #include <windows.h>
+#include <winbase.h>
 #include <io.h>
+#include <fcntl.h>
+#include <errno.h>
 #endif
 
 #include <stdio.h>
@@ -382,7 +386,11 @@ static int set_user(const char *usr) {
 }
 
 static int fork_http(args_t *arg) {
+#ifdef unix
 	int res = fork();
+#else
+	int res = -1;
+#endif
 	if (res == 0 && http_user && !set_user(http_user)) {
 #ifdef STANDALONE_RSERVE
 		fprintf(stderr, "ERROR: failed to set user '%s', aborting\n", http_user);
@@ -393,7 +401,11 @@ static int fork_http(args_t *arg) {
 }
 
 static int fork_https(args_t *arg) {
+#ifdef unix
 	int res = fork();
+#else
+	int res = -1;
+#endif
 	if (res == 0 && https_user && !set_user(https_user)) {
 #ifdef STANDALONE_RSERVE
 		fprintf(stderr, "ERROR: failed to set user '%s', aborting\n", https_user);
@@ -404,7 +416,11 @@ static int fork_https(args_t *arg) {
 }
 
 static int fork_ws(args_t *arg) {
+#ifdef unix
 	int res = fork();
+#else
+	int res = -1;
+#endif
 	if (res == 0 && ws_user && !set_user(ws_user)) {
 #ifdef STANDALONE_RSERVE
 		fprintf(stderr, "ERROR: failed to set user '%s', aborting\n", ws_user);
@@ -1757,7 +1773,11 @@ SEXP Rserve_oobMsg(SEXP exp, SEXP code) {
    ... ?
  */
 int RS_fork(args_t *arg) {
+#ifdef unix
 	return (arg->srv && arg->srv->fork) ? arg->srv->fork(arg) : fork();
+#else
+	return -1;
+#endif
 }
 
 static void restore_signal_handlers(); /* forward decl */
@@ -1768,7 +1788,11 @@ int Rserve_prepare_child(args_t *arg) {
 #ifdef unix
 	int cinp[2];
 #endif
+#ifdef Win32
+	long rseed = rand();
+#else
 	long rseed = random();
+#endif
     rseed ^= time(0);
 	
 	parent_pipe = -1;
@@ -1810,7 +1834,11 @@ int Rserve_prepare_child(args_t *arg) {
 		close(cinp[0]);
 	}
 
-    srandom(rseed);
+#ifdef Win32
+	srand(rseed);
+#else
+	srandom(rseed);
+#endif
     
     parentPID = getppid();
     close_all_srv_sockets(); /* close all server sockets - this includes arg->ss */
@@ -2230,7 +2258,11 @@ void Rserve_QAP1_connected(void *thp) {
 
 #ifdef FORKED  
 
+#ifdef Win32
+	long rseed = rand();
+#else
 	long rseed = random();
+#endif
     rseed ^= time(0);
 	
 	if (!is_child) { /* in case we get called from a child (e.g. other server has spawned us)
@@ -2272,7 +2304,11 @@ void Rserve_QAP1_connected(void *thp) {
 			close(cinp[0]);
 		}
 		
+#ifdef Win32
+		srand(rseed);
+#else
 		srandom(rseed);
+#endif
     
 		parentPID = getppid();
 		close_all_srv_sockets(); /* close all server sockets - this includes a->ss */
@@ -3333,9 +3369,9 @@ void Rserve_QAP1_connected(void *thp) {
 #endif
 }
 
-#ifdef unix
 typedef void (*sig_fn_t)(int);
 
+#ifdef unix
 /* NULL ptr is used on some systems as SIG_DFL so we have
    to define our own value for "not set" */
 static void sig_not_set(int x) {}
@@ -3432,11 +3468,11 @@ server_t *create_Rserve_QAP1(int flags) {
 }
 
 void serverLoop() {
-#ifdef unix
+//#ifdef unix
     struct timeval timv;
     int selRet = 0;
     fd_set readfds;
-#endif
+//#endif
 
 	if (main_argv && tag_argv == 1 && strlen(main_argv[0]) >= 8) {
 		strcpy(main_argv[0] + strlen(main_argv[0]) - 8, "/RsrvSRV");
@@ -3445,7 +3481,7 @@ void serverLoop() {
     
     while(active && (servers || children)) { /* main serving loop */
 		int i;
-#ifdef unix
+//#ifdef unix
 		int maxfd = 0;
 #ifdef FORKED
 		while (waitpid(-1, 0, WNOHANG) > 0);
@@ -3484,7 +3520,7 @@ void serverLoop() {
 				int ss = srv->ss;
 				int succ = 0;
 				if (server[i] && FD_ISSET(ss, &readfds)) {
-#endif
+//#endif
 					sa = (struct args*)malloc(sizeof(struct args));
 					memset(sa, 0, sizeof(struct args));
 					al = sizeof(sa->sa);
@@ -3545,7 +3581,11 @@ void serverLoop() {
 						if (is_child) /* same as above */
 							exit(2);
 					}
-#ifdef unix
+#ifdef Win32
+				}
+			}
+		}
+#else
 				}
 				if (succ) { /* if there was an actual connection, offer to run .Rserve.served */
 					SEXP fun, fsym = install(".Rserve.served");
