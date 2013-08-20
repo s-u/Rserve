@@ -3468,11 +3468,9 @@ server_t *create_Rserve_QAP1(int flags) {
 }
 
 void serverLoop() {
-//#ifdef unix
     struct timeval timv;
     int selRet = 0;
     fd_set readfds;
-//#endif
 
 	if (main_argv && tag_argv == 1 && strlen(main_argv[0]) >= 8) {
 		strcpy(main_argv[0] + strlen(main_argv[0]) - 8, "/RsrvSRV");
@@ -3481,7 +3479,6 @@ void serverLoop() {
     
     while(active && (servers || children)) { /* main serving loop */
 		int i;
-//#ifdef unix
 		int maxfd = 0;
 #ifdef FORKED
 		while (waitpid(-1, 0, WNOHANG) > 0);
@@ -3520,7 +3517,6 @@ void serverLoop() {
 				int ss = srv->ss;
 				int succ = 0;
 				if (server[i] && FD_ISSET(ss, &readfds)) {
-//#endif
 					sa = (struct args*)malloc(sizeof(struct args));
 					memset(sa, 0, sizeof(struct args));
 					al = sizeof(sa->sa);
