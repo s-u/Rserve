@@ -1,0 +1,25 @@
+PKG_CPPFLAGS=-DRSERVE_PKG -I. -Iinclude
+PKG_LIBS=-lws2_32
+
+all: $(SHLIB) server
+#	$(MAKE) client
+
+SERVER_SRC = standalone.c md5.c session.c qap_decode.c qap_encode.c sha1.c base64.c websockets.c RSserver.c tls.c http.c oc.c
+SERVER_H = Rsrv.h qap_encode.h qap_decode.h RSserver.h http.h oc.h sha1.h md5.h
+
+server:	$(SERVER_SRC) $(SERVER_H)
+	$(CC) -DSTANDALONE_RSERVE -DDAEMON -I. -Iinclude $(ALL_CPPFLAGS) $(ALL_CFLAGS) $(CPPFLAGS) $(CFLAGS) $(PKG_CPPFLAGS) $(PKG_CFLAGS) -o Rserve.exe $(SERVER_SRC) $(ALL_LIBS) $(PKG_LIBS)
+	$(CC) -DSTANDALONE_RSERVE -DRSERV_DEBUG -DNODAEMON -I. -Iinclude $(ALL_CPPFLAGS) $(ALL_CFLAGS) $(PKG_CPPFLAGS) $(PKG_CFLAGS) -o Rserve_d.exe $(SERVER_SRC) $(ALL_LIBS) $(PKG_LIBS)
+
+client: config.h
+	cp config.h client/cxx/
+	make -C client/cxx
+	-@mkdir ../inst 2>/dev/null
+	-rm -rf ../inst/client
+	-cp -R client ../inst/
+	cp Rsrv.h config.h include/sisocks.h ../inst/client/cxx/
+
+clean:
+	rm -f *~ *.o *.lo *.so *.exe \#* $(XFILES)
+
+.PHONY: client clean server
