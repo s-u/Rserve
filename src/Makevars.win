@@ -1,4 +1,4 @@
-PKG_CPPFLAGS=-DRSERVE_PKG -I. -Iinclude
+PKG_CPPFLAGS=-DRSERVE_PKG -I. -Iinclude -Iinclude/Win32
 PKG_LIBS=-lws2_32
 
 all: $(SHLIB) server
