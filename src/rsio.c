@@ -34,13 +34,13 @@
 /* we could emulate socketpair() on Windows, but it's pointless since
    there is no fork() -- so just plug in empty stubs for now.
 */
-rsio_t *rsio_new() { return NULL; }
+rsio_t *rsio_new() { return 0; }
 void rsio_free(rsio_t *io) {}
 void rsio_close(rsio_t *io) {}
 void rsio_set_child(rsio_t *io) {}
 void rsio_set_parent(rsio_t *io) {}
 void rsmsg_free(rsmsg_t *msg) {}
-rsmsg_t *rsio_read_msg(rsio_t *io) { return NULL; }
+rsmsg_t *rsio_read_msg(rsio_t *io) { return 0; }
 int  rsio_write(rsio_t *io, const void *buf, rsmsglen_t len, int cmd, int fd) { return -1; }
 int  rsio_write_msg(rsio_t *io, rsmsg_t *msg) { return -1; }
 int  rsio_select_fd(rsio_t *io) { return -1; }
