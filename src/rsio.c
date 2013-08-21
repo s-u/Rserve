@@ -44,13 +44,17 @@ rsmsg_t *rsio_read_msg(rsio_t *io) { return 0; }
 int  rsio_write(rsio_t *io, const void *buf, rsmsglen_t len, int cmd, int fd) { return -1; }
 int  rsio_write_msg(rsio_t *io, rsmsg_t *msg) { return -1; }
 int  rsio_select_fd(rsio_t *io) { return -1; }
+int  rsio_read_status(rsio_t *io) { return -1; }
 
 #else
 /* real implementation using socketpair() on unix */
 
 #include <unistd.h>
 #include <stdlib.h>
+#include <sys/types.h>
+#include <sys/time.h>
 #include <sys/socket.h>
+/* #include <sys/select.h> -- man page says this is new ... */
 
 #define MAX_IO_PIPES 2048
 #define MAX_CHUNK    (1024*1024)  /* max send size */
@@ -62,6 +66,8 @@ int  rsio_select_fd(rsio_t *io) { return -1; }
 struct rsio {
     int fd[2];
     unsigned int flags, location;
+    rsmsg_t   *read_msg;  /* in-flight message being read (incomplete) */
+    rsmsglen_t read_msg_complete; /* number of completed bytes in the message */
 };
 
 /* we keep a static pool to avoid allocations */
@@ -84,6 +90,8 @@ rsio_t *rsio_new() {
 	return 0;
     io->flags = RSIO_IN_USE;
     io->location = i;
+    io->read_msg = 0;
+    io->read_msg_complete = 0;
     io_pool_count++;
     if (io_pool_max == i) io_pool_max++;
     return io;
@@ -140,7 +148,7 @@ typedef struct {
 /* global buffers for the control - their size is not a constant so we can't allocate them at compile time */
 static struct cmsghdr *cmsg_send, *cmsg_recv;
 
-rsmsg_t *rsio_read_msg(rsio_t *io) {
+static rsmsg_t *rsio_read_msg_init(rsio_t *io) {
     struct msghdr  msg;
     struct iovec   iov;
     rsmsg_t *res;
@@ -148,7 +156,6 @@ rsmsg_t *rsio_read_msg(rsio_t *io) {
     int fd;
     iohdr_t hdr;
     rsmsglen_t len;
-    unsigned char *ptr;
     if (!io) return 0;
     fd = io->fd[io->flags & RSIO_CHILD];
     if (!cmsg_recv) cmsg_recv = malloc(clen);
@@ -207,23 +214,92 @@ rsmsg_t *rsio_read_msg(rsio_t *io) {
     res->flags = (hdr.cmd & CMD_HAS_FD) ? RSMSG_HAS_FD : 0;
     res->fd = *(int*)CMSG_DATA(cmsg_recv);
     res->len = len;
-    ptr = res->data;
+    return res;
+}
+
+/* 0 = would block, 1 = complete message available, -1 = error */
+static int rsio_read_msg_data(rsio_t *io, int block) {
+    unsigned char *ptr;
+    rsmsg_t *res = io->read_msg;
+    rsmsglen_t len;
+    int fd = io->fd[io->flags & RSIO_CHILD];
+    if (!res) return -1;
+    if (io->read_msg_complete == res->len) return 1;
+    ptr = res->data + io->read_msg_complete;
+    len = res->len - io->read_msg_complete;
     while (len) {
 	unsigned int chunk = (unsigned int) ((len > MAX_CHUNK) ? MAX_CHUNK : len);
+	int n;
+	if (!block) {
+	    struct timeval timv;
+	    fd_set readfds;
+	    timv.tv_sec = 0;
+	    timv.tv_usec = 0;
+	    FD_ZERO(&readfds);
+	    FD_SET(fd, &readfds);
+	    /* make sure we're non-blocking */
+	    if (select(fd + 1, &readfds, 0, 0, &timv) != 1)
+		return 0;
+	}
 	n = (int) recv(fd, ptr, chunk, 0);
 	if (n < 1) {
-	    free(res);
 #ifdef RSIO_DEBUG
 	    fprintf(stderr, "ERROR: rsio(%p)read: cmd=0x%x, len=%lu, recv=%d (expected %d) with %lu bytes to go\n",
 		    io, hdr.cmd, res->len, n, chunk, len);
 #endif
 	    rsio_close(io);
-	    return 0;
+	    return -1;
 	}
 	len -= n;
 	ptr += n;
+	io->read_msg_complete += n;
     }
-    return res;
+    return 1;
+}
+
+rsmsg_t *rsio_read_msg(rsio_t *io) {
+    rsmsg_t *msg;
+
+    if (!io->read_msg) { /* no stored message, get the header */
+	if (!(io->read_msg = rsio_read_msg_init(io)))
+	    return 0;
+	io->read_msg_complete = 0;
+    }
+
+    /* read_msg is guaranteed non-NULL from here */
+    if (rsio_read_msg_data(io, 1) < 0) /* use blocking read */
+	return 0;
+
+    /* here we are guaranteed to have a complete message */
+    msg = io->read_msg;
+    io->read_msg = 0;
+    return msg;
+}
+
+/* -1 = error, 0 = read would block, 1 = complete message available */
+int rsio_read_status(rsio_t *io) {
+    if (!io->read_msg) { /* no header -- need to run init - but check for blocking first */
+	int fd = io->fd[io->flags & RSIO_CHILD];
+	int res;
+	struct timeval timv;
+	fd_set readfds;
+	timv.tv_sec = 0;
+	timv.tv_usec = 0;
+	FD_ZERO(&readfds);
+	FD_SET(fd, &readfds);
+	/* make sure we're non-blocking */
+	res = select(fd + 1, &readfds, 0, 0, &timv);
+	if (res < 0)
+	    return -1;
+	if (res != 1)
+	    return 0;
+	io->read_msg_complete = 0;
+	io->read_msg = rsio_read_msg_init(io);
+	if (!io->read_msg)
+	    return -1;
+    }
+    /* io->read_msg is valid */
+    return rsio_read_msg_data(io, 0);
 }
 
 int rsio_write(rsio_t *io, const void *buf, rsmsglen_t len, int cmd, int fd) {

@@ -54,6 +54,8 @@ void rsio_set_parent(rsio_t *io);
 
 void rsmsg_free(rsmsg_t *msg);
 
+/* -1 = error, 0 = read would block, 1 = complete message available */
+int rsio_read_status(rsio_t *io);
 rsmsg_t *rsio_read_msg(rsio_t *io);
 /* 0 on success, -1 on send fail, -2 on out of memory */
 int  rsio_write(rsio_t *io, const void *buf, rsmsglen_t len, int cmd, int fd);
