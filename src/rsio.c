@@ -103,6 +103,10 @@ void rsio_close(rsio_t *io) {
 	io->fd[0] = -1;
 	close(io->fd[1]);
 	io->fd[1] = -1;
+	if (io->read_msg) {
+	    rsmsg_free(io->read_msg);
+	    io->read_msg = 0;
+	}
     }
 }
 
@@ -373,7 +377,7 @@ int main(int ac, char**av) {
 	if (msg) {
 	    printf("msg: command=0x%x, has fd:%s (%d), payload '%s'\n", msg->cmd, 
 		   (msg->flags & RSMSG_HAS_FD) ? "yes" : "no", msg->fd, msg->data);
-	    free(msg);
+	    rsmsg_free(msg);
 	    msg = rsio_read_msg(io);
 	    if (msg)
 		printf("msg: command=0x%x, has fd:%s (%d), payload '%s'\n", msg->cmd, 
