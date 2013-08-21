@@ -30,39 +30,27 @@
 #include <stdlib.h>
 #include <sys/socket.h>
 
-typedef struct rsio rsio_t;
-
-#define RSMSG_HAS_FD 0x01
-
-typedef unsigned long rsmsglen_t;
-
-typedef struct {
-    int  cmd;
-    int  flags;
-    int  fd;
-    rsmsglen_t len;
-    unsigned char data[1];
-} rsmsg_t;
-
-rsio_t *rsio_new();
-void rsio_free(rsio_t *io);
-
-void rsio_close(rsio_t *io);
-
-/* one of the two *must* be called before any read/write operations */
-void rsio_set_child(rsio_t *io);
-void rsio_set_parent(rsio_t *io);
-
-rsmsg_t *rsio_read_msg(rsio_t *io);
-/* 0 on success, -1 on send fail, -2 on out of memory */
-int  rsio_write(rsio_t *io, const void *buf, rsmsglen_t len, int cmd, int fd);
-int  rsio_write_msg(rsio_t *io, rsmsg_t *msg); /* mainly to allow easy forwarding */
-
-/* this is a compatibility hack for now so we can attach rsio into a set of select() calls.
-   note that this can be -1 (closed, unconnected, unimplemented, ...) */
-int rsio_select_fd(rsio_t *io);
+#include "rsio.h"
 
 /* --- non-API --- */
+
+#ifdef WIN32
+/* we could emulate socketpair() on Windows, but it's pointless since
+   there is no fork() -- so just plug in empty stubs for now.
+*/
+rsio_t *rsio_new() { return NULL; }
+void rsio_free(rsio_t *io) {}
+void rsio_close(rsio_t *io) {}
+void rsio_set_child(rsio_t *io) {}
+void rsio_set_parent(rsio_t *io) {}
+void rsmsg_free(rsmsg_t *msg) {}
+rsmsg_t *rsio_read_msg(rsio_t *io) { return NULL; }
+int  rsio_write(rsio_t *io, const void *buf, rsmsglen_t len, int cmd, int fd) { return -1; }
+int  rsio_write_msg(rsio_t *io, rsmsg_t *msg) { return -1; }
+int  rsio_select_fd(rsio_t *io) { return -1; }
+
+#else
+/* real implementation using socketpair() on unix */
 
 #define MAX_IO_PIPES 2048
 #define MAX_CHUNK    (1024*1024)  /* max send size */
@@ -136,6 +124,10 @@ void rsio_set_parent(rsio_t *io) {
     }
 }
 
+void rsmsg_free(rsmsg_t *msg) {
+    free(msg);
+}
+
 #define CMD_HAS_FD 0x010000
 #define CMD_LONG   0x020000
 #define CMD_MASK   0x00ffff
@@ -202,7 +194,8 @@ rsmsg_t *rsio_read_msg(rsio_t *io) {
 	}
 #endif
     }
-    res = malloc(sizeof(rsmsg_t) + len);
+    /* guarantee one extra byte */
+    res = malloc(sizeof(rsmsg_t) + len + 1);
     if (!res) {
 #ifdef RSIO_DEBUG
 	fprintf(stderr, "ERROR: rsio(%p)read: cannot allocate %lu bytes\n", io, (unsigned long) (sizeof(rsmsg_t) + len));
@@ -290,6 +283,8 @@ int rsio_write_msg(rsio_t *io, rsmsg_t *msg) {
 int rsio_select_fd(rsio_t *io) {
     return io ? io->fd[io->flags & RSIO_CHILD] : -1;
 }
+
+#endif /* unix implementation */
 
 #ifdef TEST_ME
 #include <stdio.h>
