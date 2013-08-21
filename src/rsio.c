@@ -26,10 +26,6 @@
       SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#include <unistd.h>
-#include <stdlib.h>
-#include <sys/socket.h>
-
 #include "rsio.h"
 
 /* --- non-API --- */
@@ -51,6 +47,10 @@ int  rsio_select_fd(rsio_t *io) { return -1; }
 
 #else
 /* real implementation using socketpair() on unix */
+
+#include <unistd.h>
+#include <stdlib.h>
+#include <sys/socket.h>
 
 #define MAX_IO_PIPES 2048
 #define MAX_CHUNK    (1024*1024)  /* max send size */
