@@ -304,8 +304,10 @@ static SOCKET csock = -1;
 
 static int parentPID = -1;
 
+#include "rsio.h"
+
 int is_child = 0;       /* 0 for parent (master), 1 for children */
-int parent_pipe = -1;   /* pipe to the master process or -1 if not available */
+rsio_t *parent_io;      /* pipe to the master process or NULL if not available */
 int can_control = 0;    /* control commands will be rejected unless this flag is set */
 int child_control = 0;  /* enable/disable the ability of children to send commands to the master process */
 int self_control = 0;   /* enable/disable the ability to use control commands from within the R process */
@@ -358,7 +360,6 @@ static char tmpdir_buf[1024];
 
 #ifdef unix
 char wdname[512];
-int cinp[2];
 #endif
 
 static void prepare_set_user(int uid, int gid) {
@@ -455,17 +456,17 @@ static SEXP Rserve_ctrlCMD(int command, SEXP what) {
 	long cmd[2] = { 0, 0 };
 	const char *str;
 	if (!self_control) Rf_error("R control is not premitted in this instance of Rserve");
-	if (parent_pipe == -1) Rf_error("Connection to the parent process has been lost.");
+	if (!parent_io) Rf_error("Connection to the parent process has been lost.");
 	if (TYPEOF(what) != STRSXP || LENGTH(what) != 1) Rf_error("Invalid parameter, must be a single string.");
 	str = CHAR(STRING_ELT(what, 0)); /* FIXME: should we do some re-coding? This is not ripe for CHAR_FE since the target is our own instance and not the client ... */
 	cmd[0] = command;
 	cmd[1] = strlen(str) + 1;
-	if (write(parent_pipe, cmd, sizeof(cmd)) != sizeof(cmd) || (cmd[1] && write(parent_pipe, str, cmd[1]) != cmd[1])) {
+	if (rsio_write(parent_io, str, strlen(str) + 1, command, -1)) {
 #ifdef RSERV_DEBUG
 		printf(" - Rserve_ctrlCMD send to parent pipe (cmd=%ld, len=%ld) failed, closing parent pipe\n", cmd[0], cmd[1]);
 #endif
-		close(parent_pipe);
-		parent_pipe = -1;
+		rsio_free(parent_io);
+		parent_io = 0;
 		Rf_error("Error writing to parent pipe");
 	}
 	return ScalarLogical(1);
@@ -1529,7 +1530,7 @@ SOCKET resume_session() {
 #endif
 typedef struct child_process {
 	pid_t pid;
-	int   inp;
+	rsio_t *io;
 	struct child_process *prev, *next;
 } child_process_t;
 
@@ -1785,9 +1786,6 @@ static void restore_signal_handlers(); /* forward decl */
 /* return 0 if the child was prepared. Returns the result of fork() is forked and this is the parent */
 int Rserve_prepare_child(args_t *arg) {
 #ifdef FORKED  
-#ifdef unix
-	int cinp[2];
-#endif
 #ifdef Win32
 	long rseed = rand();
 #else
@@ -1795,25 +1793,24 @@ int Rserve_prepare_child(args_t *arg) {
 #endif
     rseed ^= time(0);
 	
-	parent_pipe = -1;
-	cinp[0] = -1;
+	parent_io = 0;
 
 #if 0 /* currenlty we disable controls in sub-protocols */
 	/* we use the input pipe only if child control is enabled. disabled pipe means no registration */
-	if ((child_control || self_control) && pipe(cinp) != 0)
-		cinp[0] = -1;
+	if (child_control || self_control)
+		parent_io = rsio_new();
 #endif
 
     if ((lastChild = RS_fork(arg)) != 0) { /* parent/master part */
 		/* close the connection socket - the child has it already */
 		closesocket(arg->s);
-		if (cinp[0] != -1) { /* if we have a valid pipe register the child */
+		if (parent_io) { /* if we have a valid pipe register the child */
 			child_process_t *cp = (child_process_t*) malloc(sizeof(child_process_t));
-			close(cinp[1]); /* close the write end which is what the child will be using */
+			rsio_set_parent(parent_io);
 #ifdef RSERV_DEBUG
 			printf("child %d was spawned, registering input pipe\n", (int)lastChild);
 #endif
-			cp->inp = cinp[0];
+			cp->io = parent_io;
 			cp->pid = lastChild;
 			cp->next = children;
 			if (children) children->prev = cp;
@@ -1829,10 +1826,8 @@ int Rserve_prepare_child(args_t *arg) {
 	if (main_argv && tag_argv && strlen(main_argv[0]) >= 8)
 		strcpy(main_argv[0] + strlen(main_argv[0]) - 8, "/RsrvCHx");
 	is_child = 1;
-	if (cinp[0] != -1) { /* if we have a vaild pipe to the parent set it up */
-		parent_pipe = cinp[1];
-		close(cinp[0]);
-	}
+	if (parent_io) /* if we have a vaild pipe to the parent set it up */
+		rsio_set_child(parent_io);
 
 #ifdef Win32
 	srand(rseed);
@@ -2267,23 +2262,22 @@ void Rserve_QAP1_connected(void *thp) {
 	
 	if (!is_child) { /* in case we get called from a child (e.g. other server has spawned us)
 						we perform the following only as parent - assuming it has been done already */
-		parent_pipe = -1;
-		cinp[0] = -1;
+		parent_io = 0;
 
 		/* we use the input pipe only if child control is enabled. disabled pipe means no registration */
-		if ((child_control || self_control) && pipe(cinp) != 0)
-			cinp[0] = -1;
+		if (child_control || self_control)
+			parent_io = rsio_new();
 
 		if ((lastChild = RS_fork(a)) != 0) { /* parent/master part */
 			/* close the connection socket - the child has it already */
 			closesocket(a->s);
-			if (cinp[0] != -1) { /* if we have a valid pipe register the child */
+			if (parent_io) { /* if we have a valid pipe register the child */
 				child_process_t *cp = (child_process_t*) malloc(sizeof(child_process_t));
-				close(cinp[1]); /* close the write end which is what the child will be using */
+				rsio_set_parent(parent_io); /* close the write end which is what the child will be using */
 #ifdef RSERV_DEBUG
 				printf("child %d was spawned, registering input pipe\n", (int)lastChild);
 #endif
-				cp->inp = cinp[0];
+				cp->io = parent_io;
 				cp->pid = lastChild;
 				cp->next = children;
 				if (children) children->prev = cp;
@@ -2296,13 +2290,12 @@ void Rserve_QAP1_connected(void *thp) {
 
 		if (main_argv && tag_argv && strlen(main_argv[0]) >= 8)
 			strcpy(main_argv[0] + strlen(main_argv[0]) - 8, "/RsrvCHq");
+
 		/* child part */
 		restore_signal_handlers(); /* the handlers handle server shutdown so not needed in the child */
 		is_child = 1;
-		if (cinp[0] != -1) { /* if we have a vaild pipe to the parent set it up */
-			parent_pipe = cinp[1];
-			close(cinp[0]);
-		}
+		if (parent_io) /* if we have a vaild pipe to the parent set it up */
+			rsio_set_child(parent_io);
 		
 #ifdef Win32
 		srand(rseed);
@@ -2817,7 +2810,7 @@ void Rserve_QAP1_connected(void *thp) {
 		if (ph.cmd == CMD_ctrlEval || ph.cmd == CMD_ctrlSource || ph.cmd == CMD_ctrlShutdown) {
 			process = 1;
 #ifdef RSERV_DEBUG
-			printf("control command: %s [can control: %s, pipe: %d]\n", (ph.cmd == CMD_ctrlEval) ? "eval" : ((ph.cmd == CMD_ctrlSource) ? "source" : "shutdown"), can_control ? "yes" : "no", parent_pipe);
+			printf("control command: %s [can control: %s, pipe: %p]\n", (ph.cmd == CMD_ctrlEval) ? "eval" : ((ph.cmd == CMD_ctrlSource) ? "source" : "shutdown"), can_control ? "yes" : "no", parent_io);
 #endif
 			if (!can_control) /* no right to do this */
 				sendResp(a, SET_STAT(RESP_ERR, ERR_accessDenied));
@@ -2826,31 +2819,22 @@ void Rserve_QAP1_connected(void *thp) {
 				if ((ph.cmd == CMD_ctrlEval || ph.cmd == CMD_ctrlSource) && (pars < 1 || parT[0] != DT_STRING))
 					sendResp(a, SET_STAT(RESP_ERR, ERR_inv_par));
 				else {
-					if (parent_pipe == -1)
+					if (!parent_io)
 						sendResp(a, SET_STAT(RESP_ERR, ERR_ctrl_closed));
 					else {
 						long cmd[2] = { 0, 0 };
 						if (ph.cmd == CMD_ctrlEval) { cmd[0] = CCTL_EVAL; cmd[1] = strlen(parP[0]) + 1; }
 						else if (ph.cmd == CMD_ctrlSource) { cmd[0] = CCTL_SOURCE; cmd[1] = strlen(parP[0]) + 1; }
 						else cmd[0] = CCTL_SHUTDOWN;
-						if (write(parent_pipe, cmd, sizeof(cmd)) != sizeof(cmd)) {
+						if (rsio_write(parent_io, parP[0], cmd[1], cmd[0], -1)) {
 #ifdef RSERV_DEBUG
 							printf(" - send to parent pipe (cmd=%ld, len=%ld) failed, closing parent pipe\n", cmd[0], cmd[1]);
 #endif
-							close(parent_pipe);
-							parent_pipe = -1;
+							rsio_free(parent_io);
+							parent_io = 0;
 							sendResp(a, SET_STAT(RESP_ERR, ERR_ctrl_closed));
-						} else {
-							if (cmd[1] && write(parent_pipe, parP[0], cmd[1]) != cmd[1]) {
-#ifdef RSERV_DEBUG
-								printf(" - send to parent pipe (cmd=%ld, len=%ld, sending data) failed, closing parent pipe\n", cmd[0], cmd[1]);
-#endif
-								close(parent_pipe);
-								parent_pipe = 01;
-								sendResp(a, SET_STAT(RESP_ERR, ERR_ctrl_closed));
-							} else
-								sendResp(a, RESP_OK);
-						}
+						} else
+							sendResp(a, RESP_OK);
 					}
 				}
 			}
@@ -3501,8 +3485,13 @@ void serverLoop() {
 		if (children) {
 			child_process_t *cp = children;
 			while (cp) {
-				FD_SET(cp->inp, &readfds);
-				if (cp->inp > maxfd) maxfd = cp->inp;
+				if (cp->io) {
+					int fd = rsio_select_fd(cp->io);
+					if (fd != -1) {
+						FD_SET(fd, &readfds);
+						if (fd > maxfd) maxfd = fd;
+					}
+				}
 				cp = cp->next;
 			}
 		}
@@ -3595,70 +3584,48 @@ void serverLoop() {
 			if (children) { /* one of the children signalled */
 				child_process_t *cp = children;
 				while (cp) {
-					if (FD_ISSET(cp->inp, &readfds)) {
-						long cmd[2];
-						int n = read(cp->inp, cmd, sizeof(cmd));
-						if (n < sizeof(cmd)) { /* is anything less arrives, assume corruption and remove the child */
+					if (cp->io && FD_ISSET(rsio_select_fd(cp->io), &readfds)) {
+						rsmsg_t *msg = rsio_read_msg(cp->io);
+						if (!msg) { /* if anything less arrives, assume corruption and remove the child */
 							child_process_t *ncp = cp->next;
 #ifdef RSERV_DEBUG
-							printf("pipe to child %d closed (n=%d), removing child\n", (int) cp->pid, n);
+							printf("pipe to child %d closed, removing child\n", (int) cp->pid);
 #endif
-							close(cp->inp);
+							rsio_free(cp->io);
+							cp->io = 0;
 							/* remove the child from the list */
 							if (cp->prev) cp->prev->next = ncp; else children = ncp;
 							if (ncp) ncp->prev = cp->prev;
 							free(cp);
 							cp = ncp;
 						} else { /* we got a valid command */
-							/* FIXME: we should perform more rigorous checks on the protocol - we are currently ignoring anything bad */
-							char cib[256];
-							char *xb = 0;
+							msg->data[msg->len] = 0; /* rsio guarantees extra sentinel byte */
+							if (msg->cmd == CCTL_EVAL) {
 #ifdef RSERV_DEBUG
-							printf(" command from child %d: %ld data bytes: %ld\n", (int) cp->pid, cmd[0], cmd[1]);
+								printf(" - control calling voidEval(\"%s\")\n", msg->data);
 #endif
-							cib[0] = 0;
-							cib[255] = 0;
-							n = 0;
-							if (cmd[1] > 0 && cmd[1] < 256)
-								n = read(cp->inp, cib, cmd[1]);
-							else if (cmd[1] > 0 && cmd[1] < MAX_CTRL_DATA) {
-								xb = (char*) malloc(cmd[1] + 4);
-								xb[0] = 0;
-								if (xb)
-									n = read(cp->inp, xb, cmd[1]);
-								if (n > 0)
-									xb[n] = 0;
+								voidEval(msg->data);
+							} else if (msg->cmd == CCTL_SOURCE) {
+								int evalRes = 0;
+								SEXP exp;
+								SEXP sfn = PROTECT(allocVector(STRSXP, 1));
+								SET_STRING_ELT(sfn, 0, mkRChar(msg->data));
+								exp = LCONS(install("source"), CONS(sfn, R_NilValue));
+#ifdef RSERV_DEBUG
+								printf(" - control calling source(\"%s\")\n", msg->data);
+#endif
+								R_tryEval(exp, R_GlobalEnv, &evalRes);
+#ifdef RSERV_DEBUG
+								printf(" - result: %d\n", evalRes);
+#endif
+								UNPROTECT(1);								
+							} else if (msg->cmd == CCTL_SHUTDOWN) {
+#ifdef RSERV_DEBUG
+								printf(" - shutdown via control, setting active to 0\n");
+#endif
+								active = 0;
 							}
-#ifdef RSERV_DEBUG
-							printf(" - read %d bytes of %ld data from child %d\n", n, cmd[1], (int) cp->pid);
-#endif
-							if (n == cmd[1]) { /* perform commands only if we got all the data */
-								if (cmd[0] == CCTL_EVAL) {
-#ifdef RSERV_DEBUG
-									printf(" - control calling voidEval(\"%s\")\n", xb ? xb : cib);
-#endif
-									voidEval(xb ? xb : cib);
-								} else if (cmd[0] == CCTL_SOURCE) {
-									int evalRes = 0;
-									SEXP exp;
-									SEXP sfn = PROTECT(allocVector(STRSXP, 1));
-									SET_STRING_ELT(sfn, 0, mkRChar(xb ? xb : cib));
-									exp = LCONS(install("source"), CONS(sfn, R_NilValue));
-#ifdef RSERV_DEBUG
-									printf(" - control calling source(\"%s\")\n", xb ? xb : cib);
-#endif
-									R_tryEval(exp, R_GlobalEnv, &evalRes);
-#ifdef RSERV_DEBUG
-									printf(" - result: %d\n", evalRes);
-#endif
-									UNPROTECT(1);								
-								} else if (cmd[0] == CCTL_SHUTDOWN) {
-#ifdef RSERV_DEBUG
-									printf(" - shutdown via control, setting active to 0\n");
-#endif
-									active = 0;
-								}
-							}
+							rsmsg_free(msg);
 							cp = cp->next;
 						}
 					} else
