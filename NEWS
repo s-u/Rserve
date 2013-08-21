@@ -1,6 +1,8 @@
  NEWS/Changelog for Rserve
 ---------------------------
 
+1.8-0	(under development)
+
 1.7-3	2013-08-21
     o	the handling of server configuration modes has been
 	inconsistent for some combinations (mostly affected were
