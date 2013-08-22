@@ -173,6 +173,20 @@ int main(int argc, char **argv)
 	   Rserve's internal code which would prefer death to surrender ... */
 #endif
 
+	/* registration must happen *before* source/eval */
+	{ /* NOTE: R_registerRoutines *replaces* all existing registrations !!
+		 So we have to register everything for all. */
+		R_CallMethodDef mainCallMethods[]  = {
+			{"Rserve_ctrlEval", (DL_FUNC) &Rserve_ctrlEval, 1},
+			{"Rserve_ctrlSource", (DL_FUNC) &Rserve_ctrlSource, 1},
+			{"Rserve_oobSend", (DL_FUNC) &Rserve_oobSend, 2},
+			{"Rserve_oobMsg", (DL_FUNC) &Rserve_oobMsg, 2},
+			{"Rserve_oc_register", (DL_FUNC) &Rserve_oc_register, 1},
+			{NULL, NULL, 0}
+		};
+		R_registerRoutines(R_getEmbeddingDllInfo(), 0, mainCallMethods, 0, 0);
+	}
+	
     if (src_list) { /* do any sourcing if necessary */
 		struct source_entry *se=src_list;
 #ifdef RSERV_DEBUG
@@ -192,19 +206,6 @@ int main(int argc, char **argv)
 	
 	performConfig(SU_SERVER);
 
-	{ /* NOTE: R_registerRoutines *replaces* all existing registrations !!
-		 So we have to register everything for all. */
-		R_CallMethodDef mainCallMethods[]  = {
-			{"Rserve_ctrlEval", (DL_FUNC) &Rserve_ctrlEval, 1},
-			{"Rserve_ctrlSource", (DL_FUNC) &Rserve_ctrlSource, 1},
-			{"Rserve_oobSend", (DL_FUNC) &Rserve_oobSend, 2},
-			{"Rserve_oobMsg", (DL_FUNC) &Rserve_oobMsg, 2},
-			{"Rserve_oc_register", (DL_FUNC) &Rserve_oc_register, 1},
-			{NULL, NULL, 0}
-		};
-		R_registerRoutines(R_getEmbeddingDllInfo(), 0, mainCallMethods, 0, 0);
-	}
-	
 #if defined RSERV_DEBUG || defined Win32
     printf("Rserve: Ok, ready to answer queries.\n");
 #endif      
