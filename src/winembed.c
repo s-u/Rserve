@@ -25,6 +25,7 @@
 
 /* 27/03/2000 win32-api needs this */
 #define NONAMELESSUNION
+#include <winsock2.h>
 #include <windows.h>
 #include <winreg.h>
 #include <stdio.h>

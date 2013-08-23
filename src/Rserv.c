@@ -163,7 +163,7 @@ the use of DT_LARGE/XT_LARGE.
 #ifdef WIN32
 typedef int socklen_t;
 #define CAN_TCP_NODELAY
-#define _WINSOCKAPI_
+#include <winsock2.h>
 #include <windows.h>
 #include <winbase.h>
 #include <io.h>
