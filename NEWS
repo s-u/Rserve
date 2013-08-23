@@ -1,6 +1,10 @@
  NEWS/Changelog for Rserve
 ---------------------------
 
+1.7-4	(bugfix branch)
+    o	compatibility fix for Solaris; silence a warning on Windows
+
+
 1.7-3	2013-08-21
     o	the handling of server configuration modes has been
 	inconsistent for some combinations (mostly affected were
