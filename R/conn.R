@@ -36,8 +36,10 @@ Rserve <- function(debug=FALSE, port, args=NULL, quote=(length(args) > 1), wait,
   invisible(system(cmd, wait=wait, ...))
 }
 
-run.Rserve <- function(..., config.file="/etc/Rserve.conf")
+run.Rserve <- function(..., config.file="/etc/Rserve.conf") {
+  if (is.null(run_Rserve)) stop("Runnig inside an embedded Rserve instance - starting Rserve recursively is not supported")
   .Call(run_Rserve, as.character(config.file), sapply(list(...), as.character))
+}
 
 self.ctrlEval <- function(expr) {
   if (!is.loaded("Rserve_ctrlEval")) stop("This command can only be run inside Rserve with r-control enabled")

@@ -1,2 +1,1 @@
-useDynLib(Rserve, run_Rserve)
 export(Rserve, self.ctrlEval, self.ctrlSource, self.oobSend, self.oobMessage, run.Rserve)

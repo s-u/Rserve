@@ -2,6 +2,13 @@
 ---------------------------
 
 1.8-0	(under development)
+    o	avoid duplicate symbols by not loading the Rserve dylib
+	inside an embedded Rserve instance. This avoid issues
+	of calling the wrong symbols, but it implies that
+	run.Rserve() can no longer be used from within a
+	child proces of an embedded Rserve instance (which
+	you really don't want to do anyway).
+
 
 1.7-3	2013-08-21
     o	the handling of server configuration modes has been
