@@ -9,6 +9,9 @@
 	child proces of an embedded Rserve instance (which
 	you really don't want to do anyway).
 
+    o	symbols are now registered *before* processing source/eval
+	directives from the configuration file
+
 
 1.7-3	2013-08-21
     o	the handling of server configuration modes has been
