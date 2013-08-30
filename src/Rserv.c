@@ -1853,6 +1853,7 @@ int Rserve_prepare_child(args_t *arg) {
 			printf("child %d was spawned, registering input pipe\n", (int)lastChild);
 #endif
 			cp->io = parent_io;
+			cp->addr = child_addr;
 			cp->pid = lastChild;
 			cp->next = children;
 			if (children) children->prev = cp;
@@ -2314,6 +2315,7 @@ void Rserve_QAP1_connected(void *thp) {
 				printf("child %d was spawned, registering input pipe\n", (int)lastChild);
 #endif
 				cp->io = parent_io;
+				cp->addr = child_addr;
 				cp->pid = lastChild;
 				cp->next = children;
 				if (children) children->prev = cp;
