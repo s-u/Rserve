@@ -162,6 +162,8 @@ the use of DT_LARGE/XT_LARGE.
 /* we have no configure for WIN32 so we have to take care of socklen_t */
 #ifdef WIN32
 typedef int socklen_t;
+#define random() rand()
+#define srandom() srand()
 #define CAN_TCP_NODELAY
 #define _WINSOCKAPI_
 #include <windows.h>
@@ -260,6 +262,21 @@ void sha1hash(const char *buf, int len, unsigned char hash[20]);
 #define CCTL_SOURCE   2 /* data: string */
 #define CCTL_SHUTDOWN 3 /* - */
 
+/* general RSMSG error commands */
+#define RSMSG_ERR             0x800  /* is RSMSG error */
+
+#define RSMSG_ERR_NOT_FOUND   (RSMSG_ERR | 1)   /* address not found */
+#define RSMSG_ERR_NO_IO       (RSMSG_ERR | 2)   /* address exists but has no communication channel */
+#define RSMSG_ERR_IO_FAILED   (RSMSG_ERR | 3)   /* error during an attempt to relay the message */
+
+/* bits that govern presence of leading payload in RSMSG messages */
+#define RSMSG_HAS_SRC 0x1000  /* has source address (mandatory if a reply is expected) */
+#define RSMSG_HAS_DST 0x2000  /* has destination address (if not present, server is implied) */
+
+typedef union { char c[16]; int i[4]; } rsmsg_addr_t;
+
+#define RSMSG_ADDR_LEN (sizeof(rsmsg_addr_t))
+
 #define MAX_CTRL_DATA (1024*1024) /* max. length of data for control commands - larger data will be ignored */
 
 #include "RSserver.h"
@@ -305,6 +322,9 @@ static SOCKET csock = -1;
 static int parentPID = -1;
 
 #include "rsio.h"
+
+static rsmsg_addr_t server_addr;
+static rsmsg_addr_t child_addr;
 
 int is_child = 0;       /* 0 for parent (master), 1 for children */
 rsio_t *parent_io;      /* pipe to the master process or NULL if not available */
@@ -440,6 +460,30 @@ static int fork_ws(args_t *arg) { return -1; }
 static const char *rserve_ver_id = "$Id$";
 static char rserve_rev[16]; /* this is generated from rserve_ver_id by main */
 #endif
+
+#ifdef HAVE_RSA
+#include <openssl/rand.h>
+
+static void generate_random_bytes(void *buf, int len) {
+	if (RAND_bytes(buf, len) != 1 &&
+		RAND_pseudo_bytes(buf, len) == -1) {
+		int i;
+		for (i = 0; i < len; i++)
+			((char*)buf)[i] = (char) random();
+	}
+}
+
+#else
+static void generate_random_bytes(void *buf, int len) {
+	int i;
+	for (i = 0; i < len; i++)
+		((char*)buf)[i] = (char) random();
+}
+#endif
+
+static void generate_addr(rsmsg_addr_t *addr) {
+	generate_random_bytes(addr, sizeof(*addr));
+}
 
 #define localUCIX UCIX
 
@@ -835,6 +879,8 @@ static void RSsrv_init() {
 			fclose(f);
 		} else RSEprintf("WARNING: cannot write into pid file '%s'\n", pidfile);
 	}
+
+	generate_addr(&server_addr);
 }
 
 static void RSsrv_done() {
@@ -1425,11 +1471,7 @@ int detach_session(args_t *arg) {
 
     setsockopt(ss,SOL_SOCKET,SO_REUSEADDR,(const char*)&reuse,sizeof(reuse));
 
-#ifdef WIN32
-	while ((port = (((int) rand()) & 0x7fff)+32768)>65000) {};
-#else
 	while ((port = (((int) random()) & 0x7fff)+32768)>65000) {};
-#endif
 
 	while (bind(ss,build_sin(&ssa,0,port),sizeof(ssa))) {
 		if (errno!=EADDRINUSE) {
@@ -1531,6 +1573,7 @@ SOCKET resume_session() {
 typedef struct child_process {
 	pid_t pid;
 	rsio_t *io;
+	rsmsg_addr_t addr;
 	struct child_process *prev, *next;
 } child_process_t;
 
@@ -1786,11 +1829,8 @@ static void restore_signal_handlers(); /* forward decl */
 /* return 0 if the child was prepared. Returns the result of fork() is forked and this is the parent */
 int Rserve_prepare_child(args_t *arg) {
 #ifdef FORKED  
-#ifdef Win32
-	long rseed = rand();
-#else
 	long rseed = random();
-#endif
+
     rseed ^= time(0);
 	
 	parent_io = 0;
@@ -1800,6 +1840,8 @@ int Rserve_prepare_child(args_t *arg) {
 	if (child_control || self_control)
 		parent_io = rsio_new();
 #endif
+
+	generate_addr(&child_addr);
 
     if ((lastChild = RS_fork(arg)) != 0) { /* parent/master part */
 		/* close the connection socket - the child has it already */
@@ -1829,11 +1871,7 @@ int Rserve_prepare_child(args_t *arg) {
 	if (parent_io) /* if we have a vaild pipe to the parent set it up */
 		rsio_set_child(parent_io);
 
-#ifdef Win32
-	srand(rseed);
-#else
 	srandom(rseed);
-#endif
     
     parentPID = getppid();
     close_all_srv_sockets(); /* close all server sockets - this includes arg->ss */
@@ -2253,16 +2291,14 @@ void Rserve_QAP1_connected(void *thp) {
 
 #ifdef FORKED  
 
-#ifdef Win32
-	long rseed = rand();
-#else
 	long rseed = random();
-#endif
+
     rseed ^= time(0);
 	
 	if (!is_child) { /* in case we get called from a child (e.g. other server has spawned us)
 						we perform the following only as parent - assuming it has been done already */
 		parent_io = 0;
+		generate_addr(&child_addr);
 
 		/* we use the input pipe only if child control is enabled. disabled pipe means no registration */
 		if (child_control || self_control)
@@ -2297,11 +2333,7 @@ void Rserve_QAP1_connected(void *thp) {
 		if (parent_io) /* if we have a vaild pipe to the parent set it up */
 			rsio_set_child(parent_io);
 		
-#ifdef Win32
-		srand(rseed);
-#else
 		srandom(rseed);
-#endif
     
 		parentPID = getppid();
 		close_all_srv_sockets(); /* close all server sockets - this includes a->ss */
@@ -3585,8 +3617,9 @@ void serverLoop() {
 				child_process_t *cp = children;
 				while (cp) {
 					if (cp->io && FD_ISSET(rsio_select_fd(cp->io), &readfds)) {
-						rsmsg_t *msg = rsio_read_msg(cp->io);
-						if (!msg) { /* if anything less arrives, assume corruption and remove the child */
+						rsmsg_t *msg;
+						int msg_stat = rsio_read_status(cp->io);
+						if (msg_stat < 0) { /* error, assume corruption and remove the child */
 							child_process_t *ncp = cp->next;
 #ifdef RSERV_DEBUG
 							printf("pipe to child %d closed, removing child\n", (int) cp->pid);
@@ -3598,36 +3631,69 @@ void serverLoop() {
 							if (ncp) ncp->prev = cp->prev;
 							free(cp);
 							cp = ncp;
-						} else { /* we got a valid command */
+						} else if (msg_stat == 1 && (msg = rsio_read_msg(cp->io))) { /* we got a valid message */
+							rsmsg_addr_t *src = 0, *dst = 0;
+							rsmsglen_t msg_pos = 0;
 							msg->data[msg->len] = 0; /* rsio guarantees extra sentinel byte */
-							if (msg->cmd == CCTL_EVAL) {
+							if ((msg->cmd & RSMSG_HAS_SRC) && msg->len >= RSMSG_ADDR_LEN) { /* has source address */
+								src = (rsmsg_addr_t*) (msg->data);
+								msg_pos += RSMSG_ADDR_LEN;
+							}
+							if ((msg->cmd & RSMSG_HAS_DST) && (msg->len - msg_pos) >= RSMSG_ADDR_LEN) { /* has destination address */
+								dst = (rsmsg_addr_t*) (msg->data + RSMSG_ADDR_LEN);
+								msg_pos += RSMSG_ADDR_LEN;
+							}
+							/* is this message addressed to us ? */
+							if (!dst || !memcmp(&server_addr, dst, RSMSG_ADDR_LEN)) {
+								if (msg->cmd == CCTL_EVAL) {
 #ifdef RSERV_DEBUG
-								printf(" - control calling voidEval(\"%s\")\n", msg->data);
+									printf(" - control calling voidEval(\"%s\")\n", msg->data + msg_pos);
 #endif
-								voidEval(msg->data);
-							} else if (msg->cmd == CCTL_SOURCE) {
-								int evalRes = 0;
-								SEXP exp;
-								SEXP sfn = PROTECT(allocVector(STRSXP, 1));
-								SET_STRING_ELT(sfn, 0, mkRChar(msg->data));
-								exp = LCONS(install("source"), CONS(sfn, R_NilValue));
+									voidEval(msg->data + msg_pos);
+								} else if (msg->cmd == CCTL_SOURCE) {
+									int evalRes = 0;
+									SEXP exp;
+									SEXP sfn = PROTECT(allocVector(STRSXP, 1));
+									SET_STRING_ELT(sfn, 0, mkRChar(msg->data + msg_pos));
+									exp = LCONS(install("source"), CONS(sfn, R_NilValue));
 #ifdef RSERV_DEBUG
-								printf(" - control calling source(\"%s\")\n", msg->data);
+									printf(" - control calling source(\"%s\")\n", msg->data + msg_pos);
 #endif
-								R_tryEval(exp, R_GlobalEnv, &evalRes);
+									R_tryEval(exp, R_GlobalEnv, &evalRes);
 #ifdef RSERV_DEBUG
-								printf(" - result: %d\n", evalRes);
+									printf(" - result: %d\n", evalRes);
 #endif
-								UNPROTECT(1);								
-							} else if (msg->cmd == CCTL_SHUTDOWN) {
+									UNPROTECT(1);								
+								} else if (msg->cmd == CCTL_SHUTDOWN) {
 #ifdef RSERV_DEBUG
-								printf(" - shutdown via control, setting active to 0\n");
+									printf(" - shutdown via control, setting active to 0\n");
 #endif
-								active = 0;
+									active = 0;
+								}
+							} else { /* let's see if we can route it */
+								child_process_t *cdst = children;
+								rsmsg_addr_t saddr[2];
+								saddr[0] = server_addr;
+								saddr[1] = *dst;
+								while (cdst) {
+									if (!memcmp(&(cdst->addr), dst, RSMSG_ADDR_LEN)) {
+										if (!cdst->io) {
+											rsio_write(cp->io, saddr, RSMSG_ADDR_LEN * 2, RSMSG_ERR_NO_IO | RSMSG_HAS_DST | RSMSG_HAS_SRC, -1);
+										} else {
+											if (rsio_write_msg(cdst->io, msg) != 0)
+												rsio_write(cp->io, saddr, RSMSG_ADDR_LEN * 2, RSMSG_ERR_IO_FAILED | RSMSG_HAS_DST | RSMSG_HAS_SRC, -1);
+										}
+										break;
+									}
+									cdst = cdst->next;
+								}
+								if (!cdst) /* address not found */
+									rsio_write(cp->io, saddr, RSMSG_ADDR_LEN * 2, RSMSG_ERR_NOT_FOUND | RSMSG_HAS_DST | RSMSG_HAS_SRC, -1);
 							}
 							rsmsg_free(msg);
+							cp = cp->next;	
+						} else /* the last case is 0 where some data was processed but not an entire message */
 							cp = cp->next;
-						}
 					} else
 						cp = cp->next;
 				} /* loop over children */
