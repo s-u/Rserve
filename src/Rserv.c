@@ -2308,6 +2308,10 @@ void Rserve_QAP1_connected(void *thp) {
 		if ((lastChild = RS_fork(a)) != 0) { /* parent/master part */
 			/* close the connection socket - the child has it already */
 			closesocket(a->s);
+			if (lastChild == -1) { /* fork failed */
+				rsio_free(parent_io);
+				parent_io = 0;
+			}				
 			if (parent_io) { /* if we have a valid pipe register the child */
 				child_process_t *cp = (child_process_t*) malloc(sizeof(child_process_t));
 				rsio_set_parent(parent_io); /* close the write end which is what the child will be using */
