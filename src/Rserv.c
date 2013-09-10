@@ -409,6 +409,7 @@ static int set_user(const char *usr) {
 static int fork_http(args_t *arg) {
 #ifdef unix
 	int res = fork();
+	if (res == -1) RSEprintf("WARNING: fork() failed in fork_http()\n");
 #else
 	int res = -1;
 #endif
@@ -424,6 +425,7 @@ static int fork_http(args_t *arg) {
 static int fork_https(args_t *arg) {
 #ifdef unix
 	int res = fork();
+	if (res == -1) RSEprintf("WARNING: fork() failed in fork_https()\n");
 #else
 	int res = -1;
 #endif
@@ -439,6 +441,7 @@ static int fork_https(args_t *arg) {
 static int fork_ws(args_t *arg) {
 #ifdef unix
 	int res = fork();
+	if (res == -1) RSEprintf("WARNING: fork() failed in fork_ws()\n");
 #else
 	int res = -1;
 #endif
@@ -1846,6 +1849,13 @@ int Rserve_prepare_child(args_t *arg) {
     if ((lastChild = RS_fork(arg)) != 0) { /* parent/master part */
 		/* close the connection socket - the child has it already */
 		closesocket(arg->s);
+		if (lastChild == -1) {
+			RSEprintf("WARNING: fork() failed in Rserve_prepare_child()\n");
+			if (parent_io) {
+				rsio_free(parent_io);
+				parent_io = 0;
+			}
+		}
 		if (parent_io) { /* if we have a valid pipe register the child */
 			child_process_t *cp = (child_process_t*) malloc(sizeof(child_process_t));
 			rsio_set_parent(parent_io);
@@ -2309,6 +2319,7 @@ void Rserve_QAP1_connected(void *thp) {
 			/* close the connection socket - the child has it already */
 			closesocket(a->s);
 			if (lastChild == -1) { /* fork failed */
+				RSEprintf("WARNING: fork() failed in Rserve_QAP1_connected()\n");
 				rsio_free(parent_io);
 				parent_io = 0;
 			}				
