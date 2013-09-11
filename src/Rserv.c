@@ -2317,10 +2317,11 @@ void Rserve_QAP1_connected(void *thp) {
 			parent_io = rsio_new();
 
 		if ((lastChild = RS_fork(a)) != 0) { /* parent/master part */
+			int forkErrno = errno; //grab errno close to source before it can be changed by other failures
 			/* close the connection socket - the child has it already */
 			closesocket(a->s);
 			if (lastChild == -1) { /* fork failed */
-				RSEprintf("WARNING: fork() failed in Rserve_QAP1_connected(): %s\n",strerror(errno));
+				RSEprintf("WARNING: fork() failed in Rserve_QAP1_connected(): %s\n",strerror(forkErrno));
 				rsio_free(parent_io);
 				parent_io = 0;
 			}				
