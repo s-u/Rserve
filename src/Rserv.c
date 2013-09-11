@@ -409,7 +409,7 @@ static int set_user(const char *usr) {
 static int fork_http(args_t *arg) {
 #ifdef unix
 	int res = fork();
-	if (res == -1) RSEprintf("WARNING: fork() failed in fork_http()\n");
+	if (res == -1) RSEprintf("WARNING: fork() failed in fork_http(): %s\n",strerror(errno));
 #else
 	int res = -1;
 #endif
@@ -425,7 +425,7 @@ static int fork_http(args_t *arg) {
 static int fork_https(args_t *arg) {
 #ifdef unix
 	int res = fork();
-	if (res == -1) RSEprintf("WARNING: fork() failed in fork_https()\n");
+	if (res == -1) RSEprintf("WARNING: fork() failed in fork_https(): %s\n",strerror(errno));
 #else
 	int res = -1;
 #endif
@@ -441,7 +441,7 @@ static int fork_https(args_t *arg) {
 static int fork_ws(args_t *arg) {
 #ifdef unix
 	int res = fork();
-	if (res == -1) RSEprintf("WARNING: fork() failed in fork_ws()\n");
+	if (res == -1) RSEprintf("WARNING: fork() failed in fork_ws(): %s\n",strerror(errno));
 #else
 	int res = -1;
 #endif
@@ -1847,10 +1847,11 @@ int Rserve_prepare_child(args_t *arg) {
 	generate_addr(&child_addr);
 
     if ((lastChild = RS_fork(arg)) != 0) { /* parent/master part */
+		int forkErrno = errno; //grab errno close to source before it can be changed by other failures
 		/* close the connection socket - the child has it already */
 		closesocket(arg->s);
 		if (lastChild == -1) {
-			RSEprintf("WARNING: fork() failed in Rserve_prepare_child()\n");
+			RSEprintf("WARNING: fork() failed in Rserve_prepare_child(): %s\n",strerror(forkErrno));
 			if (parent_io) {
 				rsio_free(parent_io);
 				parent_io = 0;
@@ -2319,7 +2320,7 @@ void Rserve_QAP1_connected(void *thp) {
 			/* close the connection socket - the child has it already */
 			closesocket(a->s);
 			if (lastChild == -1) { /* fork failed */
-				RSEprintf("WARNING: fork() failed in Rserve_QAP1_connected()\n");
+				RSEprintf("WARNING: fork() failed in Rserve_QAP1_connected(): %s\n",strerror(errno));
 				rsio_free(parent_io);
 				parent_io = 0;
 			}				
