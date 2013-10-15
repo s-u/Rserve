@@ -916,6 +916,10 @@ static int setConfig(const char *c, const char *p) {
 		tag_argv = (*p == '1' || *p == 'y' || *p == 'e' || *p == 'T') ? 1 : 0;
 		return 1;
 	}
+	if (!strcmp(c, "ulog")) {
+		ulog_set_path((*p) ? p : 0);
+		return 1;
+	}
 	if (!strcmp(c, "keep.alive")) {
 		if (*p == '1' || *p == 'y' || *p == 'e' || *p == 'T')
 			global_srv_flags |= SRV_KEEPALIVE;
@@ -2684,9 +2688,11 @@ void Rserve_QAP1_connected(void *thp) {
 					SEXP ocref = CAR(val);
 					if (TYPEOF(ocref) == STRSXP && LENGTH(ocref) == 1) {
 						SEXP ocv = oc_resolve(CHAR(STRING_ELT(ocref, 0)));
-						if (ocv && ocv != R_NilValue) {
+						if (ocv && ocv != R_NilValue && CAR(ocv) != R_NilValue) {
 							/* valid reference -- replace it in the call */
-							SETCAR(val, ocv);
+							SEXP occall = CAR(ocv), ocname = TAG(ocv);
+							SETCAR(val, occall);
+							ulog("OCcall '%s': ", (ocname == R_NilValue) ? "<null>" : PRINTNAME(ocname));
 							valid = 1;
 						}
 					}
@@ -2694,6 +2700,7 @@ void Rserve_QAP1_connected(void *thp) {
 			}
 			/* invalid calls lead to immediate termination with no message */
 			if (!valid) {
+				ulog("ERROR OCcall: invalid reference");
 				free(sendbuf); free(sfbuf);
 				closesocket(s);				
 				return;
@@ -2705,6 +2712,7 @@ void Rserve_QAP1_connected(void *thp) {
 #endif
 			eval_result = R_tryEval(val, R_GlobalEnv, &Rerror);
 			UNPROTECT(1);
+			ulog("OCresult");
 			process = 1;
 		}
 

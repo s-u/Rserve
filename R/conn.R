@@ -67,3 +67,7 @@ self.oobMessage <- function(what, code = 0L) {
   call <- getNativeSymbolInfo("Rserve_oobMsg")
   invisible(.Call(call, what, code))
 }
+
+ocap <- function(fun, name=deparse(substitute(fun)))
+  .Call(Rserve_oc_register, fun, name)
+

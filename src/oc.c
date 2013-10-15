@@ -82,7 +82,8 @@ static void oc_new(char *dst) {
     *dst = 0;
 }
 
-char *oc_register(SEXP what, char *dst, int len) {
+char *oc_register(SEXP what, char *dst, int len, const char *name) {
+    SEXP x;
     if (len <= MAX_OC_TOKEN_LEN) return NULL;
     if (!oc_env) {
 	SEXP env = eval(PROTECT(lang3(install("new.env"), ScalarLogical(TRUE), R_EmptyEnv)), R_GlobalEnv);
@@ -91,8 +92,11 @@ char *oc_register(SEXP what, char *dst, int len) {
 	oc_env = env;
 	R_PreserveObject(oc_env);
     }
+    x = PROTECT(CONS(what, R_NilValue));
+    if (name) SET_TAG(x, install(name));
     oc_new(dst);
-    Rf_defineVar(install(dst), what, oc_env);
+    Rf_defineVar(install(dst), x, oc_env);
+    UNPROTECT(1);
     return dst;
 }
 
@@ -101,10 +105,13 @@ char *oc_register(SEXP what, char *dst, int len) {
 /* Note that we don't expose oc_resolve, because we don't want to facilitate
    unwanted discovery (although code that can poke around like that has
    already broken through some barriers) */
-SEXP Rserve_oc_register(SEXP what) {
+SEXP Rserve_oc_register(SEXP what, SEXP sName) {
+    const char *name = 0;
     char token[MAX_OC_TOKEN_LEN + 1];
     SEXP res;
-    if (!oc_register(what, token, sizeof(token)))
+    if (sName == STRSXP && LENGTH(sName) > 0)
+	name = CHAR(STRING_ELT(sName, 0));
+    if (!oc_register(what, token, sizeof(token), name))
 	Rf_error("Cannot create OC reference registry");
     res = PROTECT(mkString(token));
     setAttrib(res, R_ClassSymbol, mkString("OCref"));
