@@ -218,6 +218,7 @@ extern __declspec(dllimport) int R_SignalHandlers;
 #include "Rsrv.h"
 #include "qap_encode.h"
 #include "qap_decode.h"
+#include "ulog.h"
 #include "md5.h"
 /* we don't bother with sha1.h so this is the declaration */
 void sha1hash(const char *buf, int len, unsigned char hash[20]);

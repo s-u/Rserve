@@ -4,6 +4,6 @@
 #include <Rinternals.h>
 
 SEXP oc_resolve(const char *ref);
-char *oc_register(SEXP what, char *dst, int len);
+char *oc_register(SEXP what, char *dst, int lenm const char *name);
 
 #endif

@@ -109,7 +109,7 @@ SEXP Rserve_oc_register(SEXP what, SEXP sName) {
     const char *name = 0;
     char token[MAX_OC_TOKEN_LEN + 1];
     SEXP res;
-    if (sName == STRSXP && LENGTH(sName) > 0)
+    if (TYPEOF(sName) == STRSXP && LENGTH(sName) > 0)
 	name = CHAR(STRING_ELT(sName, 0));
     if (!oc_register(what, token, sizeof(token), name))
 	Rf_error("Cannot create OC reference registry");

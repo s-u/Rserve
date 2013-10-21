@@ -61,6 +61,10 @@ void ulog_set_path(const char *path) {
     ulog_path = path ? strdup(path) : 0;
 }
 
+int ulog_enabled() {
+    return (ulog_path) ? 1 : 0;
+}
+
 void ulog_begin() {    
     if (!ulog_path) return;
 
