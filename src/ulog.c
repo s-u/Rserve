@@ -56,6 +56,7 @@ static char hn[512];
 static char buf[4096];
 static char ts[64];
 static char buf_pos;
+static double time0;
 
 void ulog_set_path(const char *path) {
     ulog_path = path ? strdup(path) : 0;
@@ -87,6 +88,16 @@ void ulog_begin() {
 	time_t now = time(0);
 	stm = gmtime(&now);
 	strftime (ts, sizeof(ts), "%Y-%m-%dT%H:%M:%SZ", stm);
+#ifdef ULOG_MICROTIME
+	{   /* this is useful for profiling but breaks the syslog standard */
+	    struct timeval tv;
+	    double t;
+	    gettimeofday(&tv);
+	    t = ((double) tv.tv_sec) + (((double) tv.tv_usec) / 1000000.0);
+	    if (time0 < 1.0) time0 = t;
+	    snprintf(ts + strlen(ts), sizeof(ts), "[%.4f]", tv.tv_sec, t - time0);
+	}
+#endif
     }
 
     /* FIXME: we could cache user/group/pid and show the former
