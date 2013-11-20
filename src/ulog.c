@@ -92,10 +92,10 @@ void ulog_begin() {
 	{   /* this is useful for profiling but breaks the syslog standard */
 	    struct timeval tv;
 	    double t;
-	    gettimeofday(&tv);
+	    gettimeofday(&tv, 0);
 	    t = ((double) tv.tv_sec) + (((double) tv.tv_usec) / 1000000.0);
 	    if (time0 < 1.0) time0 = t;
-	    snprintf(ts + strlen(ts), sizeof(ts), "[%.4f]", tv.tv_sec, t - time0);
+	    snprintf(ts + strlen(ts), sizeof(ts), "[%.4f]", t - time0);
 	}
 #endif
     }
