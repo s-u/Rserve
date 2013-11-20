@@ -94,13 +94,13 @@ AC_C_BIGENDIAN(AC_DEFINE(BS_BIG_ENDIAN, 1, [Defined if the platform is big-endia
 	       [	        
 AC_MSG_RESULT(endianness unknown - will rely solely on compiler macros)
 AC_MSG_CHECKING([whether compiler sets endianness macros])
-AC_COMPILE_IFELSE([
+AC_COMPILE_IFELSE([AC_LANG_SOURCE([
 #if defined __LITTLE_ENDIAN__ || defined _LITTLE_ENDIAN_ || defined __BIG_ENDIAN__ || defined _BIG_ENDIAN_
 #define BS_OK 1
 #else
 cannot determine compiler's endianness
 #endif
-],[AC_MSG_RESULT(yes)],[
+])],[AC_MSG_RESULT(yes)],[
 AC_MSG_RESULT(no)
 AC_MSG_ERROR([Cannot determine endianness neither from the compiler nor using a test.
 Try adding -D_BIG_ENDIAN_ or -D_LITTLE_ENDIAN_ to PKG_CPPFLAGS.
@@ -163,7 +163,7 @@ AC_MSG_CHECKING([whether to enable IPv6])
 if test "$want_ipv6" = yes; then
 AC_MSG_RESULT([yes])
 AC_MSG_CHECKING([for working IPv6 sockets])
-AC_LINK_IFELSE([
+AC_LINK_IFELSE([AC_LANG_SOURCE([
 #include <sys/socket.h>
 #include <netinet/in.h>
 int main(void) {
@@ -173,7 +173,7 @@ int main(void) {
     sin.sin6_addr = in6addr_any;
     return 0;
 }
-],[AC_MSG_RESULT(yes)
+])],[AC_MSG_RESULT(yes)
 have_ipv6=yes],[AC_MSG_RESULT(no)])
 else
 AC_MSG_RESULT([no])
