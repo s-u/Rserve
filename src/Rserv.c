@@ -2695,7 +2695,7 @@ void Rserve_QAP1_connected(void *thp) {
 							/* valid reference -- replace it in the call */
 							SEXP occall = CAR(ocv), ocname = TAG(ocv);
 							SETCAR(val, occall);
-							ulog("OCcall '%s': ", (ocname == R_NilValue) ? "<null>" : PRINTNAME(ocname));
+							ulog("OCcall '%s': ", (ocname == R_NilValue) ? "<null>" : CHAR(PRINTNAME(ocname)));
 							valid = 1;
 						}
 					}
