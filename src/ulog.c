@@ -56,7 +56,7 @@ static char hn[512];
 static char buf[4096];
 static char ts[64];
 static char buf_pos;
-static double time0;
+static double time0, timeN;
 
 void ulog_set_path(const char *path) {
     ulog_path = path ? strdup(path) : 0;
@@ -94,8 +94,9 @@ void ulog_begin() {
 	    double t;
 	    gettimeofday(&tv, 0);
 	    t = ((double) tv.tv_sec) + (((double) tv.tv_usec) / 1000000.0);
-	    if (time0 < 1.0) time0 = t;
-	    snprintf(ts + strlen(ts), sizeof(ts), "[%.4f]", t - time0);
+	    if (time0 < 1.0) timeN = time0 = t;
+	    snprintf(ts + strlen(ts), sizeof(ts), "[%.4f/%.4f]", t - time0, t - timeN);
+	    timeN = t;
 	}
 #endif
     }
