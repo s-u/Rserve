@@ -2,6 +2,17 @@
 ---------------------------
 
 1.8-0	(under development)
+    o	new logging mechanism has been added ot Rserve. It can
+	be enabled using the
+
+	   ulog <path>
+
+	directive and uses syslogd-compatible unix socket or UDP
+	datagram transfer to log events. Currently, only OCAP
+	events are logged.
+
+    o	OCAPs can now be tagged with a name	
+
     o	avoid duplicate symbols by not loading the Rserve dylib
 	inside an embedded Rserve instance. This avoid issues
 	of calling the wrong symbols, but it implies that
