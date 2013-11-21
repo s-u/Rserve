@@ -18,18 +18,23 @@
 
 */
 
+#define DEFAULT_ULOG_PORT 514
+
 #ifndef NO_CONFIG_H
 #include "config.h"
 #endif
 
 #include "ulog.h"
 
+/* FIXME: now that we support UDP/TCP we could make this work on Windows ... */
 #ifndef WIN32
 
+#include <stdlib.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
 #include <unistd.h>
 #include <string.h>
 #if TIME_WITH_SYS_TIME
@@ -51,6 +56,7 @@
 
 static int   ulog_sock = -1;
 static char *ulog_path;
+static int   ulog_dcol, ulog_port = 0;
 
 static char hn[512];
 static char buf[4096];
@@ -70,10 +76,29 @@ void ulog_begin() {
     if (!ulog_path) return;
 
     if (ulog_sock == -1) { /* first-time user */
+	int u_family = AF_LOCAL;
+	int u_sock   = SOCK_DGRAM;
 	gethostname(hn, sizeof(hn));
-	ulog_sock = socket(AF_LOCAL, SOCK_DGRAM, 0);
-	if (ulog_sock == -1)
+	if (!strncmp(ulog_path, "udp://", 6) || !strncmp(ulog_path, "tcp://", 6)) {
+	    const char *c;
+	    u_family = AF_INET;
+	    if (ulog_path[0] == 't') u_sock = SOCK_STREAM;
+	    c = strchr(ulog_path + 6, ':');
+	    ulog_port = DEFAULT_ULOG_PORT;
+	    if (c) {
+		ulog_dcol = (int) (c - ulog_path);
+		ulog_port = atoi(c + 1);
+		if (ulog_port < 1)
+		    ulog_port = DEFAULT_ULOG_PORT;
+	    }
+	    /* FIXME: we don't resolve host names - only IPs are supported for now */
+	}
+	fprintf(stderr, "ULOG: begin %s %s port=%d\n", (u_family == AF_INET) ? "INET" : "UNIX", (u_sock == SOCK_DGRAM) ? "DGRAM" : "STREAM", ulog_port);
+	ulog_sock = socket(u_family, u_sock, 0);
+	if (ulog_sock == -1) {
+	    perror("socket()");
 	    return;
+	}
 #if defined O_NONBLOCK && defined F_SETFL
 	{ /* try to use non-blocking socket where available */
 	    int flags = fcntl(ulog_sock, F_GETFL, 0);
@@ -121,12 +146,25 @@ void ulog_add(const char *format, ...) {
 }
 
 void ulog_end() {
-    struct sockaddr_un sa;
-    if (!buf_pos) return;
-    bzero(&sa, sizeof(sa));
-    sa.sun_family = AF_LOCAL;
-    strcpy(sa.sun_path, ulog_path); /* FIXME: check possible overflow? */
-    sendto(ulog_sock, buf, buf_pos, 0, (struct sockaddr*) &sa, sizeof(sa));
+    if (ulog_port) {
+	struct sockaddr_in sa;
+	bzero(&sa, sizeof(sa));
+	sa.sin_family = AF_INET;
+	sa.sin_port = htons(ulog_port);
+	ulog_path[ulog_dcol] = 0;
+	sa.sin_addr.s_addr = inet_addr(ulog_path + 6);
+	ulog_path[ulog_dcol] = ':'; /* we probably don't even need this ... */
+	sendto(ulog_sock, buf, buf_pos, 0, (struct sockaddr*) &sa, sizeof(sa));
+	perror("INET.sendto");
+    } else {
+	struct sockaddr_un sa;
+	if (!buf_pos) return;
+	bzero(&sa, sizeof(sa));
+	sa.sun_family = AF_LOCAL;
+	strcpy(sa.sun_path, ulog_path); /* FIXME: check possible overflow? */
+	sendto(ulog_sock, buf, buf_pos, 0, (struct sockaddr*) &sa, sizeof(sa));
+	perror("UNIX.sendto");
+    }
     buf_pos = 0;
 }
 
