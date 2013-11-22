@@ -2596,7 +2596,6 @@ int OCAP_iteration(qap_runtime_t *rt) {
 				return 1;
 			} else {
 				char *sendhead = 0;
-				int canProceed = 1;
 				rlen_t tempSB = 0;
 				/* check buffer size vs REXP size to avoid dangerous overflows
 				   todo: resize the buffer as necessary
@@ -2607,10 +2606,9 @@ int OCAP_iteration(qap_runtime_t *rt) {
 				   converted. They should be convered by this margin but it is an ugly hack!! */
 				rs += (rs >> 2);
 #ifdef RSERV_DEBUG
-				printf("result storage size = %ld bytes\n",(long)rs);
+				printf("result storage size = %ld bytes (buffer %ld bytes)\n",(long)rs, (long)rt->buf_size);
 #endif
 				if (rs > rt->buf_size - 64L) { /* is the send buffer too small ? */
-					canProceed = 0;
 					if (maxSendBufSize && rs + 64L > maxSendBufSize) { /* first check if we're allowed to resize */
 						unsigned int osz = (rs > 0xffffffff) ? 0xffffffff : rs;
 						osz = itop(osz);
@@ -2649,41 +2647,41 @@ int OCAP_iteration(qap_runtime_t *rt) {
 								sendRespData(args, SET_STAT(RESP_ERR, ERR_object_too_big), 4, &osz);
 								return 1;
 							}
-						} else canProceed = 1;
-					}
-					if (canProceed) {
-						/* first we have 4 bytes of a header saying this is an encoded SEXP, then comes the SEXP */
-						char *sxh = rt->buf + 8;
-						char *tail = (char*)QAP_storeSEXP((unsigned int*)sxh, exp, rs);
-						
-						/* set type to DT_SEXP and correct length */
-						if ((tail - sxh) > 0xfffff0) { /* we must use the "long" format */
-							rlen_t ll = tail - sxh;
-							((unsigned int*)rt->buf)[0] = itop(SET_PAR(DT_SEXP | DT_LARGE, ll & 0xffffff));
-							((unsigned int*)rt->buf)[1] = itop(ll >> 24);
-							sendhead = rt->buf;
-						} else {
-							sendhead = rt->buf + 4;
-							((unsigned int*)rt->buf)[1] = itop(SET_PAR(DT_SEXP,tail - sxh));
 						}
+					}
+				}
+				{
+					/* first we have 4 bytes of a header saying this is an encoded SEXP, then comes the SEXP */
+					char *sxh = rt->buf + 8;
+					char *tail = (char*)QAP_storeSEXP((unsigned int*)sxh, exp, rs);
+					
+					/* set type to DT_SEXP and correct length */
+					if ((tail - sxh) > 0xfffff0) { /* we must use the "long" format */
+						rlen_t ll = tail - sxh;
+						((unsigned int*)rt->buf)[0] = itop(SET_PAR(DT_SEXP | DT_LARGE, ll & 0xffffff));
+						((unsigned int*)rt->buf)[1] = itop(ll >> 24);
+						sendhead = rt->buf;
+					} else {
+						sendhead = rt->buf + 4;
+						((unsigned int*)rt->buf)[1] = itop(SET_PAR(DT_SEXP,tail - sxh));
+					}
 #ifdef RSERV_DEBUG
-						printf("stored SEXP; length=%ld (incl. DT_SEXP header)\n",(long) (tail - sendhead));
+					printf("stored SEXP; length=%ld (incl. DT_SEXP header)\n",(long) (tail - sendhead));
 #endif
-						sendRespData(args, RESP_OK, tail - sendhead, sendhead);
-						if (tempSB) { /* if this is just a temporary sendbuffer then shrink it back to normal */
+					sendRespData(args, RESP_OK, tail - sendhead, sendhead);
+					if (tempSB) { /* if this is just a temporary sendbuffer then shrink it back to normal */
 #ifdef RSERV_DEBUG
-							printf("Releasing temporary sendbuf and restoring old size of %ld bytes.\n", (long) rt->buf_size);
+						printf("Releasing temporary sendbuf and restoring old size of %ld bytes.\n", (long) rt->buf_size);
 #endif
-							free(rt->buf);
-							rt->buf = (char*)malloc(rt->buf_size);
-							if (!rt->buf) { /* this should be really rare since tempSB was much larger */
+						free(rt->buf);
+						rt->buf = (char*)malloc(rt->buf_size);
+						if (!rt->buf) { /* this should be really rare since tempSB was much larger */
 #ifdef RSERV_DEBUG
-								fprintf(stderr,"FATAL: out of memory while re-allocating send buffer to %ld (fallback#2),\n", (long) rt->buf_size);
+							fprintf(stderr,"FATAL: out of memory while re-allocating send buffer to %ld (fallback#2),\n", (long) rt->buf_size);
 #endif
-								sendResp(args, SET_STAT(RESP_ERR, ERR_out_of_mem));
-								closesocket(s);
-								return 0;
-							}
+							sendResp(args, SET_STAT(RESP_ERR, ERR_out_of_mem));
+							closesocket(s);
+							return 0;
 						}
 					}
 				}
