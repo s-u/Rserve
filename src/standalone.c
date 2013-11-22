@@ -10,7 +10,7 @@ extern int Rf_initEmbeddedR(int, char**);
 #include <R_ext/Rdynload.h>
 
 /* R API from oc.c */
-SEXP Rserve_oc_register(SEXP what);
+SEXP Rserve_oc_register(SEXP what, SEXP sName);
 
 static int ex(int res) {
 	RSsrv_done();
@@ -181,7 +181,7 @@ int main(int argc, char **argv)
 			{"Rserve_ctrlSource", (DL_FUNC) &Rserve_ctrlSource, 1},
 			{"Rserve_oobSend", (DL_FUNC) &Rserve_oobSend, 2},
 			{"Rserve_oobMsg", (DL_FUNC) &Rserve_oobMsg, 2},
-			{"Rserve_oc_register", (DL_FUNC) &Rserve_oc_register, 1},
+			{"Rserve_oc_register", (DL_FUNC) &Rserve_oc_register, 2},
 			{NULL, NULL, 0}
 		};
 		R_registerRoutines(R_getEmbeddingDllInfo(), 0, mainCallMethods, 0, 0);

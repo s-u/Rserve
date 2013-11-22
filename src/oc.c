@@ -105,6 +105,8 @@ char *oc_register(SEXP what, char *dst, int len, const char *name) {
 /* Note that we don't expose oc_resolve, because we don't want to facilitate
    unwanted discovery (although code that can poke around like that has
    already broken through some barriers) */
+/* NOTE: if you change the signature, you *have* to change the registration
+   and declaration in standalone.c !! */
 SEXP Rserve_oc_register(SEXP what, SEXP sName) {
     const char *name = 0;
     char token[MAX_OC_TOKEN_LEN + 1];
