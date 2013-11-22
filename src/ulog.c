@@ -95,10 +95,7 @@ void ulog_begin() {
 	}
 	fprintf(stderr, "ULOG: begin %s %s port=%d\n", (u_family == AF_INET) ? "INET" : "UNIX", (u_sock == SOCK_DGRAM) ? "DGRAM" : "STREAM", ulog_port);
 	ulog_sock = socket(u_family, u_sock, 0);
-	if (ulog_sock == -1) {
-	    perror("socket()");
-	    return;
-	}
+	if (ulog_sock == -1) return;
 #if defined O_NONBLOCK && defined F_SETFL
 	{ /* try to use non-blocking socket where available */
 	    int flags = fcntl(ulog_sock, F_GETFL, 0);
@@ -146,6 +143,10 @@ void ulog_add(const char *format, ...) {
 }
 
 void ulog_end() {
+#ifdef RSERV_DEBUG
+    buf[buf_pos] = 0;
+    fprintf(stderr, "ULOG: %s", buf);
+#endif
     if (ulog_port) {
 	struct sockaddr_in sa;
 	bzero(&sa, sizeof(sa));
@@ -155,7 +156,6 @@ void ulog_end() {
 	sa.sin_addr.s_addr = inet_addr(ulog_path + 6);
 	ulog_path[ulog_dcol] = ':'; /* we probably don't even need this ... */
 	sendto(ulog_sock, buf, buf_pos, 0, (struct sockaddr*) &sa, sizeof(sa));
-	perror("INET.sendto");
     } else {
 	struct sockaddr_un sa;
 	if (!buf_pos) return;
@@ -163,7 +163,6 @@ void ulog_end() {
 	sa.sun_family = AF_LOCAL;
 	strcpy(sa.sun_path, ulog_path); /* FIXME: check possible overflow? */
 	sendto(ulog_sock, buf, buf_pos, 0, (struct sockaddr*) &sa, sizeof(sa));
-	perror("UNIX.sendto");
     }
     buf_pos = 0;
 }
