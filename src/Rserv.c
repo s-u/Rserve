@@ -1835,26 +1835,27 @@ int RS_fork(args_t *arg) {
 static void restore_signal_handlers(); /* forward decl */
 
 /* return 0 if the child was prepared. Returns the result of fork() is forked and this is the parent */
-int Rserve_prepare_child(args_t *arg) {
+int Rserve_prepare_child(args_t *args) {
 #ifdef FORKED  
 	long rseed = random();
 
     rseed ^= time(0);
-	
+
+	if (is_child) return 0; /* this is a no-op if we are already a child
+							   FIXME: thould this be an error ? */
+
 	parent_io = 0;
 
-#if 0 /* currenlty we disable controls in sub-protocols */
 	/* we use the input pipe only if child control is enabled. disabled pipe means no registration */
 	if (child_control || self_control)
 		parent_io = rsio_new();
-#endif
 
 	generate_addr(&child_addr);
 
-    if ((lastChild = RS_fork(arg)) != 0) { /* parent/master part */
+    if ((lastChild = RS_fork(args)) != 0) { /* parent/master part */
 		int forkErrno = errno; //grab errno close to source before it can be changed by other failures
 		/* close the connection socket - the child has it already */
-		closesocket(arg->s);
+		closesocket(args->s);
 		if (lastChild == -1) {
 			RSEprintf("WARNING: fork() failed in Rserve_prepare_child(): %s\n",strerror(forkErrno));
 			if (parent_io) {
@@ -1896,7 +1897,7 @@ int Rserve_prepare_child(args_t *arg) {
 #ifdef CAN_TCP_NODELAY
     {
      	int opt = 1;
-        setsockopt(arg->s, IPPROTO_TCP, TCP_NODELAY, (const char*) &opt, sizeof(opt));
+        setsockopt(args->s, IPPROTO_TCP, TCP_NODELAY, (const char*) &opt, sizeof(opt));
     }
 #endif
 
@@ -1904,7 +1905,7 @@ int Rserve_prepare_child(args_t *arg) {
 
 #endif
 
-	self_args = arg;
+	self_args = args;
 
 	return 0;
 }
@@ -2288,6 +2289,12 @@ typedef struct qap_runtime {
 	int level;          /* re-entrance level */
 } qap_runtime_t;
 
+static qap_runtime_t *current_runtime;
+
+qap_runtime_t *get_qap_runtime() {
+	return current_runtime;
+}
+
 /* NOTE: the runtime becomes the owner of args! */
 static qap_runtime_t *new_qap_runtime(struct args *args) {
 	qap_runtime_t *n = (qap_runtime_t*) malloc(sizeof(qap_runtime_t));
@@ -2313,11 +2320,13 @@ static void free_qap_runtime(qap_runtime_t *rt) {
 			free(rt->args);
 			rt->args = 0;
 		}
+		if (rt == current_runtime)
+			current_runtime = 0;
 		free(rt);
 	}
 }
 
-static int OCAP_iteration(qap_runtime_t *rt);
+int OCAP_iteration(qap_runtime_t *rt);
 
 void Rserve_OCAP_connected(void *thp) {
     struct args *args = (struct args*)thp;
@@ -2325,16 +2334,23 @@ void Rserve_OCAP_connected(void *thp) {
 	int fres = Rserve_prepare_child(args);
 	qap_runtime_t *rt;
 
-	if (fres != 0) { /* not a child */
+	if (fres != 0) { /* not a child (error or parent) */
 		free(args);
 		return;
 	}
+
 	/* this should never happen, but just in case ... */
 	if (!(args->srv->flags & SRV_QAP_OC)) {
 		RSEprintf("FATAL: OCAP is disabled yet we are in OCAPconnected");
 		free(args);
 		return;
-	} else {
+	}
+
+	/* setup TLS if desired */
+	if ((args->srv->flags & SRV_TLS) && shared_tls(0))
+		add_tls(args, shared_tls(0), 1);
+
+	{ /* OCinit */
 		SOCKET s = args->s;
 		rlen_t rs;
 		int Rerr = 0;
@@ -2357,7 +2373,7 @@ void Rserve_OCAP_connected(void *thp) {
 			return;			
 		}
 
-		rt = new_qap_runtime(args);
+		current_runtime = rt = new_qap_runtime(args);
 		if (!rt) {
 			ulog("OCAP-ERROR: cannot allocate QAP runtime");
 			closesocket(s);
@@ -2419,12 +2435,19 @@ void Rserve_OCAP_connected(void *thp) {
 }
 
 /* 1 = iteration successful, 0 = iteration failed - assume conenction has been closed */
-static int OCAP_iteration(qap_runtime_t *rt) {
-	struct args *args = rt->args;
+int OCAP_iteration(qap_runtime_t *rt) {
+	struct args *args;
     struct phdr ph;
-	server_t *srv = args->srv;
-	SOCKET s = args->s;
+	server_t *srv;
+	SOCKET s;
 	int rn;
+
+	if (!rt) rt = current_runtime;
+	if (!rt || !rt->args) return 0;
+
+	args = rt->args;
+	srv = args->srv;
+	s = args->s;
 	
     while((rn = srv->recv(args, (char*)&ph, sizeof(ph))) == sizeof(ph)) {
 		size_t plen = 0;
@@ -2592,7 +2615,7 @@ static int OCAP_iteration(qap_runtime_t *rt) {
 						unsigned int osz = (rs > 0xffffffff) ? 0xffffffff : rs;
 						osz = itop(osz);
 #ifdef RSERV_DEBUG
-						printf("ERROR: object too big (sendBuf=%ld)\n", sendBufSize);
+						printf("ERROR: object too big (buffer=%ld)\n", rt->buf_size);
 #endif
 						sendRespData(args, SET_STAT(RESP_ERR, ERR_object_too_big), 4, &osz);
 						return 1;
@@ -2612,7 +2635,7 @@ static int OCAP_iteration(qap_runtime_t *rt) {
 							rt->buf = (char*)malloc(rt->buf_size);
 							if (!rt->buf) { /* we couldn't re-allocate the buffer */
 #ifdef RSERV_DEBUG
-								fprintf(stderr,"FATAL: out of memory while re-allocating send buffer to %ld (fallback#1)\n", sendBufSize);
+								fprintf(stderr,"FATAL: out of memory while re-allocating send buffer to %ld (fallback#1)\n", (long) rt->buf_size);
 #endif
 								sendResp(args, SET_STAT(RESP_ERR, ERR_out_of_mem));
 								closesocket(s);
@@ -2621,7 +2644,7 @@ static int OCAP_iteration(qap_runtime_t *rt) {
 								unsigned int osz = (rs > 0xffffffff) ? 0xffffffff : rs;
 								osz = itop(osz);
 #ifdef RSERV_DEBUG
-								printf("ERROR: object too big (sendBuf=%ld) and couldn't allocate big enough send buffer\n", sendBufSize);
+								printf("ERROR: object too big (sendBuf=%ld) and couldn't allocate big enough send buffer\n", (long) rt->buf_size);
 #endif
 								sendRespData(args, SET_STAT(RESP_ERR, ERR_object_too_big), 4, &osz);
 								return 1;
@@ -2649,13 +2672,13 @@ static int OCAP_iteration(qap_runtime_t *rt) {
 						sendRespData(args, RESP_OK, tail - sendhead, sendhead);
 						if (tempSB) { /* if this is just a temporary sendbuffer then shrink it back to normal */
 #ifdef RSERV_DEBUG
-							printf("Releasing temporary sendbuf and restoring old size of %ld bytes.\n", sendBufSize);
+							printf("Releasing temporary sendbuf and restoring old size of %ld bytes.\n", (long) rt->buf_size);
 #endif
 							free(rt->buf);
 							rt->buf = (char*)malloc(rt->buf_size);
 							if (!rt->buf) { /* this should be really rare since tempSB was much larger */
 #ifdef RSERV_DEBUG
-								fprintf(stderr,"FATAL: out of memory while re-allocating send buffer to %ld (fallback#2),\n", sendBufSize);
+								fprintf(stderr,"FATAL: out of memory while re-allocating send buffer to %ld (fallback#2),\n", (long) rt->buf_size);
 #endif
 								sendResp(args, SET_STAT(RESP_ERR, ERR_out_of_mem));
 								closesocket(s);
@@ -2676,7 +2699,6 @@ static int OCAP_iteration(qap_runtime_t *rt) {
 	return 0;
 }
 
-/* FIXME: we are not using Rserve_prepare_child so the behavior may differ between QAP and others! */
 /* working thread/function. the parameter is of the type struct args* */
 /* This server function implements the Rserve QAP1 protocol */
 void Rserve_QAP1_connected(void *thp) {
@@ -2708,69 +2730,23 @@ void Rserve_QAP1_connected(void *thp) {
     SEXP xp,exp;
     FILE *cf=0;
 
-#ifdef FORKED  
+	int pc_res;
 
-	long rseed = random();
+	/* OCAP has moved out to its own path
+	   for security reasons (this compatibility
+	   re-direct should go away after testing) */
+	if (a->srv->flags & SRV_QAP_OC) {
+		Rserve_OCAP_connected(a);
+		return;
+	}
 
-    rseed ^= time(0);
-	
-	if (!is_child) { /* in case we get called from a child (e.g. other server has spawned us)
-						we perform the following only as parent - assuming it has been done already */
-		parent_io = 0;
-		generate_addr(&child_addr);
+	pc_res = Rserve_prepare_child(a);
+	if (pc_res != 0) { /* either failed or parent */
+		free(a);
+		return;
+	}
 
-		/* we use the input pipe only if child control is enabled. disabled pipe means no registration */
-		if (child_control || self_control)
-			parent_io = rsio_new();
-
-		if ((lastChild = RS_fork(a)) != 0) { /* parent/master part */
-			int forkErrno = errno; //grab errno close to source before it can be changed by other failures
-			/* close the connection socket - the child has it already */
-			closesocket(a->s);
-			if (lastChild == -1) { /* fork failed */
-				RSEprintf("WARNING: fork() failed in Rserve_QAP1_connected(): %s\n",strerror(forkErrno));
-				rsio_free(parent_io);
-				parent_io = 0;
-			}				
-			if (parent_io) { /* if we have a valid pipe register the child */
-				child_process_t *cp = (child_process_t*) malloc(sizeof(child_process_t));
-				rsio_set_parent(parent_io); /* close the write end which is what the child will be using */
-#ifdef RSERV_DEBUG
-				printf("child %d was spawned, registering input pipe\n", (int)lastChild);
-#endif
-				cp->io = parent_io;
-				cp->addr = child_addr;
-				cp->pid = lastChild;
-				cp->next = children;
-				if (children) children->prev = cp;
-				cp->prev = 0;
-				children = cp;
-			}
-			free(a); /* release the args */
-			return;
-		}
-
-		if (main_argv && tag_argv && strlen(main_argv[0]) >= 8)
-			strcpy(main_argv[0] + strlen(main_argv[0]) - 8, "/RsrvCHq");
-
-		/* child part */
-		restore_signal_handlers(); /* the handlers handle server shutdown so not needed in the child */
-		is_child = 1;
-		if (parent_io) /* if we have a vaild pipe to the parent set it up */
-			rsio_set_child(parent_io);
-		
-		srandom(rseed);
-    
-		parentPID = getppid();
-		close_all_srv_sockets(); /* close all server sockets - this includes a->ss */
-		
-		performConfig(SU_CLIENT);
-    }
-
-#endif
-
-	self_args = a;
-
+	/* FIXME: re-factor to use qap_runtime jsut like OCAP does */
     buf = (char*) malloc(inBuf + 8);
     sfbuf = (char*) malloc(sfbufSize);
     if (!buf || !sfbuf) {
@@ -2804,74 +2780,10 @@ void Rserve_QAP1_connected(void *thp) {
     
     csock = s;
     
-#ifdef CAN_TCP_NODELAY
-    {
-		int opt=1;
-		setsockopt(s, IPPROTO_TCP, TCP_NODELAY, (const char*) &opt, sizeof(opt));
-    }
-#endif
-
 	if ((a->srv->flags & SRV_TLS) && shared_tls(0))
 		add_tls(a, shared_tls(0), 1);
 
-	if (a->srv->flags & SRV_QAP_OC) { /* use OC handshake instead of regular QAP ID string */
-		rlen_t rs;
-		int Rerr = 0;
-		SEXP oc;
-
-#ifdef RSERV_DEBUG
-		printf("evaluating oc.init()\n");
-#endif
-		ulog("OCinit");
-
-		oc = R_tryEval(PROTECT(LCONS(install("oc.init"), R_NilValue)), R_GlobalEnv, &Rerr);
-		UNPROTECT(1);
-		ulog("OCinit-result: %s", Rerr ? "FAILED" : "OK");
-		if (Rerr) { /* cannot get any capabilities, bail out */
-#ifdef RSERV_DEBUG
-			printf("ERROR: failed to eval oc.init() - aborting!");
-#endif
-			free(sendbuf); free(sfbuf);
-			closesocket(s);
-			return;			
-		}
-		PROTECT(oc);
-		a->flags |= F_OUT_BIN; /* in OC everything is binary */
-		rs = QAP_getStorageSize(oc);
-#ifdef RSERV_DEBUG
-		printf("oc.init storage size = %ld bytes\n",(long)rs);
-#endif
-		if (rs > sendBufSize - 64L) { /* is the send buffer too small ? */
-			unsigned int osz = (rs > 0xffffffff) ? 0xffffffff : rs;
-			osz = itop(osz);
-#ifdef RSERV_DEBUG
-			printf("ERROR: object too big (sendBuf=%ld)\n", sendBufSize);
-#endif
-			/* FIXME: */
-			sendRespData(a, SET_STAT(RESP_ERR, ERR_object_too_big), 4, &osz);
-			free(sendbuf); free(sfbuf);
-			closesocket(s);
-			return;
-		} else {
-			char *sxh = sendbuf + 8, *sendhead = 0;
-			char *tail = (char*)QAP_storeSEXP((unsigned int*)sxh, oc, rs);
-
-			/* set type to DT_SEXP and correct length */
-			if ((tail - sxh) > 0xfffff0) { /* we must use the "long" format */
-				rlen_t ll = tail - sxh;
-				((unsigned int*)sendbuf)[0] = itop(SET_PAR(DT_SEXP | DT_LARGE, ll & 0xffffff));
-				((unsigned int*)sendbuf)[1] = itop(ll >> 24);
-				sendhead = sendbuf;
-			} else {
-				sendhead = sendbuf + 4;
-				((unsigned int*)sendbuf)[1] = itop(SET_PAR(DT_SEXP,tail - sxh));
-			}
-#ifdef RSERV_DEBUG
-			printf("stored SEXP; length=%ld (incl. DT_SEXP header)\n",(long) (tail - sendhead));
-#endif
-			sendRespData(a, CMD_OCinit, tail - sendhead, sendhead);
-		}
-	} else {
+	{
 		strcpy(buf,IDstring);
 		if (authReq) {
 #ifdef HAS_CRYPT
