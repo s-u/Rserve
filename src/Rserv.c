@@ -2275,6 +2275,27 @@ static void rm_rf(const char *what) {
 }
 #endif
 
+static char *child_workdir;
+
+char *get_workdir() {
+	return child_workdir;
+}
+
+static void setup_workdir() {
+#ifdef unix
+    if (workdir) {
+		if (chdir(workdir))
+			mkdir(workdir,0755);
+		wdname[511]=0;
+		snprintf(wdname, 511, "%s/conn%d", workdir, (int)getpid());
+		rm_rf(wdname);
+		mkdir(wdname, wd_mode);
+		chdir(wdname);
+		child_workdir = strdup(wdname);
+    }
+#endif
+}
+
 /*---- this is an attempt to factor out the OCAP mode into a minimal
        set of code that is not shared with other protocols to make
 	   it more safe and re-entrant.
@@ -2345,6 +2366,8 @@ void Rserve_OCAP_connected(void *thp) {
 		free(args);
 		return;
 	}
+
+	setup_workdir();
 
 	/* setup TLS if desired */
 	if ((args->srv->flags & SRV_TLS) && shared_tls(0))
@@ -2756,18 +2779,8 @@ void Rserve_QAP1_connected(void *thp) {
     }
     memset(buf, 0, inBuf + 8);
 
-#ifdef unix
-    if (workdir) {
-		if (chdir(workdir))
-			mkdir(workdir,0755);
-		wdname[511]=0;
-		snprintf(wdname, 511, "%s/conn%d", workdir, (int)getpid());
-		rm_rf(wdname);
-		mkdir(wdname, wd_mode);
-		chdir(wdname);
-    }
-#endif
-	
+	setup_workdir();
+
     sendBufSize = sndBS;
     sendbuf = (char*) malloc(sendBufSize);
 #ifdef RSERV_DEBUG
