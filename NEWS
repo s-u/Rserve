@@ -23,6 +23,15 @@
     o	symbols are now registered *before* processing source/eval
 	directives from the configuration file
 
+    o	added new option to remove the working directory on
+	session close recursively - activated by
+
+	   workdir.clean enable
+
+	If not set, the default is to only remove it if it is empty
+	(on the assumption there are files that will be served beyond
+	the life of the session).
+
 
 1.7-3	2013-08-21
     o	the handling of server configuration modes has been

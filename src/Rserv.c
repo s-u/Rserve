@@ -317,6 +317,7 @@ static int allowIO = 1;  /* 1=allow I/O commands, 0=don't */
 static char *workdir = "/tmp/Rserv";
 static int   wd_mode = 0755;
 static char *pwdfile = 0;
+static int   wipe_workdir = 0; /* if set acts as rm -rf otherwise jsut rmdir */
 
 static SOCKET csock = -1;
 
@@ -1206,6 +1207,10 @@ static int setConfig(const char *c, const char *p) {
 	}
 	if (!strcmp(c,"workdir")) {
 		workdir = (*p) ? strdup(p) : 0;
+		return 1;
+	}
+	if (!strcmp(c,"workdir.clean") && p) {
+		wipe_workdir = (p[0] == 'e' || p[0] == 'y' || p[0] == '1' || p[0] == 'T') ? 1 : 0;
 		return 1;
 	}
 	if (!strcmp(c, "workdir.mode")) {
@@ -2296,6 +2301,37 @@ static void setup_workdir() {
 #endif
 }
 
+void Rserve_cleanup() {
+	/* run .Rserve.done() if present */
+	SEXP fun, fsym = install(".Rserve.done");
+	fun = findVarInFrame(R_GlobalEnv, fsym);
+	if (Rf_isFunction(fun)) {
+		int Rerror = 0;
+#ifdef unix
+		if (child_workdir)
+			chdir(child_workdir); /* guarantee that we are running in the workign directory */
+#endif
+		R_tryEval(lang1(fsym), R_GlobalEnv, &Rerror);
+	}
+#ifdef unix
+	if (child_workdir) {
+		if (workdir)
+			chdir(workdir); /* change to the level up */
+		if (wipe_workdir)
+			rm_rf(wipe_workdir);
+		else
+			rmdir(wdname);
+	}
+#endif
+
+	/* this is probably superfluous ... just make sure no one
+	   tries to use parent_io after Rserve_cleanup() */
+	if (parent_io) {
+		rsio_free(parent_io);
+		parent_io = 0;
+	}
+}
+
 /*---- this is an attempt to factor out the OCAP mode into a minimal
        set of code that is not shared with other protocols to make
 	   it more safe and re-entrant.
@@ -2454,6 +2490,8 @@ void Rserve_OCAP_connected(void *thp) {
 #endif
 
 	while (OCAP_iteration(rt)) {}
+	
+	Rserve_cleanup();
 	free_qap_runtime(rt);
 }
 
@@ -3714,22 +3752,6 @@ void Rserve_QAP1_connected(void *thp) {
 		sendResp(a, SET_STAT(RESP_ERR, ERR_conn_broken));
     closesocket(s);
     free(sendbuf); free(sfbuf); free(buf);
-	{ /* run .Rserve.done() if present */
-		SEXP fun, fsym = install(".Rserve.done");
-		fun = findVarInFrame(R_GlobalEnv, fsym);
-		if (Rf_isFunction(fun)) {
-#ifdef unix
-			chdir(wdname); /* guarantee that we are running in the workign directory */
-#endif
-			R_tryEval(lang1(fsym), R_GlobalEnv, &Rerror);
-		}
-	}
-#ifdef unix
-    if (workdir) {
-		chdir(workdir);
-		rmdir(wdname);
-    }
-#endif
     
 #ifdef RSERV_DEBUG
     printf("done.\n");
