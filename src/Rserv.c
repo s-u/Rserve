@@ -2318,7 +2318,7 @@ void Rserve_cleanup() {
 		if (workdir)
 			chdir(workdir); /* change to the level up */
 		if (wipe_workdir)
-			rm_rf(wipe_workdir);
+			rm_rf(child_workdir);
 		else
 			rmdir(wdname);
 	}
@@ -2335,7 +2335,6 @@ void Rserve_cleanup() {
 /*---- this is an attempt to factor out the OCAP mode into a minimal
        set of code that is not shared with other protocols to make
 	   it more safe and re-entrant.
-	   It is not used as of yet.
   ----*/
        
 
