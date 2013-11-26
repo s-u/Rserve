@@ -13,7 +13,7 @@
 
 struct tls {
     SSL_CTX *ctx;
-    SSL_METHOD *method;
+    const SSL_METHOD *method;
 };
 
 static int first_tls = 1;

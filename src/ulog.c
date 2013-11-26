@@ -61,7 +61,7 @@ static int   ulog_dcol, ulog_port = 0;
 static char hn[512];
 static char buf[4096];
 static char ts[64];
-static char buf_pos;
+static unsigned int buf_pos;
 static double time0, timeN;
 
 void ulog_set_path(const char *path) {

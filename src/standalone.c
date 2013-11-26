@@ -218,7 +218,7 @@ int main(int argc, char **argv)
 			exit(0);
 		}
 		setsid();
-		chdir("/");
+		if (chdir("/")) {} /* start in root which is guaranteed to exist */
 	} else puts("Rserve started in non-daemon mode.");
 #endif
 	RSsrv_init();
