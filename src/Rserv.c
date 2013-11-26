@@ -2626,6 +2626,7 @@ int OCAP_iteration(qap_runtime_t *rt) {
 			unsigned int *ibuf = (unsigned int*) rt->buf;
 			/* FIXME: this is a bit hacky since we skipped parameter parsing */
 			int par_t = ibuf[0] & 0xff;
+			char *c_ocname = 0;
 			if (par_t == DT_SEXP || par_t == (DT_SEXP | DT_LARGE)) {
 				unsigned int *sptr;
 				sptr = ibuf + ((par_t & DT_LARGE) ? 2 : 1);
@@ -2639,7 +2640,8 @@ int OCAP_iteration(qap_runtime_t *rt) {
 							/* valid reference -- replace it in the call */
 							SEXP occall = CAR(ocv), ocname = TAG(ocv);
 							SETCAR(val, occall);
-							ulog("OCcall '%s': ", (ocname == R_NilValue) ? "<null>" : CHAR(PRINTNAME(ocname)));
+							if (ocname != R_NilValue) c_ocname = CHAR(PRINTNAME(ocname));
+							ulog("OCcall '%s': ", (ocname == R_NilValue) ? "<null>" : c_ocname);
 							valid = 1;
 						}
 					}
@@ -2658,7 +2660,7 @@ int OCAP_iteration(qap_runtime_t *rt) {
 #endif
 			eval_result = R_tryEval(val, R_GlobalEnv, &Rerror);
 			UNPROTECT(1);
-			ulog("OCresult");
+			ulog("OCresult '%s'", c_ocname ? c_ocname : "<null>");
 
 			if (eval_result) exp = PROTECT(eval_result);
 #ifdef RSERV_DEBUG
@@ -3056,6 +3058,9 @@ void Rserve_QAP1_connected(void *thp) {
 		printf("CMD=%08x, pars=%d\n", ph.cmd, pars);
 #endif
 
+		/* FIXME: now that OCAP has a separate server path,
+		   should we really support OCcall outside of OCAP mode?
+		   This piece is only run if OCAP mode is disabled */
 		if (ph.cmd == CMD_OCcall) {
 			int valid = 0;
 			SEXP val = R_NilValue;
