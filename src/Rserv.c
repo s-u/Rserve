@@ -2626,7 +2626,7 @@ int OCAP_iteration(qap_runtime_t *rt) {
 			unsigned int *ibuf = (unsigned int*) rt->buf;
 			/* FIXME: this is a bit hacky since we skipped parameter parsing */
 			int par_t = ibuf[0] & 0xff;
-			char *c_ocname = 0;
+			const char *c_ocname = 0;
 			if (par_t == DT_SEXP || par_t == (DT_SEXP | DT_LARGE)) {
 				unsigned int *sptr;
 				sptr = ibuf + ((par_t & DT_LARGE) ? 2 : 1);
