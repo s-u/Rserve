@@ -315,7 +315,7 @@ static int localSocketMode = 0;   /* if set, chmod is used on the socket when cr
 static int allowIO = 1;  /* 1=allow I/O commands, 0=don't */
 
 static char *workdir = "/tmp/Rserv";
-static int   wd_mode = 0755;
+static int   wd_mode = 0755, wdt_mode = 0755;
 static char *pwdfile = 0;
 static int   wipe_workdir = 0; /* if set acts as rm -rf otherwise jsut rmdir */
 
@@ -1221,6 +1221,17 @@ static int setConfig(const char *c, const char *p) {
 			wd_mode = cm;
 			if ((wd_mode & 0700) != 0700)
 				RSEprintf("WARNING: workdir.mode does not contain 0700 - this may cause problems\n");
+		}
+		return 1;
+	}
+	if (!strcmp(c, "workdir.parent.mode")) {
+		int cm = satoi(p);
+		if (!cm)
+			RSEprintf("ERROR: invalid workdir.parent.mode\n");
+		else {
+			wdt_mode = cm;
+			if ((wdt_mode & 0700) != 0700)
+				RSEprintf("WARNING: workdir.parent.mode does not contain 0700 - this may cause problems\n");
 		}
 		return 1;
 	}
@@ -2289,12 +2300,16 @@ char *get_workdir() {
 static void setup_workdir() {
 #ifdef unix
     if (workdir) {
-		if (chdir(workdir))
-			mkdir(workdir,0755);
+		if (chdir(workdir) && mkdir(workdir, wdt_mode)) {}
+		/* we override umask for the top-level
+		   since it is shared */
+		if (chmod(workdir, wdt_mode)) {}
+
 		wdname[511]=0;
 		snprintf(wdname, 511, "%s/conn%d", workdir, (int)getpid());
 		rm_rf(wdname);
 		mkdir(wdname, wd_mode);
+		/* we don't override umask for the individual ones -- should we? */
 		chdir(wdname);
 		child_workdir = strdup(wdname);
     }
