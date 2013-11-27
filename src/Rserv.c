@@ -1713,6 +1713,7 @@ static int send_oob_sexp(int cmd, SEXP exp) {
 #endif
 			a->msg_id = new_msg_id(a);
 			sendRespData(a, cmd, tail - sendhead, sendhead);
+			ulog("OOB sent (cmd=0x%x, %d bytes)", cmd, tail-sendhead);
 			free(sendbuf);
 		}
 	}	
@@ -1817,9 +1818,11 @@ SEXP Rserve_oobMsg(SEXP exp, SEXP code) {
 			if (i < plen) { /* uh, oh, the stream is corrupted */
 				closesocket(a->s);
 				a->s = -1;
+				ulog("ERROR: read error while reading OOB msg respose, aborting connection");
 				free(orb);
 				Rf_error("read error while reading OOB msg respose, aborting connection");
 			}
+			ulog("OOBmsg response received");
 			/* parse the payload - we ony support SEXPs though (and DT_STRING) */
 			{
 				unsigned int *hi = (unsigned int*) orb, pt = PAR_TYPE(ptoi(hi[0]));
@@ -1855,6 +1858,7 @@ SEXP Rserve_oobMsg(SEXP exp, SEXP code) {
 	} else {
 		closesocket(a->s);
 		a->s = -1;
+		ulog("ERROR: read error in OOB msg header");
 		Rf_error("read error im OOB msg header");
 	}
 	return R_NilValue;
@@ -2585,6 +2589,7 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 
 		if (oob_hdr && (cmd & CMD_OOB)) { /* we're nested in OOB and OOB has arrived - copy header and get out */
 			memcpy(oob_hdr, &ph, sizeof(ph));
+			ulog("OCiteration passing to OOB");
 			return 2;
 		}
 
