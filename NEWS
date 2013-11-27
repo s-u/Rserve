@@ -39,6 +39,24 @@
 	may need to include permissions that are otherwise not
 	granted).
 
+    o	the data offset field in the QAP header is deprecated and can
+	be used for message ID if enabled using
+
+	   msg.id enable
+
+	In that mode all responses will copy the message ID from the
+	request and new requests (such as OOB send/msg) will use
+	randomly generated message IDs. This allows clients to more
+	easily track responses for nested commands. Note that this is
+	backwards-compatible if old clients use the convention of 0
+	data offset which was the norm (as long as OOB is not used).
+
+    o	nested evaluation is supported in OCAP mode. This means that
+	OCcall followed by another OCcall can be processed before the
+	first call terminates if the R side issues an OOB message in
+	which case the second OCcall will be nested within the first
+	call.
+
 
 1.7-3	2013-08-21
     o	the handling of server configuration modes has been

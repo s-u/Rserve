@@ -336,6 +336,7 @@ int child_control = 0;  /* enable/disable the ability of children to send comman
 int self_control = 0;   /* enable/disable the ability to use control commands from within the R process */
 static int tag_argv = 0;/* tag the ARGV with client/server IDs */
 static char *pidfile = 0;/* if set by configuration generate pid file */
+static int use_msg_id;   /* enable/disable the use of msg-ids in message frames */
 
 #ifdef DAEMON
 int daemonize = 1;
@@ -911,6 +912,10 @@ static int setConfig(const char *c, const char *p) {
 #ifdef DAEMON
 		daemonize = (*p == '1' || *p == 'y' || *p == 'e' || *p == 'T') ? 1 : 0;
 #endif
+		return 1;
+	}
+	if (!strcmp(c, "msg.id")) {
+		use_msg_id = (*p == '1' || *p == 'y' || *p == 'e' || *p == 'T') ? 1 : 0;
 		return 1;
 	}
 	if (!strcmp(c, "remote")) {
@@ -1661,8 +1666,8 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr);
 
 args_t *self_args;
 
-static int new_msg_id() {
-	return (int) random();
+static int new_msg_id(args_t *args) {
+	return use_msg_id ? (int) random() : 0;
 }
 
 static char dump_buf[32768]; /* scratch buffer that is static so mem alloc doesn't fail */
@@ -1706,7 +1711,7 @@ static int send_oob_sexp(int cmd, SEXP exp) {
 #ifdef RSERV_DEBUG
 			printf("stored SEXP; length=%ld (incl. DT_SEXP header)\n",(long) (tail - sendhead));
 #endif
-			a->msg_id = new_msg_id();
+			a->msg_id = new_msg_id(a);
 			sendRespData(a, cmd, tail - sendhead, sendhead);
 			free(sendbuf);
 		}
@@ -2587,8 +2592,10 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 
 		/* in OC mode everything but OCcall is invalid */
 		if (cmd != CMD_OCcall) {
+			ulog("VIOLATION: OCAP iteration - only OCcall is allowed but got 0x%x, aborting", cmd);
 			sendResp(args, SET_STAT(RESP_ERR, ERR_disabled));
 			closesocket(s);
+			args->s = -1;
 			return 0;
 		}
 
@@ -2608,6 +2615,7 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 						ulog("ERROR: out of memory while resizing resizing buffer to %ld,\n", (long)rt->buf_size);
 						sendResp(args, SET_STAT(RESP_ERR,ERR_out_of_mem));
 						closesocket(s);
+						args->s = -1;
 						return 0;
 					}
 				}
@@ -2635,6 +2643,7 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 					ulog("ERROR: incomplete OCAP message - closing connection");
 					sendResp(args, SET_STAT(RESP_ERR, ERR_conn_broken));
 					closesocket(s);
+					args->s = -1;
 					return 0;
 				}
 				memset(rt->buf + plen, 0, 8);
@@ -2645,6 +2654,7 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 				ulog("ERROR: input packet is larger than input buffer limit");
 				sendResp(args, SET_STAT(RESP_ERR, ERR_data_overflow));
 				closesocket(s);
+				args->s = -1;
 				return 0;
 			}
 		}
@@ -2680,6 +2690,7 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 			if (!valid) {
 				ulog("ERROR OCcall: invalid reference");
 				closesocket(s);
+				args->s = -1;
 				return 0;
 			}
 			PROTECT(val);
@@ -2721,6 +2732,7 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 #ifdef RSERV_DEBUG
 						printf("ERROR: object too big (buffer=%ld)\n", rt->buf_size);
 #endif
+						ulog("WARNING: object too big to send");
 						sendRespData(args, SET_STAT(RESP_ERR, ERR_object_too_big), 4, &osz);
 						return 1;
 					} else { /* try to allocate a large, temporary send buffer */
@@ -2743,6 +2755,7 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 #endif
 								sendResp(args, SET_STAT(RESP_ERR, ERR_out_of_mem));
 								closesocket(s);
+								args->s = -1;
 								return 0;
 							} else {
 								unsigned int osz = (rs > 0xffffffff) ? 0xffffffff : rs;
@@ -2786,7 +2799,9 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 							fprintf(stderr,"FATAL: out of memory while re-allocating send buffer to %ld (fallback#2),\n", (long) rt->buf_size);
 #endif
 							sendResp(args, SET_STAT(RESP_ERR, ERR_out_of_mem));
+							ulog("ERROR: out of memory while shrinking send buffer");
 							closesocket(s);
+							args->s = -1;
 							return 0;
 						}
 					}
@@ -2800,6 +2815,7 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 		}
 	}
 	closesocket(s);
+	args->s = -1;
 	return 0;
 }
 
