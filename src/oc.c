@@ -69,7 +69,7 @@ static void oc_new(char *dst) {
 	for (i = 0; i < sizeof(rbuf); i++) rbuf[i] = random();
 #endif
 	/* we use random -> SHA1 .. is it an overkill? */
-	sha1hash(rbuf, sizeof(rbuf) - 1, hash);
+	sha1hash((const char*)rbuf, sizeof(rbuf) - 1, hash);
 	/* the last byte is the hold-out byte -- just because SHA gives only 160 bits */
 	hash[20] = rbuf[sizeof(rbuf) - 1];
     }

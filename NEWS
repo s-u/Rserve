@@ -23,6 +23,22 @@
     o	symbols are now registered *before* processing source/eval
 	directives from the configuration file
 
+    o	added new option to remove the working directory on
+	session close recursively - activated by
+
+	   workdir.clean enable
+
+	If not set, the default is to only remove it if it is empty
+	(on the assumption there are files that will be served beyond
+	the life of the session).
+
+    o	added workdir.parent.mode option which specifies the
+	permissions on the parent directory of session working
+	directories. The default is 0755. Unlike workdir.mode this one
+	does not respect the umask (beause it may be shared and thus
+	may need to include permissions that are otherwise not
+	granted).
+
 
 1.7-3	2013-08-21
     o	the handling of server configuration modes has been

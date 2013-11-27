@@ -316,8 +316,9 @@ static int localSocketMode = 0;   /* if set, chmod is used on the socket when cr
 static int allowIO = 1;  /* 1=allow I/O commands, 0=don't */
 
 static char *workdir = "/tmp/Rserv";
-static int   wd_mode = 0755;
+static int   wd_mode = 0755, wdt_mode = 0755;
 static char *pwdfile = 0;
+static int   wipe_workdir = 0; /* if set acts as rm -rf otherwise jsut rmdir */
 
 static SOCKET csock = -1;
 
@@ -389,13 +390,13 @@ static void prepare_set_user(int uid, int gid) {
 	/* we use uid.gid in the name to minimize cleanup issues - we assume that it's ok to
 	   share tempdirs between sessions of the same user */
 	snprintf(tmpdir_buf, sizeof(tmpdir_buf), "%s.%d.%d", R_TempDir, uid, gid);
-	mkdir(tmpdir_buf, 0700); /* it is ok to fail if it exists already */
+	if (mkdir(tmpdir_buf, 0700)) {} /* it is ok to fail if it exists already */
 	/* gid can be 0 to denote no gid change -- but we will be using
 	   0700 anyway so the actual gid is not really relevant */
-	chown(tmpdir_buf, uid, gid);
+	if (chown(tmpdir_buf, uid, gid)) {}
 	R_TempDir = strdup(tmpdir_buf);
-	if (workdir) /* FIXME: gid=0 will be bad here ! */
-		chown(wdname, uid, gid);
+	if (workdir && /* FIXME: gid=0 will be bad here ! */
+		chown(wdname, uid, gid)) {}
 }
 
 static int set_user(const char *usr) {
@@ -1211,6 +1212,10 @@ static int setConfig(const char *c, const char *p) {
 		workdir = (*p) ? strdup(p) : 0;
 		return 1;
 	}
+	if (!strcmp(c,"workdir.clean") && p) {
+		wipe_workdir = (p[0] == 'e' || p[0] == 'y' || p[0] == '1' || p[0] == 'T') ? 1 : 0;
+		return 1;
+	}
 	if (!strcmp(c, "workdir.mode")) {
 		int cm = satoi(p);
 		if (!cm)
@@ -1219,6 +1224,17 @@ static int setConfig(const char *c, const char *p) {
 			wd_mode = cm;
 			if ((wd_mode & 0700) != 0700)
 				RSEprintf("WARNING: workdir.mode does not contain 0700 - this may cause problems\n");
+		}
+		return 1;
+	}
+	if (!strcmp(c, "workdir.parent.mode")) {
+		int cm = satoi(p);
+		if (!cm)
+			RSEprintf("ERROR: invalid workdir.parent.mode\n");
+		else {
+			wdt_mode = cm;
+			if ((wdt_mode & 0700) != 0700)
+				RSEprintf("WARNING: workdir.parent.mode does not contain 0700 - this may cause problems\n");
 		}
 		return 1;
 	}
@@ -1370,9 +1386,9 @@ const char *code64="./0123456789ABCDEFGHIJKLMNOPQRSTUVWYXZabcdefghijklmnopqrstuv
 
 /** parses a string, stores the number of expressions in parts and the resulting statis in status.
     the returned SEXP may contain multiple expressions */ 
-SEXP parseString(char *s, int *parts, ParseStatus *status) {
+SEXP parseString(const char *s, int *parts, ParseStatus *status) {
     int maxParts = 1;
-    char *c = s;
+    const char *c = s;
     SEXP cv, pr = R_NilValue;
     
     while (*c) {
@@ -1405,7 +1421,7 @@ SEXP parseExps(char *s, int exps, ParseStatus *status) {
     return pr;
 }
 
-void voidEval(char *cmd) {
+void voidEval(const char *cmd) {
     ParseStatus stat;
     int Rerror;
     int j = 0;
@@ -1423,7 +1439,6 @@ void voidEval(char *cmd) {
 		UNPROTECT(1);
 		return;
     } else {
-		SEXP exp = R_NilValue;
 #ifdef RSERV_DEBUG
 		printf("R_tryEval(xp,R_GlobalEnv,&Rerror);\n");
 #endif
@@ -1435,7 +1450,7 @@ void voidEval(char *cmd) {
 #ifdef RSERV_DEBUG
 				printf("Calling R_tryEval for expression %d [type=%d] ...\n", bi+1, TYPEOF(pxp));
 #endif
-				exp = R_tryEval(pxp, R_GlobalEnv, &Rerror);
+				R_tryEval(pxp, R_GlobalEnv, &Rerror);
 				bi++;
 #ifdef RSERV_DEBUG
 				printf("Expression %d, error code: %d\n", bi, Rerror);
@@ -1445,7 +1460,7 @@ void voidEval(char *cmd) {
 			}
 		} else {
 			Rerror = 0;
-			exp = R_tryEval(xp, R_GlobalEnv, &Rerror);
+			R_tryEval(xp, R_GlobalEnv, &Rerror);
 		}
 		UNPROTECT(1);
     }
@@ -2296,10 +2311,65 @@ static void rm_rf(const char *what) {
 }
 #endif
 
+static char *child_workdir;
+
+char *get_workdir() {
+	return child_workdir;
+}
+
+static void setup_workdir() {
+#ifdef unix
+    if (workdir) {
+		if (chdir(workdir) && mkdir(workdir, wdt_mode)) {}
+		/* we override umask for the top-level
+		   since it is shared */
+		if (chmod(workdir, wdt_mode)) {}
+
+		wdname[511]=0;
+		snprintf(wdname, 511, "%s/conn%d", workdir, (int)getpid());
+		rm_rf(wdname);
+		mkdir(wdname, wd_mode);
+		/* we don't override umask for the individual ones -- should we? */
+		if (chdir(wdname)) {}
+		child_workdir = strdup(wdname);
+    }
+#endif
+}
+
+void Rserve_cleanup() {
+	/* run .Rserve.done() if present */
+	SEXP fun, fsym = install(".Rserve.done");
+	fun = findVarInFrame(R_GlobalEnv, fsym);
+	if (Rf_isFunction(fun)) {
+		int Rerror = 0;
+#ifdef unix
+		if (child_workdir &&
+			chdir(child_workdir)) {} /* guarantee that we are running in the workign directory */
+#endif
+		R_tryEval(lang1(fsym), R_GlobalEnv, &Rerror);
+	}
+#ifdef unix
+	if (child_workdir) {
+		if (workdir &&
+			chdir(workdir)) {} /* change to the level up */
+		if (wipe_workdir)
+			rm_rf(child_workdir);
+		else
+			rmdir(wdname);
+	}
+#endif
+
+	/* this is probably superfluous ... just make sure no one
+	   tries to use parent_io after Rserve_cleanup() */
+	if (parent_io) {
+		rsio_free(parent_io);
+		parent_io = 0;
+	}
+}
+
 /*---- this is an attempt to factor out the OCAP mode into a minimal
        set of code that is not shared with other protocols to make
 	   it more safe and re-entrant.
-	   It is not used as of yet.
   ----*/
        
 
@@ -2364,6 +2434,8 @@ void Rserve_OCAP_connected(void *thp) {
 		free(args);
 		return;
 	}
+
+	setup_workdir();
 
 	/* setup TLS if desired */
 	if ((args->srv->flags & SRV_TLS) && shared_tls(0))
@@ -2450,6 +2522,8 @@ void Rserve_OCAP_connected(void *thp) {
 #endif
 
 	while (OCAP_iteration(rt, 0)) {}
+	
+	Rserve_cleanup();
 	free_qap_runtime(rt);
 }
 
@@ -2581,6 +2655,7 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 			unsigned int *ibuf = (unsigned int*) rt->buf;
 			/* FIXME: this is a bit hacky since we skipped parameter parsing */
 			int par_t = ibuf[0] & 0xff;
+			const char *c_ocname = 0;
 			if (par_t == DT_SEXP || par_t == (DT_SEXP | DT_LARGE)) {
 				unsigned int *sptr;
 				sptr = ibuf + ((par_t & DT_LARGE) ? 2 : 1);
@@ -2594,7 +2669,8 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 							/* valid reference -- replace it in the call */
 							SEXP occall = CAR(ocv), ocname = TAG(ocv);
 							SETCAR(val, occall);
-							ulog("OCcall '%s': ", (ocname == R_NilValue) ? "<null>" : CHAR(PRINTNAME(ocname)));
+							if (ocname != R_NilValue) c_ocname = CHAR(PRINTNAME(ocname));
+							ulog("OCcall '%s': ", (ocname == R_NilValue) ? "<null>" : c_ocname);
 							valid = 1;
 						}
 					}
@@ -2614,7 +2690,7 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 			eval_result = R_tryEval(val, R_GlobalEnv, &Rerror);
 			args->msg_id = msg_id; /* restore msg_id - oob in eval would clober it */
 			UNPROTECT(1);
-			ulog("OCresult");
+			ulog("OCresult '%s'", c_ocname ? c_ocname : "<null>");
 
 			if (eval_result) exp = PROTECT(eval_result);
 #ifdef RSERV_DEBUG
@@ -2786,18 +2862,8 @@ void Rserve_QAP1_connected(void *thp) {
     }
     memset(buf, 0, inBuf + 8);
 
-#ifdef unix
-    if (workdir) {
-		if (chdir(workdir))
-			mkdir(workdir,0755);
-		wdname[511]=0;
-		snprintf(wdname, 511, "%s/conn%d", workdir, (int)getpid());
-		rm_rf(wdname);
-		mkdir(wdname, wd_mode);
-		chdir(wdname);
-    }
-#endif
-	
+	setup_workdir();
+
     sendBufSize = sndBS;
     sendbuf = (char*) malloc(sendBufSize);
 #ifdef RSERV_DEBUG
@@ -3021,6 +3087,9 @@ void Rserve_QAP1_connected(void *thp) {
 		printf("CMD=%08x, pars=%d\n", ph.cmd, pars);
 #endif
 
+		/* FIXME: now that OCAP has a separate server path,
+		   should we really support OCcall outside of OCAP mode?
+		   This piece is only run if OCAP mode is disabled */
 		if (ph.cmd == CMD_OCcall) {
 			int valid = 0;
 			SEXP val = R_NilValue;
@@ -3730,22 +3799,6 @@ void Rserve_QAP1_connected(void *thp) {
 		sendResp(a, SET_STAT(RESP_ERR, ERR_conn_broken));
     closesocket(s);
     free(sendbuf); free(sfbuf); free(buf);
-	{ /* run .Rserve.done() if present */
-		SEXP fun, fsym = install(".Rserve.done");
-		fun = findVarInFrame(R_GlobalEnv, fsym);
-		if (Rf_isFunction(fun)) {
-#ifdef unix
-			chdir(wdname); /* guarantee that we are running in the workign directory */
-#endif
-			R_tryEval(lang1(fsym), R_GlobalEnv, &Rerror);
-		}
-	}
-#ifdef unix
-    if (workdir) {
-		chdir(workdir);
-		rmdir(wdname);
-    }
-#endif
     
 #ifdef RSERV_DEBUG
     printf("done.\n");
@@ -4020,12 +4073,12 @@ void serverLoop() {
 #ifdef RSERV_DEBUG
 									printf(" - control calling voidEval(\"%s\")\n", msg->data + msg_pos);
 #endif
-									voidEval(msg->data + msg_pos);
+									voidEval((const char*) (msg->data + msg_pos));
 								} else if (msg->cmd == CCTL_SOURCE) {
 									int evalRes = 0;
 									SEXP exp;
 									SEXP sfn = PROTECT(allocVector(STRSXP, 1));
-									SET_STRING_ELT(sfn, 0, mkRChar(msg->data + msg_pos));
+									SET_STRING_ELT(sfn, 0, mkRChar((const char*) (msg->data + msg_pos)));
 									exp = LCONS(install("source"), CONS(sfn, R_NilValue));
 #ifdef RSERV_DEBUG
 									printf(" - control calling source(\"%s\")\n", msg->data + msg_pos);

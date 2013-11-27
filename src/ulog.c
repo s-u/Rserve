@@ -61,7 +61,7 @@ static int   ulog_dcol, ulog_port = 0;
 static char hn[512];
 static char buf[4096];
 static char ts[64];
-static char buf_pos;
+static unsigned int buf_pos;
 static double time0, timeN;
 
 void ulog_set_path(const char *path) {
@@ -93,7 +93,9 @@ void ulog_begin() {
 	    }
 	    /* FIXME: we don't resolve host names - only IPs are supported for now */
 	}
+#ifdef RSERV_DEBUG
 	fprintf(stderr, "ULOG: begin %s %s port=%d\n", (u_family == AF_INET) ? "INET" : "UNIX", (u_sock == SOCK_DGRAM) ? "DGRAM" : "STREAM", ulog_port);
+#endif
 	ulog_sock = socket(u_family, u_sock, 0);
 	if (ulog_sock == -1) return;
 #if defined O_NONBLOCK && defined F_SETFL

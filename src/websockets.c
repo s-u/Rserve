@@ -108,8 +108,6 @@ void Rserve_text_connected(args_t *arg);
 
 static void WS_connected(void *parg) {
 	args_t *arg = (args_t*) parg;
-	/* server_t *srv = arg->srv; */
-	SOCKET s = arg->s;
 	int n, bp = 0, empty_lines = 0, request_line = 1;
 
 	struct header_info h;
@@ -634,7 +632,10 @@ static int  WS_recv_data(args_t *arg, void *buf, rlen_t read_len) {
 		return read_len;
 	} else { /* not in frame - interpret a new frame */
 		unsigned char *fr = (unsigned char*) arg->buf;
-		int more = (arg->ver < 4) ? ((fr[0] & 0x80) == 0x80) : ((fr[0] & 0x80) == 0), mask = 0;
+#ifdef RSERV_DEBUG /* FIXME: we don't use more -- why? */
+		int more = (arg->ver < 4) ? ((fr[0] & 0x80) == 0x80) : ((fr[0] & 0x80) == 0);
+#endif
+		int mask = 0;
 		int need = 0, ct = fr[0] & 127, at_least, payload;
 		long len = 0;
 		/* set the F_IN_BIN flag according to the frame type */
