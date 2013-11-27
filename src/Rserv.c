@@ -1655,9 +1655,9 @@ static void pwd_close(pwdf_t *f) {
 }
 
 /* forward decl for OCAP iteration */
-typedef struct qap_runtime_t qap_runtime_t;
+typedef struct qap_runtime qap_runtime_t;
 
-int OCAP_iteration(qap_runtime_t *rt);
+int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr);
 
 args_t *self_args;
 
@@ -1736,13 +1736,13 @@ SEXP Rserve_oobMsg(SEXP exp, SEXP code) {
 	printf("OOB-msg (%x) - waiting for response packet\n", oob_code);
 #endif
 	
-	if (args->srv->flags & SRV_QAP_OC) { /* OCAP -- allow nested iteration */
+	if (a->srv->flags & SRV_QAP_OC) { /* OCAP -- allow nested iteration */
 		while ((n = OCAP_iteration(0, &ph)) == 1) {} /* run OCAP until we get our response or an error */
 		n = (n == 2) ? sizeof(ph) : -1;
 	} else
 		n = srv->recv(a, (char*)&ph, sizeof(ph));
 
-	if (n == sizeof(ph))
+	if (n == sizeof(ph)) {
 		size_t plen = 0, i;
 #ifdef RSERV_DEBUG
 		printf("\nOOB response header read result: %d\n", n);
