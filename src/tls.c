@@ -59,6 +59,7 @@ struct args {
     server_t *srv; /* server that instantiated this connection */
     int s;
     int ss;
+    int msg_id;
     SSL *ssl;
     void *res2;
 };

@@ -16,6 +16,7 @@ struct args {
 	server_t *srv; /* server that instantiated this connection */
     SOCKET s;
 	SOCKET ss;
+	int msg_id;
 	void *res1; /* used by TLS */
 	struct args *tls_arg; /* if set it is used to wire send/recv calls */
 	/* the following entries are not populated by Rserve but can be used by server implemetations */
@@ -414,12 +415,14 @@ static void WS_send_resp(args_t *arg, int rsp, rlen_t len, const void *buf) {
 		struct phdr ph;
 		int pl = 0;
 		long flen = len + sizeof(ph);
-		memset(&ph, 0, sizeof(ph));
 		ph.cmd = itop(rsp | ((rsp & CMD_OOB) ? 0 : CMD_RESP));
 		ph.len = itop(len);
 #ifdef __LP64__
 		ph.res = itop(len >> 32);
+#else
+		ph.res = 0;
 #endif
+		ph.msg_id = arg->msg_id;
 
 #ifdef RSERV_DEBUG
 		if (io_log) {

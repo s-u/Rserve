@@ -77,10 +77,10 @@
 
  */
 
-struct phdr { /* always 16 bytes */
-	int cmd; /* command */
-	int len; /* length of the packet minus header (ergo -16) */
-	int dof; /* data offset behind header (ergo usually 0) */
+struct phdr {   /* always 16 bytes */
+	int cmd;    /* command */
+	int len;    /* length of the packet minus header (ergo -16) */
+	int msg_id; /* message id (since 1.8) [WAS:data offset behind header (ergo usually 0)] */
 	int res; /* high 32-bit of the packet length (since 0103
 				and supported on 64-bit platforms only)
 				aka "lenhi", but the name was not changed to

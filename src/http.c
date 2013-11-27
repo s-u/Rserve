@@ -56,6 +56,7 @@ struct args {
 	server_t *srv; /* server that instantiated this connection */
     SOCKET s;
 	SOCKET ss;
+	int msg_id;
 	void *res1, *res2;
 	/* the following entries are not populated by Rserve but can be used by server implemetations */
 	char *buf, *sbuf;

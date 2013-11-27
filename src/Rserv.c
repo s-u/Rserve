@@ -290,6 +290,7 @@ struct args {
 	server_t *srv; /* server that instantiated this connection */
     SOCKET s;
 	SOCKET ss;
+	int msg_id;
 	void *res1, *res2;
 	/* the following entries are not populated by Rserve but can be used by server implemetations */
 	char *buf, *sbuf;
@@ -722,14 +723,16 @@ void Rserve_QAP1_send_resp(args_t *arg, int rsp, rlen_t len, const void *buf) {
 	server_t *srv = arg->srv;
 	struct phdr ph;
 	rlen_t i = 0;
-    memset(&ph, 0, sizeof(ph));
 	/* do not tag OOB with CMD_RESP */
 	if (!(rsp & CMD_OOB)) rsp |= CMD_RESP;
     ph.cmd = itop(rsp);	
     ph.len = itop(len);
 #ifdef __LP64__
 	ph.res = itop(len >> 32);
+#else
+	ph.res = 0;
 #endif
+	ph.msg_id = (int) arg->msg_id;
 #ifdef RSERV_DEBUG
     printf("OUT.sendRespData\nHEAD ");
     printDump(&ph,sizeof(ph));
@@ -1636,7 +1639,16 @@ static void pwd_close(pwdf_t *f) {
 	free(f);
 }
 
+/* forward decl for OCAP iteration */
+typedef struct qap_runtime_t qap_runtime_t;
+
+int OCAP_iteration(qap_runtime_t *rt);
+
 args_t *self_args;
+
+static int new_msg_id() {
+	return (int) random();
+}
 
 static char dump_buf[32768]; /* scratch buffer that is static so mem alloc doesn't fail */
 
@@ -1679,6 +1691,7 @@ static int send_oob_sexp(int cmd, SEXP exp) {
 #ifdef RSERV_DEBUG
 			printf("stored SEXP; length=%ld (incl. DT_SEXP header)\n",(long) (tail - sendhead));
 #endif
+			a->msg_id = new_msg_id();
 			sendRespData(a, cmd, tail - sendhead, sendhead);
 			free(sendbuf);
 		}
@@ -1697,6 +1710,7 @@ SEXP Rserve_oobMsg(SEXP exp, SEXP code) {
 	int res = send_oob_sexp(OOB_USR_CODE(oob_code) | OOB_MSG, exp);
 	args_t *a = self_args; /* send_oob_sexp has checked this already so it's ok */
 	server_t *srv = a->srv;
+	int msg_id = a->msg_id; /* remember the msg id since it may get clobered */
 	if (res != 1) /* never happens since send_oob_sexp returns only on success */
 		Rf_error("Sending OOB_MSG failed");
 
@@ -1706,7 +1720,14 @@ SEXP Rserve_oobMsg(SEXP exp, SEXP code) {
 #ifdef RSERV_DEBUG
 	printf("OOB-msg (%x) - waiting for response packet\n", oob_code);
 #endif
-    if ((n = srv->recv(a, (char*)&ph, sizeof(ph))) == sizeof(ph)) {
+	
+	if (args->srv->flags & SRV_QAP_OC) { /* OCAP -- allow nested iteration */
+		while ((n = OCAP_iteration(0, &ph)) == 1) {} /* run OCAP until we get our response or an error */
+		n = (n == 2) ? sizeof(ph) : -1;
+	} else
+		n = srv->recv(a, (char*)&ph, sizeof(ph));
+
+	if (n == sizeof(ph))
 		size_t plen = 0, i;
 #ifdef RSERV_DEBUG
 		printf("\nOOB response header read result: %d\n", n);
@@ -1714,7 +1735,6 @@ SEXP Rserve_oobMsg(SEXP exp, SEXP code) {
 #endif
 		ph.len = ptoi(ph.len);
 		ph.cmd = ptoi(ph.cmd);
-		ph.dof = ptoi(ph.dof);
 #ifdef __LP64__
 		ph.res = ptoi(ph.res);
 		plen = (unsigned int) ph.len;
@@ -1722,6 +1742,7 @@ SEXP Rserve_oobMsg(SEXP exp, SEXP code) {
 #else
 		plen = ph.len;
 #endif
+		a->msg_id = ph.msg_id;
 #ifdef RSERV_DEBUG
 		if (io_log) {
 			struct timeval tv;
@@ -2282,12 +2303,12 @@ static void rm_rf(const char *what) {
   ----*/
        
 
-typedef struct qap_runtime {
+struct qap_runtime {
 	struct args *args;  /* input args */
     char  *buf;         /* send/recv buffer */
     rlen_t buf_size;    /* size of the buffer */
 	int level;          /* re-entrance level */
-} qap_runtime_t;
+};
 
 static qap_runtime_t *current_runtime;
 
@@ -2325,8 +2346,6 @@ static void free_qap_runtime(qap_runtime_t *rt) {
 		free(rt);
 	}
 }
-
-int OCAP_iteration(qap_runtime_t *rt);
 
 void Rserve_OCAP_connected(void *thp) {
     struct args *args = (struct args*)thp;
@@ -2430,17 +2449,19 @@ void Rserve_OCAP_connected(void *thp) {
 		can_control = 1;
 #endif
 
-	while (OCAP_iteration(rt)) {}
+	while (OCAP_iteration(rt, 0)) {}
 	free_qap_runtime(rt);
 }
 
-/* 1 = iteration successful, 0 = iteration failed - assume conenction has been closed */
-int OCAP_iteration(qap_runtime_t *rt) {
+/* 1 = iteration successful - OCAP called
+   2 = iteration successful - OOB pending (only signalled if oob_hdr is non-null)
+   0 = iteration failed - assume conenction has been closed */
+int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 	struct args *args;
     struct phdr ph;
 	server_t *srv;
 	SOCKET s;
-	int rn;
+	int rn, msg_id;
 
 	if (!rt) rt = current_runtime;
 	if (!rt || !rt->args) return 0;
@@ -2451,19 +2472,19 @@ int OCAP_iteration(qap_runtime_t *rt) {
 	
     while((rn = srv->recv(args, (char*)&ph, sizeof(ph))) == sizeof(ph)) {
 		size_t plen = 0;
+		unsigned int len32, hi32;
+		int cmd;
 #ifdef RSERV_DEBUG
 		printf("\nOCAP iter header read result: %d\n", rn);
 		if (rn > 0) printDump(&ph, rn);
 #endif
-		ph.len = ptoi(ph.len);
-		ph.cmd = ptoi(ph.cmd);
-		ph.dof = ptoi(ph.dof);
+		/* NOTE: do not touch ph since we may need to pass it unharmed to oob */
+		len32 = (unsigned int) ptoi(ph.len);
+		cmd = ptoi(ph.cmd);
+		plen = len32;
 #ifdef __LP64__
-		ph.res = ptoi(ph.res);
-		plen = (unsigned int) ph.len;
-		plen |= (((size_t) (unsigned int) ph.res) << 32);
-#else
-		plen = ph.len;
+		hi32 = (unsigned int) ptoi(ph.res);
+		plen |= (((size_t) hi32) << 32);
 #endif
 
 #ifdef RSERV_DEBUG
@@ -2476,14 +2497,22 @@ int OCAP_iteration(qap_runtime_t *rt) {
 				if (!gettimeofday(&tv, 0))
 					ts = ((double) tv.tv_sec) + ((double) tv.tv_usec) / 1000000.0;
 				if (first_ts < 1.0) first_ts = ts;
-				fprintf(f, "%.3f [+%4.3f]  SRV <-- CLI  [OCAP iter]  (%x, %ld bytes)\n   HEAD ", ts, ts - first_ts, ph.cmd, (long) plen);
+				fprintf(f, "%.3f [+%4.3f]  SRV <-- CLI  [OCAP iter]  (%x, %ld bytes)\n   HEAD ", ts, ts - first_ts, cmd, (long) plen);
 				fprintDump(f, &ph, sizeof(ph));
 				fclose(f);
 			}
 		}
 #endif
+
+		if (oob_hdr && (cmd & CMD_OOB)) { /* we're nested in OOB and OOB has arrived - copy header and get out */
+			memcpy(oob_hdr, &ph, sizeof(ph));
+			return 2;
+		}
+
+		msg_id = args->msg_id = ph.msg_id;
+
 		/* in OC mode everything but OCcall is invalid */
-		if (ph.cmd != CMD_OCcall) {
+		if (cmd != CMD_OCcall) {
 			sendResp(args, SET_STAT(RESP_ERR, ERR_disabled));
 			closesocket(s);
 			return 0;
@@ -2583,6 +2612,7 @@ int OCAP_iteration(qap_runtime_t *rt) {
 			printSEXP(val);
 #endif
 			eval_result = R_tryEval(val, R_GlobalEnv, &Rerror);
+			args->msg_id = msg_id; /* restore msg_id - oob in eval would clober it */
 			UNPROTECT(1);
 			ulog("OCresult");
 
@@ -2830,7 +2860,6 @@ void Rserve_QAP1_connected(void *thp) {
 #endif
 		ph.len = ptoi(ph.len);
 		ph.cmd = ptoi(ph.cmd);
-		ph.dof = ptoi(ph.dof);
 #ifdef __LP64__
 		ph.res = ptoi(ph.res);
 		plen = (unsigned int) ph.len;
@@ -2929,8 +2958,8 @@ void Rserve_QAP1_connected(void *thp) {
 				printf("parsing parameters (buf=%p, len=%ld)\n", buf, (long) plen);
 				if (plen > 0) printDump(buf,plen);
 #endif
-				c = buf + ph.dof;
-				while((c < buf + ph.dof + plen) && (phead = ptoi(*((unsigned int*)c)))) {
+				c = buf;
+				while((c < buf + plen) && (phead = ptoi(*((unsigned int*)c)))) {
 					rlen_t headSize = 4;
 					parType = PAR_TYPE(phead);
 					parLen = PAR_LEN(phead);
