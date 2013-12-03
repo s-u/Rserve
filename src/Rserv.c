@@ -386,11 +386,62 @@ static char tmpdir_buf[1024];
 char wdname[512];
 #endif
 
+#if !defined(S_IFDIR) && defined(__S_IFDIR)
+# define S_IFDIR __S_IFDIR
+#endif
+
+/* modified version of what's used in R */
+static int isDir(const char *path)
+{
+#ifdef Win32
+    struct _stati64 sb;
+#else
+    struct stat sb;
+#endif
+    int isdir = 0;
+    if(!path) return 0;
+#ifdef Win32
+    if(_stati64(path, &sb) == 0) {
+#else
+	if(stat(path, &sb) == 0) {
+#endif
+		isdir = (sb.st_mode & S_IFDIR) > 0; /* is a directory */
+	}
+	return isdir;
+}
+
 static void prepare_set_user(int uid, int gid) {
+	const char *tmp = (const char*) R_TempDir;
 	/* create a new tmpdir() and make it owned by uid:gid */
 	/* we use uid.gid in the name to minimize cleanup issues - we assume that it's ok to
 	   share tempdirs between sessions of the same user */
-	snprintf(tmpdir_buf, sizeof(tmpdir_buf), "%s.%d.%d", R_TempDir, uid, gid);
+	if (!tmp) {
+		/* if there is no R_TempDir then it means that R has not been
+		   init'd yet so we have to take care of our own tempdir setting.
+		   This is replicating a subset of the logic used in R. */
+		const char *tm = getenv("TMPDIR");
+		char *tmpl;
+		if (!isDir(tm)) {
+			tm = getenv("TMP");
+			if (!isDir(tm)) {
+				tm = getenv("TEMP");
+				if (!isDir(tm))
+#ifdef Win32
+					tm = getenv("R_USER"); /* this one will succeed */
+#else
+                    tm = "/tmp";
+#endif
+			}
+		}
+		/* Note: we'll be leaking this, but that's ok since it's tiny and only once per process */
+		tmpl = (char*) malloc(strlen(tm) + 10);
+		if (tmpl) {
+			strcpy(tmpl, tm);
+			strcat(tmpl, "/Rstmp");
+			tmp = tmpl;
+		}
+	}
+	snprintf(tmpdir_buf, sizeof(tmpdir_buf), "%s.%d.%d", tmp, uid, gid);
 	if (mkdir(tmpdir_buf, 0700)) {} /* it is ok to fail if it exists already */
 	/* gid can be 0 to denote no gid change -- but we will be using
 	   0700 anyway so the actual gid is not really relevant */
