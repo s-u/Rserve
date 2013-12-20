@@ -4,7 +4,7 @@
 
 .register <- c("Rserve_ctrlEval", "Rserve_ctrlSource",
 	       "Rserve_oobSend", "Rserve_oobMsg",
-	       "Rserve_oc_register", "run_Rserve")
+	       "Rserve_oc_register", "Rserve_oc_resolve", "run_Rserve")
 
 .onLoad <- function(libname, pkgname) {
     env <- environment(.onLoad)

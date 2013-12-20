@@ -102,9 +102,6 @@ char *oc_register(SEXP what, char *dst, int len, const char *name) {
 
 /* --- R-side API --- */
 
-/* Note that we don't expose oc_resolve, because we don't want to facilitate
-   unwanted discovery (although code that can poke around like that has
-   already broken through some barriers) */
 /* NOTE: if you change the signature, you *have* to change the registration
    and declaration in standalone.c !! */
 SEXP Rserve_oc_register(SEXP what, SEXP sName) {
@@ -119,4 +116,11 @@ SEXP Rserve_oc_register(SEXP what, SEXP sName) {
     setAttrib(res, R_ClassSymbol, mkString("OCref"));
     UNPROTECT(1);
     return res;
+}
+
+SEXP Rserve_oc_resolve(SEXP what) {
+    SEXP res;
+    if (!inherits(what, "OCref") || TYPEOF(what) != STRSXP || LENGTH(what) != 1)
+	Rf_error("invalid OCref");
+    return CAR(oc_resolve(CHAR(STRING_ELT(what, 0))));
 }

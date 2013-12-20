@@ -71,3 +71,5 @@ self.oobMessage <- function(what, code = 0L) {
 ocap <- function(fun, name=deparse(substitute(fun)))
   .Call(Rserve_oc_register, fun, name)
 
+resolve.ocap <- function(ocap)
+  .Call(Rserve_oc_resolve, ocap)
