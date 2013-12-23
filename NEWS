@@ -57,6 +57,11 @@
 	which case the second OCcall will be nested within the first
 	call.
 
+    o	allow expansion of environment variables in the configuration
+	file, i.e., ${VAR} will be replaced with the contents of the
+	VAR environemnt variable. This only applies to the right-hand
+	side of configuration directives.
+
 
 1.7-3	2013-08-21
     o	the handling of server configuration modes has been

@@ -950,31 +950,76 @@ static void RSsrv_done() {
 	}
 }
 
+static char expand_buffer[1024];
+static char expand_tmp[128];
+
+static const char *expand_conf_string(const char *str) {
+	char *dst = expand_buffer;
+	const char *c = str, *x = str;
+	if (!str || !*str) return "";
+	while ((x = strstr(c, "${"))) {
+		char *tr = strchr(x + 2, '}');
+		if (tr && tr - x < 64) {
+			char *repl;
+			int rlen;
+			if (x > c) {
+				memcpy(dst, c, x - c);
+				dst += x - c;
+			}
+			memcpy(expand_tmp, x + 2, tr - x - 2);
+			expand_tmp[tr - x - 2] = 0;
+			repl = getenv(expand_tmp);
+			if (!repl) repl = "";
+			rlen = strlen(repl);
+			if (rlen) {
+				memcpy(dst, repl, rlen);
+				dst += rlen;
+			}
+			c = tr + 1;
+		} else { /* jsut ignore the ${ part */
+			memcpy(dst, x, 2);
+			dst += 2;
+			c = x + 2;
+		}
+	}
+	if (dst == expand_buffer) return str; /* nothing got expanded */
+	strcpy(dst, c); /* copy the remaining content */
+	return expand_buffer;
+}
+
+static int conf_is_true(const char *str) {
+	return  (str && (*str == '1' || *str == 'y' || *str == 'e' || *str == 'T')) ? 1 : 0;
+}
+
 /* attempts to set a particular configuration setting
    returns: 1 = setting accepted, 0 = unknown setting, -1 = setting known but failed */
 static int setConfig(const char *c, const char *p) {
+	p = expand_conf_string(p);
+#ifdef RSERV_DEBUG
+	if (p == expand_buffer) printf("conf> after expansion parameter=\"%s\"\n", p);
+#endif
 	if (!strcmp(c, "log.io")) {
 #ifdef RSERV_DEBUG
-		io_log = (*p == '1' || *p == 'y' || *p == 'e' || *p == 'T') ? 1 : 0;
+		io_log = conf_is_true(p);
 #endif
 		return 1;
 	}
 	if (!strcmp(c, "deamon")) {
 #ifdef DAEMON
-		daemonize = (*p == '1' || *p == 'y' || *p == 'e' || *p == 'T') ? 1 : 0;
+		daemonize = conf_is_true(p);
 #endif
 		return 1;
 	}
 	if (!strcmp(c, "msg.id")) {
-		use_msg_id = (*p == '1' || *p == 'y' || *p == 'e' || *p == 'T') ? 1 : 0;
+		use_msg_id = conf_is_true(p);
 		return 1;
 	}
 	if (!strcmp(c, "remote")) {
-		localonly = (*p == '1' || *p == 'y' || *p == 'e' || *p == 'T') ? 0 : 1;
+		localonly = !conf_is_true(p);
 		return 1;
 	}
 	if (!strcmp(c, "tag.argv")) {
-		tag_argv = (*p == '1' || *p == 'y' || *p == 'e' || *p == 'T') ? 1 : 0;
+		tag_argv = conf_is_true(p);
 		return 1;
 	}
 	if (!strcmp(c, "ulog")) {
@@ -982,30 +1027,30 @@ static int setConfig(const char *c, const char *p) {
 		return 1;
 	}
 	if (!strcmp(c, "keep.alive")) {
-		if (*p == '1' || *p == 'y' || *p == 'e' || *p == 'T')
+		if (conf_is_true(p))
 			global_srv_flags |= SRV_KEEPALIVE;
 		else
 			global_srv_flags &= ~ SRV_KEEPALIVE;
 		return 1;
 	}
 	if (!strcmp(c, "switch.qap.tls")) {
-		switch_qap_tls = (*p == '1' || *p == 'y' || *p == 'e' || *p == 'T') ? 1 : 0;
+		switch_qap_tls = conf_is_true(p);
 		return 1;
 	}
 	if (!strcmp(c, "qap.oc") || !strcmp(c, "rserve.oc")) {
-		qap_oc = (*p == '1' || *p == 'y' || *p == 'e' || *p == 'T') ? 1 : 0;
+		qap_oc = conf_is_true(p);
 		return 1;
 	}
 	if (!strcmp(c, "websockets.qap.oc")) {
-		ws_qap_oc = (*p == '1' || *p == 'y' || *p == 'e' || *p == 'T') ? 1 : 0;
+		ws_qap_oc = conf_is_true(p);
 		return 1;
 	}
 	if (!strcmp(c, "random.uid")) {
-		random_uid = (*p == '1' || *p == 'y' || *p == 'e' || *p == 'T') ? 1 : 0;
+		random_uid = conf_is_true(p);
 		return 1;
 	}
 	if (!strcmp(c, "random.gid")) {
-		random_gid = (*p == '1' || *p == 'y' || *p == 'e' || *p == 'T') ? 1 : 0;
+		random_gid = conf_is_true(p);
 		return 1;
 	}
 	if (!strcmp(c, "random.uid.range")) {
@@ -1029,11 +1074,11 @@ static int setConfig(const char *c, const char *p) {
 		return 1;
 	}
 	if (!strcmp(c, "auto.uid")) {
-		auto_uid = (*p == '1' || *p == 'y' || *p == 'e' || *p == 'T') ? 1 : 0;
+		auto_uid = conf_is_true(p);
 		return 1;
 	}
 	if (!strcmp(c, "auto.gid")) {
-		auto_gid = (*p == '1' || *p == 'y' || *p == 'e' || *p == 'T') ? 1 : 0;
+		auto_gid = conf_is_true(p);
 		return 1;
 	}
 	if (!strcmp(c, "default.uid")) {
@@ -1052,15 +1097,15 @@ static int setConfig(const char *c, const char *p) {
 		return 1;
 	}
 	if (!strcmp(c, "ipv6")) {
-		use_ipv6 = (*p == '1' || *p == 'y' || *p == 'e' || *p == 'T') ? 1 : 0;
+		use_ipv6 = conf_is_true(p);
 		return 1;
 	}
 	if (!strcmp(c, "http.upgrade.websockets")) {
-		ws_upgrade = (*p == '1' || *p == 'y' || *p == 'e' || *p == 'T') ? 1 : 0;
+		ws_upgrade = conf_is_true(p);
 		return 1;
 	}
 	if (!strcmp(c, "http.raw.body")) {
-		http_raw_body = (*p == '1' || *p == 'y' || *p == 'e' || *p == 'T') ? 1 : 0;
+		http_raw_body = conf_is_true(p);
 		return 1;
 	}
 	if (!strcmp(c,"websockets.port")) {
@@ -1144,18 +1189,18 @@ static int setConfig(const char *c, const char *p) {
 		return 1;
 	}
 	if (!strcmp(c, "rserve") || !strcmp(c, "qap")) {
-		enable_qap = (p[0] == 'e' || p[0] == 'y' || p[0] == '1' || p[0] == 'T') ? 1 : 0;
+		enable_qap = conf_is_true(p);
 		return 1;
 	}
 	if (!strcmp(c, "websockets.qap")) {
-		enable_ws_qap = (p[0] == 'e' || p[0] == 'y' || p[0] == '1' || p[0] == 'T') ? 1 : 0;
+		enable_ws_qap = conf_is_true(p);
 		return 1;
 	}
 	if (!strcmp(c, "websockets.text")) {
-		enable_ws_text = (p[0] == 'e' || p[0] == 'y' || p[0] == '1' || p[0] == 'T') ? 1 : 0;
+		enable_ws_text = conf_is_true(p);
 		return 1;
 	}
-	if (!strcmp(c, "websockets") && (p[0] == 'e' || p[0] == 'y' || p[0] == '1' || p[0] == 'T')) {
+	if (!strcmp(c, "websockets") && conf_is_true(p)) {
 		enable_ws_qap = 1;
 		enable_ws_text = 1;
 		return 1;
@@ -1260,7 +1305,7 @@ static int setConfig(const char *c, const char *p) {
 		}
 		return 1;
 	}
-	if (!strcmp(c, "control") && (p[0] == 'e' || p[0] == 'y' || p[0] == '1' || p[0] == 'T')) {
+	if (!strcmp(c, "control") && conf_is_true(p)) {
 		child_control = 1;
 		return 1;
 	}
@@ -1269,7 +1314,7 @@ static int setConfig(const char *c, const char *p) {
 		return 1;
 	}
 	if (!strcmp(c,"workdir.clean") && p) {
-		wipe_workdir = (p[0] == 'e' || p[0] == 'y' || p[0] == '1' || p[0] == 'T') ? 1 : 0;
+		wipe_workdir = conf_is_true(p);
 		return 1;
 	}
 	if (!strcmp(c, "workdir.mode")) {
@@ -1315,31 +1360,31 @@ static int setConfig(const char *c, const char *p) {
 		return 1;
 	}
 	if (!strcmp(c,"auth")) {
-		authReq = (*p=='1' || *p=='y' || *p=='r' || *p=='e' || *p == 'T') ? 1 : 0;
+		authReq = conf_is_true(p);
 		return 1;
 	}
 	if (!strcmp(c,"interactive")) {
-		Rsrv_interactive = (*p=='1' || *p=='y' || *p=='t' || *p=='e' || *p == 'T') ? 1 : 0;
+		Rsrv_interactive = conf_is_true(p);
 		return 1;
 	}
 	if (!strcmp(c,"plaintext")) {
-		usePlain = (*p=='1' || *p=='y' || *p=='e' || *p == 'T') ? 1 : 0;
+		usePlain = conf_is_true(p);
 		return 1;
 	}
 	if (!strcmp(c,"oob")) {
-		enable_oob = (*p == '1' || *p == 'y' || *p == 'e' || *p == 'T') ? 1 : 0;
+		enable_oob = conf_is_true(p);
 		return 1;
 	}
 	if (!strcmp(c,"fileio")) {
-		allowIO = (*p=='1' || *p=='y' || *p=='e' || *p == 'T') ? 1 : 0;
+		allowIO = conf_is_true(p);
 		return 1;
 	}
 	if (!strcmp(c, "r-control") || !strcmp(c, "r.control")) {
-		self_control = (*p=='1' || *p=='y' || *p=='e' || *p == 'T') ? 1 : 0;
+		self_control = conf_is_true(p);
 		return 1;
 	}
 	if (!strcmp(c, "cachepwd")) {
-		cache_pwd = (*p == 'i') ? 2 : ((*p == '1' || *p == 'y' || *p == 'e' || *p == 'T') ? 1 : 0);
+		cache_pwd = (*p == 'i') ? 2 : conf_is_true(p);
 		return 1;
 	}
 	return 0;
@@ -1368,6 +1413,7 @@ static int loadConfig(const char *fn)
 		if (fgets(buf,511,f)) {
 			c = buf;
 			while(*c == ' ' || *c == '\t') c++;
+			if (!*c || *c == '\n' || *c == '#' || *c == ';') continue; /* skip comments and empty lines */
 			p = c;
 			while(*p && *p != '\t' && *p != ' ' && *p != '=' && *p != ':') {
 				if (*p >= 'A' && *p <= 'Z') *p |= 0x20; /* to lower case */
