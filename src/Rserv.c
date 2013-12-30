@@ -1780,10 +1780,10 @@ static int send_oob_sexp(int cmd, SEXP exp) {
 		/* check buffer size vs REXP size to avoid dangerous overflows
 		   todo: resize the buffer as necessary */
 		rlen_t rs = QAP_getStorageSize(exp);
-		/* increase the buffer by 25% for safety */
-		/* FIXME: there are issues with multi-byte strings that expand when
-		   converted. They should be convered by this margin but it is an ugly hack!! */
-		rs += (rs >> 2);
+		/* FIXME: add a 4k security margin - it should no longer be needed,
+		   originally the space was grown proportionally to account for a bug,
+		   but that bug has been fixed. */
+		rs += 4096;
 #ifdef RSERV_DEBUG
 		printf("result storage size = %ld bytes\n",(long)rs);
 #endif
@@ -2820,10 +2820,10 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 				   todo: resize the buffer as necessary
 				*/
 				rlen_t rs = QAP_getStorageSize(exp);
-				/* increase the buffer by 25% for safety */
-				/* FIXME: there are issues with multi-byte strings that expand when
-				   converted. They should be convered by this margin but it is an ugly hack!! */
-				rs += (rs >> 2);
+				/* FIXME: add a 4k security margin - it should no longer be needed,
+				   originally the space was grown proportionally to account for a bug,
+				   but that bug has been fixed. */
+				rs += 4096;
 #ifdef RSERV_DEBUG
 				printf("result storage size = %ld bytes (buffer %ld bytes)\n",(long)rs, (long)rt->buf_size);
 #endif
@@ -3804,10 +3804,10 @@ void Rserve_QAP1_connected(void *thp) {
 					   todo: resize the buffer as necessary
 					*/
 					rlen_t rs = QAP_getStorageSize(exp);
-					/* increase the buffer by 25% for safety */
-					/* FIXME: there are issues with multi-byte strings that expand when
-					   converted. They should be convered by this margin but it is an ugly hack!! */
-					rs += (rs >> 2);
+					/* FIXME: add a 4k security margin - it should no longer be needed,
+					   originally the space was grown proportionally to account for a bug,
+					   but that bug has been fixed. */
+					rs += 4096;
 #ifdef RSERV_DEBUG
 					printf("result storage size = %ld bytes\n",(long)rs);
 #endif
