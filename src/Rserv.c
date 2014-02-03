@@ -177,6 +177,9 @@ typedef int socklen_t;
 #include <stdlib.h>
 #include <sisocks.h>
 #include <string.h>
+#ifdef HAVE_LIMITS_H
+#include <limits.h>
+#endif
 #ifdef unix
 #if TIME_WITH_SYS_TIME
 # include <sys/time.h>
@@ -2392,6 +2395,11 @@ static int rsa_encode(char *dst, char *src, int len) {
 
 #include <unistd.h>
 #include <dirent.h>
+
+/* this should always be defined by POSIX but some broken system reportedly don't define it */
+#ifndef PATH_MAX
+#define PATH_MAX 512
+#endif
 
 static void rm_rf(const char *what) {
 	struct stat st;
