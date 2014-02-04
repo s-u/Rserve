@@ -2,7 +2,7 @@
 ---------------------------
 
 1.8-0	(under development)
-    o	new logging mechanism has been added ot Rserve. It can
+    o	new logging mechanism has been added to Rserve. It can
 	be enabled using the
 
 	   ulog <path>
