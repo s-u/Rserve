@@ -3045,6 +3045,7 @@ void Rserve_QAP1_connected(void *thp) {
 		SEXP eval_result = 0;
 		size_t plen = 0;
 		SEXP pp = R_NilValue; /* packet payload (as a raw vector) for special commands */
+		int msg_id;
 		Rerror = 0;
 #ifdef RSERV_DEBUG
 		printf("\nheader read result: %d\n", rn);
@@ -3059,6 +3060,7 @@ void Rserve_QAP1_connected(void *thp) {
 #else
 		plen = ph.len;
 #endif
+		msg_id = a->msg_id = use_msg_id ? ph.msg_id : 0;
 		process = 0;
 		pars = 0;
 
@@ -3343,6 +3345,7 @@ void Rserve_QAP1_connected(void *thp) {
 							if (ac[asl - 1])
 								ac[asl] = 0;
 							authed = auth_user(au, ap ? ap : "", sec_salt);
+							a->msg_id = msg_id; /* just in case R-side auth used OOB (it shouldn't) */
 							if (authed) {
 								process = 1;
 								sendResp(a, RESP_OK);
@@ -3374,6 +3377,7 @@ void Rserve_QAP1_connected(void *thp) {
 				while(*c1) if(*c1 == '\n' || *c1 == '\r') *c1=0; else c1++;
 				/* c=login, cc=pwd */
 				authed = auth_user(c, cc, my_salt);
+				a->msg_id = msg_id; /* just in case R-side auth used OOB (it shouldn't) */
 				if (authed) {
 					process = 1;
 					sendResp(a, RESP_OK);
@@ -3684,6 +3688,7 @@ void Rserve_QAP1_connected(void *thp) {
 			int Rerr = 0;
 			SEXP us = R_tryEval(LCONS(install("unserialize"),CONS(pp,R_NilValue)), R_GlobalEnv, &Rerr);
 			PROTECT(us);
+			a->msg_id = msg_id; /* just in case R-side used OOB */
 			process = 1;
 			if (Rerr == 0) {
 				if (ph.cmd == CMD_serAssign) {
@@ -3691,6 +3696,7 @@ void Rserve_QAP1_connected(void *thp) {
 						sendResp(a, SET_STAT(RESP_ERR, ERR_inv_par));
 					} else {
 						R_tryEval(LCONS(install("<-"),CONS(VECTOR_ELT(us, 0), CONS(VECTOR_ELT(us, 1), R_NilValue))), R_GlobalEnv, &Rerr);
+						a->msg_id = msg_id; /* just in case R-side used OOB (unlikely, but ...) */
 						if (Rerr == 0)
 							sendResp(a, RESP_OK);
 						else
@@ -3698,11 +3704,13 @@ void Rserve_QAP1_connected(void *thp) {
 					}
 				} else {
 					SEXP ev = R_tryEval(us, R_GlobalEnv, &Rerr);
+					a->msg_id = msg_id; /* just in case R-side used OOB */
 					if (Rerr == 0 && ph.cmd == CMD_serEEval) /* one more round */
 						ev = R_tryEval(ev, R_GlobalEnv, &Rerr);
 					PROTECT(ev);
 					if (Rerr == 0) {
 						SEXP sr = R_tryEval(LCONS(install("serialize"),CONS(ev, CONS(R_NilValue, R_NilValue))), R_GlobalEnv, &Rerr);
+						a->msg_id = msg_id; /* just in case R-side used OOB */
 						if (Rerr == 0 && TYPEOF(sr) == RAWSXP) {
 							sendRespData(a, RESP_OK, LENGTH(sr), RAW(sr));
 						} else if (Rerr == 0) Rerr = -2;
@@ -3737,6 +3745,7 @@ void Rserve_QAP1_connected(void *thp) {
 					printSEXP(val);
 #endif
 					eval_result = R_tryEval(val, R_GlobalEnv, &Rerror);
+					a->msg_id = msg_id; /* just in case R-side used OOB */
 					UNPROTECT(1);
 				}
 			} else {
@@ -3787,6 +3796,7 @@ void Rserve_QAP1_connected(void *thp) {
 					}
 				}
 				UNPROTECT(1); /* xp */
+				a->msg_id = msg_id; /* just in case R-side used OOB */
 			}
 		}
 
