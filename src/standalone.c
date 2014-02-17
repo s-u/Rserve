@@ -128,6 +128,22 @@ int main(int argc, char **argv)
 				isRSP = 1;
 				setConfig("remote", "enable");
 			}
+			if (!strcmp(argv[i] + 2, "RS-set")) {
+				isRSP = 1;
+                if (++i == argc)
+					fprintf(stderr,"Missing argument for --RS-set.\n");
+				else {
+					char *c = argv[i], *c2 = strchr(c, '=');
+					if (!c2) 
+						c2 = "";
+					else {
+						*c2 = 0;
+						c2++;
+					}
+					if (!setConfig(c, c2))
+						fprintf(stderr, "WARNING: configuration directive '%s' is not supported (used in --RS-set)\n", c);
+				}
+			}
 			if (!strcmp(argv[i] + 2, "RS-settings")) {
 				printf("Rserve v%d.%d-%d\n\nconfig file: %s\nworking root: %s\nport: %d\nlocal socket: %s\nauthorization required: %s\nplain text password: %s\npasswords file: %s\nallow I/O: %s\nallow remote access: %s\ncontrol commands: %s\ninteractive: %s\nmax.input buffer size: %ld kB\n\n",
 					   RSRV_VER>>16, (RSRV_VER>>8)&255, RSRV_VER&255,
@@ -141,7 +157,7 @@ int main(int argc, char **argv)
 				printf("Rserve v%d.%d-%d (%s)\n",RSRV_VER>>16,(RSRV_VER>>8)&255,RSRV_VER&255,rserve_rev);
 			}
 			if (!strcmp(argv[i] + 2, "help")) {
-				printf("Usage: R CMD Rserve [<options>]\n\nOptions: --help  this help screen\n --version  prints Rserve version (also passed to R)\n --RS-port <port>  listen on the specified TCP port\n --RS-socket <socket>  use specified local (unix) socket instead of TCP/IP.\n --RS-workdir <path>  use specified working directory root for connections.\n --RS-encoding <enc>  set default server string encoding to <enc>.\n --RS-conf <file>  load additional config file.\n --RS-settings  dumps current settings of the Rserve\n --RS-source <file>  source the specified file on startup.\n --RS-enable-control  enable control commands\n --RS-enable-remote  enable remote connections\n\nAll other options are passed to the R engine.\n\n");
+				printf("Usage: R CMD Rserve [<options>]\n\nOptions: --help  this help screen\n --version  prints Rserve version (also passed to R)\n --RS-port <port>  listen on the specified TCP port\n --RS-socket <socket>  use specified local (unix) socket instead of TCP/IP.\n --RS-workdir <path>  use specified working directory root for connections.\n --RS-encoding <enc>  set default server string encoding to <enc>.\n --RS-conf <file>  load additional config file.\n --RS-settings  dumps current settings of the Rserve\n --RS-source <file>  source the specified file on startup.\n --RS-enable-control  enable control commands\n --RS-enable-remote  enable remote connections\n --RS-set <config>=<value>   set configuration option as if it was\n                              read from a configuration file\n\nAll other options are passed to the R engine.\n\n");
 #ifdef RSERV_DEBUG
 				printf("debugging flag:\n --RS-dumplimit <number>  sets limit of items/bytes to dump in debugging output. set to 0 for unlimited\n\n");
 #endif
