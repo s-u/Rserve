@@ -1007,7 +1007,7 @@ static int setConfig(const char *c, const char *p) {
 #endif
 		return 1;
 	}
-	if (!strcmp(c, "deamon")) {
+	if (!strcmp(c, "deamon") /* typo! but we keep it for compatibility */ || !strcmp(c, "daemon")) {
 #ifdef DAEMON
 		daemonize = conf_is_true(p);
 #endif

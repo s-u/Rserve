@@ -62,6 +62,9 @@
 	VAR environemnt variable. This only applies to the right-hand
 	side of configuration directives.
 
+    o	fix a typo in the "daemon" configuration option which was
+	looking for "deamon" instead.
+
 
 1.7-3	2013-08-21
     o	the handling of server configuration modes has been
