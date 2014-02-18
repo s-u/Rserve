@@ -70,6 +70,9 @@
     o	fix a typo in the "daemon" configuration option which was
 	looking for "deamon" instead.
 
+    o	bugfix: pairlists were incorrecty protected when parsing
+	SEXPs (qap_decode) in messages from client to server (#16).
+
 
 1.7-3	2013-08-21
     o	the handling of server configuration modes has been

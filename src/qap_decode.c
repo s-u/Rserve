@@ -258,8 +258,8 @@ SEXP decode_to_SEXP(unsigned int **buf)
 		    UNPROTECT((ea == R_NilValue) ? 2 : 3);
 		} else {
 		    UNPROTECT((ea == R_NilValue) ? 2 : 3);
-		    PROTECT(val); /* protect the root */
 		    val = vnext;
+		    PROTECT(val); /* protect the root */
 		}
 		vtail = vnext;				   
 	    }
