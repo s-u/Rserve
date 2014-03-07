@@ -340,6 +340,7 @@ int self_control = 0;   /* enable/disable the ability to use control commands fr
 static int tag_argv = 0;/* tag the ARGV with client/server IDs */
 static char *pidfile = 0;/* if set by configuration generate pid file */
 static int use_msg_id;   /* enable/disable the use of msg-ids in message frames */
+static int disable_shutdown; /* disable the shutdown command */
 
 #ifdef DAEMON
 int daemonize = 1;
@@ -1310,6 +1311,10 @@ static int setConfig(const char *c, const char *p) {
 	}
 	if (!strcmp(c, "control") && conf_is_true(p)) {
 		child_control = 1;
+		return 1;
+	}
+	if (!strcmp(c, "shutdown")) {
+		disable_shutdown = !conf_is_true(p);
 		return 1;
 	}
 	if (!strcmp(c,"workdir")) {
@@ -3394,6 +3399,11 @@ void Rserve_QAP1_connected(void *thp) {
 		}
 
 		if (ph.cmd==CMD_shutdown) { /* FIXME: now that we have control commands we may rethink this ... */
+			if (disable_shutdown) { 
+				sendResp(a, SET_STAT(RESP_ERR, ERR_disabled));
+				continue;
+			}
+
 			sendResp(a, RESP_OK);
 #ifdef RSERV_DEBUG
 			printf("initiating clean shutdown.\n");

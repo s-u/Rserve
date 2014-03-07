@@ -70,6 +70,20 @@
     o	fix a typo in the "daemon" configuration option which was
 	looking for "deamon" instead.
 
+    o	add a configuration option "shutdown disable" that will
+	disable the shutdown command. This makes is a bit harder
+	for unprivileged users to shut down the Rserve instance.
+	It does not disable the ctrlShutdown command, so users that
+	have control command access can still issue a shutdown.
+	Note that this option will eventually become the default
+	so consider specifically using "shutdown enable" where
+	CMD_shutdown is still needed.
+	
+	Note that the shutdown command is not functional in cases
+	where user switching is performed anyway, so is it only used
+	for backward compatibility. Only ctrlShutdown is guaranteed
+	to work.
+
     o	bugfix: pairlists were incorrecty protected when parsing
 	SEXPs (qap_decode) in messages from client to server (#16).
 
