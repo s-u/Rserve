@@ -70,6 +70,13 @@
     o	fix a typo in the "daemon" configuration option which was
 	looking for "deamon" instead.
 
+    o	added support for console callbacks. They can be enabled using
+
+    	   console.oob enable
+
+	directive and they result in OOB messages being sent on
+	console I/O operations.
+
     o	add a configuration option "shutdown disable" that will
 	disable the shutdown command. This makes is a bit harder
 	for unprivileged users to shut down the Rserve instance.

@@ -213,6 +213,7 @@ typedef int socklen_t;
 #ifdef WIN32 /* Windows doesn't have Rinterface */
 extern __declspec(dllimport) int R_SignalHandlers;
 #else
+#define R_INTERFACE_PTRS
 #include <Rinterface.h>
 #endif
 #endif
@@ -341,6 +342,7 @@ static int tag_argv = 0;/* tag the ARGV with client/server IDs */
 static char *pidfile = 0;/* if set by configuration generate pid file */
 static int use_msg_id;   /* enable/disable the use of msg-ids in message frames */
 static int disable_shutdown; /* disable the shutdown command */
+static int oob_console = 0; /* enable OOB commands for console callbacks */
 
 #ifdef DAEMON
 int daemonize = 1;
@@ -1043,6 +1045,10 @@ static int setConfig(const char *c, const char *p) {
 	}
 	if (!strcmp(c, "qap.oc") || !strcmp(c, "rserve.oc")) {
 		qap_oc = conf_is_true(p);
+		return 1;
+	}
+	if (!strcmp(c, "oob.console")) {
+		oob_console = conf_is_true(p);
 		return 1;
 	}
 	if (!strcmp(c, "websockets.qap.oc")) {
@@ -2536,6 +2542,37 @@ static void free_qap_runtime(qap_runtime_t *rt) {
 	}
 }
 
+#ifdef R_INTERFACE_PTRS
+/* -- callbacks -- */
+static void RS_Busy(int which) {
+}
+
+static void RS_ResetConsole() {
+}
+
+static void RS_FlushConsole() {
+}
+
+static void RS_ClearerrConsole() {
+}
+
+static void RS_WriteConsoleEx(const char *buf, int len, int oType) {
+	SEXP s = PROTECT(allocVector(VECSXP, 2));
+	SET_VECTOR_ELT(s, 0, mkString(oType ? "console.err" : "console.out"));
+	SET_VECTOR_ELT(s, 1, ScalarString(Rf_mkCharLenCE(buf, len, CE_UTF8)));
+	UNPROTECT(1);
+	send_oob_sexp(OOB_SEND, s);
+}
+
+static void RS_ShowMessage(const char *buf) {
+	SEXP s = PROTECT(allocVector(VECSXP, 2));
+	SET_VECTOR_ELT(s, 0, mkString("console.msg"));
+	SET_VECTOR_ELT(s, 1, ScalarString(Rf_mkCharCE(buf, CE_UTF8)));
+	UNPROTECT(1);
+	send_oob_sexp(OOB_SEND, s);
+}
+#endif
+
 void Rserve_OCAP_connected(void *thp) {
     struct args *args = (struct args*)thp;
 	server_t *srv = args->srv;
@@ -2570,6 +2607,19 @@ void Rserve_OCAP_connected(void *thp) {
 		printf("evaluating oc.init()\n");
 #endif
 		ulog("OCinit");
+
+#ifdef R_INTERFACE_PTRS
+		if (oob_console) {
+			ptr_R_ShowMessage = RS_ShowMessage;
+			/* ptr_R_ReadConsole = RS_ReadConsole; */
+			ptr_R_WriteConsole = NULL;
+			ptr_R_WriteConsoleEx = RS_WriteConsoleEx;
+			ptr_R_ResetConsole = RS_ResetConsole;
+			ptr_R_FlushConsole = RS_FlushConsole;
+			ptr_R_ClearerrConsole = RS_ClearerrConsole;
+			ptr_R_Busy = RS_Busy;
+		}
+#endif
 		
 		oc = R_tryEval(PROTECT(LCONS(install("oc.init"), R_NilValue)), R_GlobalEnv, &Rerr);
 		UNPROTECT(1);
