@@ -1047,7 +1047,7 @@ static int setConfig(const char *c, const char *p) {
 		qap_oc = conf_is_true(p);
 		return 1;
 	}
-	if (!strcmp(c, "oob.console")) {
+	if (!strcmp(c, "console.oob")) {
 		oob_console = conf_is_true(p);
 		return 1;
 	}
@@ -2618,6 +2618,8 @@ void Rserve_OCAP_connected(void *thp) {
 			ptr_R_FlushConsole = RS_FlushConsole;
 			ptr_R_ClearerrConsole = RS_ClearerrConsole;
 			ptr_R_Busy = RS_Busy;
+			R_Outputfile = NULL;
+			R_Consolefile = NULL;
 		}
 #endif
 		
