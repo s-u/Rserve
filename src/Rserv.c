@@ -343,6 +343,7 @@ static char *pidfile = 0;/* if set by configuration generate pid file */
 static int use_msg_id;   /* enable/disable the use of msg-ids in message frames */
 static int disable_shutdown; /* disable the shutdown command */
 static int oob_console = 0; /* enable OOB commands for console callbacks */
+static int idle_timeout = 0; /* interval to send idle OOBs, 0 = disabled */
 
 #ifdef DAEMON
 int daemonize = 1;
@@ -455,6 +456,69 @@ static void prepare_set_user(int uid, int gid) {
 	R_TempDir = strdup(tmpdir_buf);
 	if (workdir && /* FIXME: gid=0 will be bad here ! */
 		chown(wdname, uid, gid)) {}
+}
+
+/* send/recv wrappers that are more robust */
+int cio_send(int s, const void *buffer, int length, int flags) {
+	int n;
+	while ((n = send(s, buffer, length, flags)) == -1) {
+		/* the only case we handle specially is EINTR to recover automatically */
+		if (errno != EINTR) break;			
+	}
+	return n;
+}
+
+static int last_idle_time;
+
+/* FIXME: self.* commands can be loaded either from Rserve.so or from stand-alone binary.
+   This will cause a mess since some things are private and some are not - we have to sort that out.
+   In the meantime a quick hack is to make the relevant config (here enable_oob) global */
+int enable_oob = 0;
+args_t *self_args;
+/* object to send with the idle call; it could be used for notification etc. */
+ SEXP idle_object;
+
+static int send_oob_sexp(int cmd, SEXP exp);
+
+/*  */
+int cio_recv(int s, void *buffer, int length, int flags) {
+	int n;
+	struct timeval timv;
+    fd_set readfds;
+	if (!last_idle_time) {
+		last_idle_time = (int) time(NULL);
+		if (!idle_object)
+			idle_object = R_NilValue;
+	}
+	while (1) {
+		/* the timeout only determines granularity of idle calls */
+		timv.tv_sec = 1; timv.tv_usec = 0;
+		FD_ZERO(&readfds);
+		FD_SET(s, &readfds);
+		n = select(s + 1, &readfds, 0, 0, &timv);
+		if (n == -1) {
+			if (errno == EINTR)
+				continue; /* recover */
+			return -1;
+		}
+		if (n)
+			return recv(s, buffer, length, flags);
+		if (idle_timeout) {
+			int delta = ((int) time(NULL)) - last_idle_time;
+			if (delta > idle_timeout) {
+				/* go only in oob mode */
+				if (self_args && enable_oob) {
+					SEXP q = PROTECT(allocVector(VECSXP, 2));
+					SET_VECTOR_ELT(q, 0, mkString("idle"));
+					SET_VECTOR_ELT(q, 1, idle_object);
+					send_oob_sexp(OOB_SEND, q);
+					UNPROTECT(1);
+				}
+				last_idle_time = (int) time(NULL);
+			}
+		}
+	}
+	return -1;
 }
 
 static int set_user(const char *usr) {
@@ -877,10 +941,6 @@ struct source_entry {
 
 static int ws_port = -1, enable_qap = 1, enable_ws_qap = 0, enable_ws_text = 0, wss_port = 0;
 static int ws_qap_oc = 0, qap_oc = 0;
-/* FIXME: self.* commands can be loaded either from Rserve.so or from stand-alone binary.
-   This will cause a mess since some things are private and some are not - we have to sort that out.
-   In the meantime a quick hack is to make the relevant config (here enable_oob) global */
-int enable_oob = 0;
 static int http_port = -1;
 static int https_port = -1;
 static int switch_qap_tls = 0;
@@ -1097,6 +1157,10 @@ static int setConfig(const char *c, const char *p) {
 	}
 	if (!strcmp(c, "default.gid")) {
 		default_gid = satoi(p);
+		return 1;
+	}
+	if (!strcmp(c, "oob.idle.interval")) {
+		idle_timeout = (*p) ? atoi(p) : 0;
 		return 1;
 	}
 	if (!strcmp(c,"port") || !strcmp(c, "qap.port")) {
@@ -1774,8 +1838,6 @@ static void pwd_close(pwdf_t *f) {
 typedef struct qap_runtime qap_runtime_t;
 
 int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr);
-
-args_t *self_args;
 
 static int new_msg_id(args_t *args) {
 	return use_msg_id ? (int) random() : 0;

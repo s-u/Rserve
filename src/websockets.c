@@ -29,11 +29,15 @@ static int  WS_recv_data(args_t *arg, void *buf, rlen_t read_len);
 static void WS_send_resp(args_t *arg, int rsp, rlen_t len, const void *buf);
 static int  WS_send_data(args_t *arg, const void *buf, rlen_t len);
 
+/* those will eventually be in the API but for now ... */
+int cio_send(int s, const void *buffer, int length, int flags);
+int cio_recv(int s, void *buffer, int length, int flags);
+
 static int WS_wire_send(args_t *arg, const void *buf, rlen_t len) {
-	return (arg->tls_arg) ? arg->tls_arg->srv->send(arg->tls_arg, buf, len) : send(arg->s, buf, len, 0);
+	return (arg->tls_arg) ? arg->tls_arg->srv->send(arg->tls_arg, buf, len) : cio_send(arg->s, buf, len, 0);
 }
 static int WS_wire_recv(args_t *arg, void *buf, rlen_t len) {
-	return (arg->tls_arg) ? arg->tls_arg->srv->recv(arg->tls_arg, buf, len) : recv(arg->s, buf, len, 0);
+	return (arg->tls_arg) ? arg->tls_arg->srv->recv(arg->tls_arg, buf, len) : cio_recv(arg->s, buf, len, 0);
 }
 static void WS_wire_close(args_t *arg) {
 	if (arg->tls_arg) {

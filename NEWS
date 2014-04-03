@@ -91,6 +91,11 @@
 	for backward compatibility. Only ctrlShutdown is guaranteed
 	to work.
 
+    o	add a configuration option "oob.idle.interval" which will
+	trigger automated OOB send of "idle" command after a
+	specified interval. Currently it only works with
+	WebSockets.
+
     o	bugfix: pairlists were incorrecty protected when parsing
 	SEXPs (qap_decode) in messages from client to server (#16).
 
