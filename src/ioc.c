@@ -28,21 +28,21 @@ static char *buf;
 pthread_mutex_t buffer_mux = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t trigger_mux = PTHREAD_MUTEX_INITIALIZER;
 
-FILE *flog;
+void ulog(const char *format, ...);
 
 static void *feed_thread(void *whichFD) {
     int ta = 1024*1024, fd = stdoutFD;
-    char *thb = (char*) malloc(ta);
+    char *thb = (char*) malloc(ta + 8);
     unsigned int *h = (unsigned int*) thb, mask = 0;
     if (!thb) return 0;
     if (whichFD == &stderrFD) {
 	fd = stderrFD;
 	mask = 0x80000000;
     }
-    fprintf(flog, "feed_thread started, mask=0x%x\n", mask); fflush(flog);
+    ulog("feed_thread started, mask=0x%x\n", mask);
     while (1) {
 	int n = read(fd, thb + 4, ta), dst;
-	fprintf(flog, "feed_thread n = %d\n", n);  fflush(flog);
+	ulog("feed_thread n = %d\n", n);
 	if (n == -1 && errno != EINTR)
 	    break;
 	pthread_mutex_lock(&buffer_mux);
@@ -56,7 +56,7 @@ static void *feed_thread(void *whichFD) {
 	    memcpy(buf, thb + alloc - dst, n);
 	} else
 	    memcpy(buf + dst, thb, n);
-	fprintf(flog, "feed_thread: tail = %d\n", tail);
+	ulog("feed_thread: tail = %d\n", tail);
 	pthread_mutex_unlock(&buffer_mux);
 	pthread_mutex_unlock(&trigger_mux);
     }
@@ -65,7 +65,7 @@ static void *feed_thread(void *whichFD) {
 }
 
 static void *read_thread(void *dummy) {
-    fprintf(flog, "read_thread started\n");  fflush(flog);
+    ulog("read_thread started\n");
     while (1) {
 	volatile int head0, tail0;
 	/* lock just to get a consistent state */
@@ -80,7 +80,7 @@ static void *read_thread(void *dummy) {
 	    continue;
 	}
 
-	fprintf(flog, "read_thread: [%d/%d]\n", head0, tail0); fflush(flog);
+	ulog("read_thread: [%d/%d]\n", head0, tail0);
 	if (head0 > tail0) {
 	    while (head0 < alloc) {
 		int n = write(triggerFD, buf + head0, alloc - head0);
@@ -93,7 +93,7 @@ static void *read_thread(void *dummy) {
 		    continue;
 		}
 		if (n < 0 && errno != EINTR) {
-		    fprintf(flog, "ERROR: lost output pipe, aborting\n"); fflush(flog);
+		    ulog("ERROR: lost output pipe, aborting\n");
 		    close(triggerFD);
 		    return 0;
 		}
@@ -110,7 +110,7 @@ static void *read_thread(void *dummy) {
 		continue;
 	    }
 	    if (n < 0 && errno != EINTR) {
-		fprintf(flog, "ERROR: lost output pipe, aborting\n"); fflush(flog);
+		ulog("ERROR: lost output pipe, aborting\n");
 		close(triggerFD);
 		return 0;
 	    }
@@ -128,31 +128,29 @@ static void *read_thread(void *dummy) {
 
 static int readFD;
 
-SEXP ioc_setup() {
+int ioc_setup() {
   int pfd[2];
   pthread_t thread;
   pthread_attr_t thread_attr;
-
-  flog = fopen("/tmp/ioc.log","w");
 
   alloc = 1024*1024;
   buf = malloc(alloc);
   if (!buf)
       Rf_error("cannot allocate buffer");
   
-  pipe(pfd);
+  if (pipe(pfd)) return 0;
   dup2(pfd[1], STDOUT_FILENO);
   close(pfd[1]);
         
   stdoutFD = pfd[0];
   
-  pipe(pfd);
+  if (pipe(pfd)) return 0;
   dup2(pfd[1], STDERR_FILENO);
   close(pfd[1]);
   
   stderrFD = pfd[0];
 
-  pipe(pfd);
+  if (pipe(pfd)) return 0;
   triggerFD = pfd[1];
 
   pthread_attr_init(&thread_attr);
@@ -167,7 +165,7 @@ SEXP ioc_setup() {
   pthread_attr_setdetachstate(&thread_attr, PTHREAD_CREATE_DETACHED);
   pthread_create(&thread, &thread_attr, read_thread, 0);
 
-  fprintf(flog, "setup done, fd = %d\n", pfd[0]);
+  ulog("setup done, fd = %d\n", pfd[0]);
   return (readFD = pfd[0]);
 }
 
@@ -177,7 +175,7 @@ SEXP ioc_read(int *type) {
     int n = read(readFD, &h, sizeof(h));
     if (n != sizeof(h))
 	Rf_error("failed to read header");
-    fprintf(flog, "header = 0x%x\n", h);
+    ulog("header = 0x%x\n", h);
     if (type)
 	type[0] = (h & 0x80000000) ? 1 : 0;
     h &= 0x7fffffff;

@@ -346,6 +346,9 @@ static int oob_console = 0; /* enable OOB commands for console callbacks */
 static int idle_timeout = 0; /* interval to send idle OOBs, 0 = disabled */
 static int forward_std = 0; /* flag whether to forward stdout/err as OOBs */
 
+
+static int oob_allowed = 0; /* this flag is set once handshake is done such that OOB messages are permitted */
+
 #ifdef DAEMON
 int daemonize = 1;
 #endif
@@ -504,7 +507,7 @@ int cio_recv(int s, void *buffer, int length, int flags) {
 		timv.tv_sec = 1; timv.tv_usec = 0;
 		FD_ZERO(&readfds);
 		FD_SET(s, &readfds);
-		if (std_fw_fd && self_args && enable_oob) {
+		if (oob_allowed && std_fw_fd && self_args && enable_oob) {
 			if (std_fw_fd > xfd)
 				xfd = std_fw_fd;
 			FD_SET(std_fw_fd, &readfds);
@@ -527,13 +530,14 @@ int cio_recv(int s, void *buffer, int length, int flags) {
 				UNPROTECT(1);
 				continue;
 			}
+			/* we only land here if FD_ISSET(s, ) is true so no need to check */
 			return recv(s, buffer, length, flags);
 		}
 		if (idle_timeout) {
 			int delta = ((int) time(NULL)) - last_idle_time;
 			if (delta > idle_timeout) {
 				/* go only in oob mode */
-				if (self_args && enable_oob) {
+				if (self_args && enable_oob && oob_allowed) {
 					SEXP q = PROTECT(allocVector(VECSXP, 2));
 					SET_VECTOR_ELT(q, 0, mkString("idle"));
 					SET_VECTOR_ELT(q, 1, idle_object);
@@ -1018,10 +1022,6 @@ static int performConfig(int when) {
 		if (requested_uid) setuid(requested_uid);
 	}
 #endif
-
-	if (when == SU_CLIENT && forward_std && enable_oob)
-		if (!(std_fw_fd = ioc_setup()))
-			RSEprintf("failed to setup stdio forwarding");
 
 	return fail;
 }
@@ -2719,6 +2719,12 @@ void Rserve_OCAP_connected(void *thp) {
 			R_Consolefile = NULL;
 		}
 #endif
+		
+		oob_allowed = 1;
+
+		if (forward_std && enable_oob)
+			if (!(std_fw_fd = ioc_setup()))
+				ulog("WARNING: failed to setup stdio forwarding");
 		
 		oc = R_tryEval(PROTECT(LCONS(install("oc.init"), R_NilValue)), R_GlobalEnv, &Rerr);
 		UNPROTECT(1);
