@@ -1,5 +1,5 @@
 # Process this file with autoconf to produce a configure script.
-AC_INIT([Rserve],[1.7],[Simon.Urbanek@r-project.org])
+AC_INIT([Rserve],[1.8],[Simon.Urbanek@r-project.org])
 AC_CONFIG_SRCDIR([src/Rserv.c])
 AC_CONFIG_HEADER([src/config.h])
 
@@ -29,6 +29,15 @@ has_R_shlib=no
 if test -n "$RLD"; then
    has_R_shlib=yes
 fi
+
+AC_ARG_ENABLE([threads],
+[AC_HELP_STRING([--enable-threads],
+                [enable the use of threads in code than may benefit from it.
+		Currently, it is only used in stdout/err forwarding, it does not
+		enable the threaded server.
+                @<:@auto@:>@])],
+[want_threads="${enableval}"],
+[want_threads=auto])
 
 AC_MSG_CHECKING([whether to compile the server])
 if test "${with_server}" = yes; then
@@ -192,6 +201,34 @@ AC_CHECK_HEADER([openssl/rsa.h],
 # check SSL support
 AC_CHECK_HEADER([openssl/ssl.h],
 [AC_SEARCH_LIBS(SSL_CTX_load_verify_locations, [ssl openssl], [AC_DEFINE(HAVE_TLS, 1, [TLS/SSL support])])])
+
+# check threads
+AC_MSG_CHECKING([whether threads are desired])
+if test "$want_threads" != no; then
+   AC_MSG_RESULT([yes])
+   AC_MSG_CHECKING([for working threads support])
+   AX_PTHREAD([
+     LIBS="$PTHREAD_LIBS $LIBS"
+     ## we don't want to mess with CFLAGS so we (ab)use CPPFLAGS
+     CPPFLAGS="$CPPFLAGS $PTHREAD_CFLAGS" 
+     ## and we ignore PTHREAD_CC since we have to use R's settings
+     with_threads=yes
+     AC_MSG_RESULT([yes])
+   ], [
+     AC_MSG_RESULT([no])
+     if test "$want_threads" = yes; then
+       AC_MSG_ERROR([Threads were requested, but no working threads support was found])
+     fi 
+     with_threads=no
+   ])
+else
+   AC_MSG_RESULT([no])
+   with_threads=no
+fi
+
+if test x"$with_threads" = xyes; then
+   AC_DEFINE(WITH_THREADS, 1, [set if threads can be used])
+fi
 
 AC_CONFIG_FILES([src/Makevars])
 AC_CONFIG_FILES([src/client/cxx/Makefile])
