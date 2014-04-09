@@ -96,6 +96,11 @@
 	specified interval. Currently it only works with
 	WebSockets.
 
+    o	add a configuration option "forward.stdio enable" which
+	will enable capturing of stdout/err and forward it to
+	the peer via OOB send messages. Note that this requires
+	thread support and uses additional file descriptors.
+
     o	bugfix: pairlists were incorrecty protected when parsing
 	SEXPs (qap_decode) in messages from client to server (#16).
 

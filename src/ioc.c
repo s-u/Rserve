@@ -168,16 +168,18 @@ SEXP ioc_setup() {
   pthread_create(&thread, &thread_attr, read_thread, 0);
 
   fprintf(flog, "setup done, fd = %d\n", pfd[0]);
-  return ScalarInteger(readFD = pfd[0]);
+  return (readFD = pfd[0]);
 }
 
-SEXP ioc_read() {
+SEXP ioc_read(int *type) {
     SEXP res;
     unsigned int h;
     int n = read(readFD, &h, sizeof(h));
     if (n != sizeof(h))
 	Rf_error("failed to read header");
     fprintf(flog, "header = 0x%x\n", h);
+    if (type)
+	type[0] = (h & 0x80000000) ? 1 : 0;
     h &= 0x7fffffff;
     res = Rf_allocVector(RAWSXP, h);
     n = read(readFD, RAW(res), h);
@@ -190,13 +192,13 @@ SEXP ioc_read() {
 
 #include <Rinternals.h>
 
-SEXP ioc_setup() {
-    Rf_error("I/O redirection or threads not supported on this platform");
-    return R_NilValue;
+int ioc_setup() {
+    return 0;
 }
 
-SEXP ioc_read() {
-    return ioc_setup();
+SEXP ioc_read(int *type) {
+    Rf_error("I/O redirection or threads not supported on this platform");
+    return R_NilValue;
 }
 
 #endif

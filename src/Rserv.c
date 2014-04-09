@@ -344,6 +344,7 @@ static int use_msg_id;   /* enable/disable the use of msg-ids in message frames 
 static int disable_shutdown; /* disable the shutdown command */
 static int oob_console = 0; /* enable OOB commands for console callbacks */
 static int idle_timeout = 0; /* interval to send idle OOBs, 0 = disabled */
+static int forward_std = 0; /* flag whether to forward stdout/err as OOBs */
 
 #ifdef DAEMON
 int daemonize = 1;
@@ -480,6 +481,13 @@ args_t *self_args;
 
 static int send_oob_sexp(int cmd, SEXP exp);
 
+/* stdout/err re-direction feeder FD (or 0 if not used) */
+static int std_fw_fd;
+
+/* from ioc.c */
+SEXP ioc_read(int *type);
+int  ioc_setup();
+
 /*  */
 int cio_recv(int s, void *buffer, int length, int flags) {
 	int n;
@@ -491,18 +499,36 @@ int cio_recv(int s, void *buffer, int length, int flags) {
 			idle_object = R_NilValue;
 	}
 	while (1) {
+		int xfd = s;
 		/* the timeout only determines granularity of idle calls */
 		timv.tv_sec = 1; timv.tv_usec = 0;
 		FD_ZERO(&readfds);
 		FD_SET(s, &readfds);
-		n = select(s + 1, &readfds, 0, 0, &timv);
+		if (std_fw_fd && self_args && enable_oob) {
+			if (std_fw_fd > xfd)
+				xfd = std_fw_fd;
+			FD_SET(std_fw_fd, &readfds);
+		}
+		n = select(xfd + 1, &readfds, 0, 0, &timv);
 		if (n == -1) {
 			if (errno == EINTR)
 				continue; /* recover */
 			return -1;
 		}
-		if (n)
+		if (n) {
+			/* handle stdout/err forwarding first */
+			if (std_fw_fd && FD_ISSET(std_fw_fd, &readfds)) {
+				SEXP q = PROTECT(allocVector(VECSXP, 2)), r;
+				int type = 0;
+				SET_VECTOR_ELT(q, 1, r = ioc_read(&type));
+				SET_VECTOR_ELT(q, 0, mkString(type ? "stderr" : "stdout"));
+				SET_VECTOR_ELT(q, 1, ScalarString(mkCharLenCE((const char*) RAW(r), LENGTH(r), CE_UTF8)));
+				send_oob_sexp(OOB_SEND, q);
+				UNPROTECT(1);
+				continue;
+			}
 			return recv(s, buffer, length, flags);
+		}
 		if (idle_timeout) {
 			int delta = ((int) time(NULL)) - last_idle_time;
 			if (delta > idle_timeout) {
@@ -992,6 +1018,11 @@ static int performConfig(int when) {
 		if (requested_uid) setuid(requested_uid);
 	}
 #endif
+
+	if (when == SU_CLIENT && forward_std && enable_oob)
+		if (!(std_fw_fd = ioc_setup()))
+			RSEprintf("failed to setup stdio forwarding");
+
 	return fail;
 }
 
@@ -1086,6 +1117,10 @@ static int setConfig(const char *c, const char *p) {
 	}
 	if (!strcmp(c, "tag.argv")) {
 		tag_argv = conf_is_true(p);
+		return 1;
+	}
+	if (!strcmp(c, "forward.stdio")) {
+		forward_std = conf_is_true(p);
 		return 1;
 	}
 	if (!strcmp(c, "ulog")) {
