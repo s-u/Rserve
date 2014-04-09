@@ -19,6 +19,11 @@ else
   aclocal -I m4
   autoheader
   autoconf
+  ## this should not be necessary since we don't use
+  ## automake but a bug in autoconf 2.69 requires
+  ## automake files even though they are not used
+  automake -ac 2>/dev/null 
+  touch shtool
   rm -rf autom4te* aclocal*
 fi
 
