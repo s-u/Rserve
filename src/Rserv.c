@@ -491,6 +491,25 @@ static int std_fw_fd;
 SEXP ioc_read(int *type);
 int  ioc_setup();
 
+static void handle_std_fw() {
+	SEXP q = PROTECT(allocVector(VECSXP, 2)), r;
+	int type = 0;
+	SET_VECTOR_ELT(q, 1, r = ioc_read(&type));
+	SET_VECTOR_ELT(q, 0, mkString(type ? "stderr" : "stdout"));
+	SET_VECTOR_ELT(q, 1, ScalarString(mkCharLenCE((const char*) RAW(r), LENGTH(r), CE_UTF8)));
+	if (oob_allowed) /* this should be really always true */
+		send_oob_sexp(OOB_SEND, q);
+	UNPROTECT(1);
+}
+
+#ifdef unix
+#include <R_ext/eventloop.h>
+
+static void std_fw_input_handler(void *dummy) {
+	handle_std_fw();
+}
+#endif
+
 /*  */
 int cio_recv(int s, void *buffer, int length, int flags) {
 	int n;
@@ -521,13 +540,7 @@ int cio_recv(int s, void *buffer, int length, int flags) {
 		if (n) {
 			/* handle stdout/err forwarding first */
 			if (std_fw_fd && FD_ISSET(std_fw_fd, &readfds)) {
-				SEXP q = PROTECT(allocVector(VECSXP, 2)), r;
-				int type = 0;
-				SET_VECTOR_ELT(q, 1, r = ioc_read(&type));
-				SET_VECTOR_ELT(q, 0, mkString(type ? "stderr" : "stdout"));
-				SET_VECTOR_ELT(q, 1, ScalarString(mkCharLenCE((const char*) RAW(r), LENGTH(r), CE_UTF8)));
-				send_oob_sexp(OOB_SEND, q);
-				UNPROTECT(1);
+				handle_std_fw();
 				continue;
 			}
 			/* we only land here if FD_ISSET(s, ) is true so no need to check */
@@ -2644,6 +2657,11 @@ static void free_qap_runtime(qap_runtime_t *rt) {
 static void RS_Busy(int which) {
 }
 
+static int RS_ReadConsole(const char *prompt, unsigned char *buf, int len, int history) {
+	Rf_error("sorry, direct console input is not supported");
+	return 0;
+}
+
 static void RS_ResetConsole() {
 }
 
@@ -2708,7 +2726,7 @@ void Rserve_OCAP_connected(void *thp) {
 #ifdef R_INTERFACE_PTRS
 		if (oob_console) {
 			ptr_R_ShowMessage = RS_ShowMessage;
-			/* ptr_R_ReadConsole = RS_ReadConsole; */
+			ptr_R_ReadConsole = RS_ReadConsole;
 			ptr_R_WriteConsole = NULL;
 			ptr_R_WriteConsoleEx = RS_WriteConsoleEx;
 			ptr_R_ResetConsole = RS_ResetConsole;
@@ -2725,7 +2743,13 @@ void Rserve_OCAP_connected(void *thp) {
 		if (forward_std && enable_oob)
 			if (!(std_fw_fd = ioc_setup()))
 				ulog("WARNING: failed to setup stdio forwarding");
-		
+#if unix
+		/* also register an input handler, because calls like system/sleep will
+		   block the OCAP loop */
+			else
+				addInputHandler(R_InputHandlers, std_fw_fd, &std_fw_input_handler, 9);
+#endif
+
 		oc = R_tryEval(PROTECT(LCONS(install("oc.init"), R_NilValue)), R_GlobalEnv, &Rerr);
 		UNPROTECT(1);
 		ulog("OCinit-result: %s", Rerr ? "FAILED" : "OK");
