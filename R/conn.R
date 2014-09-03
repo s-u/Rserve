@@ -68,6 +68,8 @@ self.oobMessage <- function(what, code = 0L) {
   invisible(.Call(call, what, code))
 }
 
+ulog <- function(...) invisible(.Call(Rserve_ulog, paste(..., collapse="\n", sep="")))
+
 ocap <- function(fun, name=deparse(substitute(fun)))
   .Call(Rserve_oc_register, fun, name)
 

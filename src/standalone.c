@@ -200,6 +200,7 @@ int main(int argc, char **argv)
 			{"Rserve_oobMsg", (DL_FUNC) &Rserve_oobMsg, 2},
 			{"Rserve_oc_register", (DL_FUNC) &Rserve_oc_register, 2},
 			{"Rserve_oc_resolve", (DL_FUNC) &Rserve_oc_resolve, 1},
+			{"Rserve_ulog", (DL_FUNC) &Rserve_ulog, 1},
 			{NULL, NULL, 0}
 		};
 		R_registerRoutines(R_getEmbeddingDllInfo(), 0, mainCallMethods, 0, 0);

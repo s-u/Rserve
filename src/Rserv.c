@@ -1941,6 +1941,12 @@ static int send_oob_sexp(int cmd, SEXP exp) {
 	return 1;
 }
 
+SEXP Rserve_ulog(SEXP sWhat) {
+	if (TYPEOF(sWhat) == STRSXP && LENGTH(sWhat))
+		ulog(CHAR(STRING_ELT(sWhat, 0)));
+	return sWhat;
+}
+
 SEXP Rserve_oobSend(SEXP exp, SEXP code) {
 	int oob_code = asInteger(code);
 	return ScalarLogical(send_oob_sexp(OOB_USR_CODE(oob_code) | OOB_SEND, exp) == 1 ? TRUE : FALSE);

@@ -1,7 +1,11 @@
  NEWS/Changelog for Rserve
 ---------------------------
 
-1.8-0	(under development)
+1.8-1	(under development)
+    o	add ulog() R function to allow custom logging from R code
+
+
+1.8-0
     o	new logging mechanism has been added to Rserve. It can
 	be enabled using the
 
