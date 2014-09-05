@@ -2749,7 +2749,7 @@ void Rserve_OCAP_connected(void *thp) {
 		if (forward_std && enable_oob)
 			if (!(std_fw_fd = ioc_setup()))
 				ulog("WARNING: failed to setup stdio forwarding");
-#if unix
+#ifdef unix
 		/* also register an input handler, because calls like system/sleep will
 		   block the OCAP loop */
 			else
