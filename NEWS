@@ -4,6 +4,16 @@
 1.8-1	(under development)
     o	add ulog() R function to allow custom logging from R code
 
+    o	add "fork here" directive which allows to spawn multiple
+	pre-forked instances of Rserve which all share the same
+	memory. The rest of the configuration file is then ignored in
+	the forked instance while the parent server instance continues
+	to read on. This can be useful on machines with many cores and
+	very short requests where the serial fork() time for each
+	connection is in the order of the computing time. Note that by
+	design this only works in configuration files and cannot be
+	used on the command line.
+
 
 1.8-0
     o	new logging mechanism has been added to Rserve. It can

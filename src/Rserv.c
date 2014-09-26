@@ -1557,7 +1557,22 @@ static int loadConfig(const char *fn)
 #ifdef RSERV_DEBUG
 			printf("conf> command=\"%s\", parameter=\"%s\"\n", c, p);
 #endif
-			setConfig(c, p);
+			/* fork here is special - it only works in config files and the child stops reading after that */
+			if (!strcmp(c, "fork") && !strcmp(p, "here")) {
+#ifdef unix
+				pid_t fres = fork();
+				if (fres < 0)
+					RSEprintf("WARNING: fork here failed\n");
+				else if (fres == 0) {
+#ifdef RSERV_DEBUG
+					printf(" -- forked child server with active config (%d)", getpid());
+#endif
+					break; /* get out - don't read the config file any further */
+				}
+#else
+				RSEprintf("WARNING: fork here specified on system that doesn't support forking, ignoring.\n");
+#endif
+			} else setConfig(c, p);
 		}
     fclose(f);
 #ifndef HAS_CRYPT
