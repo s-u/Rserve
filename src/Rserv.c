@@ -1897,7 +1897,6 @@ static void pwd_close(pwdf_t *f) {
 	free(f);
 }
 
-/* forward decl for OCAP iteration */
 typedef struct qap_runtime qap_runtime_t;
 
 int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr);
@@ -2761,16 +2760,6 @@ void Rserve_OCAP_connected(void *thp) {
 		
 		oob_allowed = 1;
 
-		if (forward_std && enable_oob)
-			if (!(std_fw_fd = ioc_setup()))
-				ulog("WARNING: failed to setup stdio forwarding");
-#ifdef unix
-		/* also register an input handler, because calls like system/sleep will
-		   block the OCAP loop */
-			else
-				addInputHandler(R_InputHandlers, std_fw_fd, &std_fw_input_handler, 9);
-#endif
-
 		oc = R_tryEval(PROTECT(LCONS(install("oc.init"), R_NilValue)), R_GlobalEnv, &Rerr);
 		UNPROTECT(1);
 		ulog("OCinit-result: %s", Rerr ? "FAILED" : "OK");
@@ -2793,6 +2782,18 @@ void Rserve_OCAP_connected(void *thp) {
 
 		args->flags |= F_OUT_BIN; /* in OC everything is binary */
 		PROTECT(oc);
+
+		/* enable I/O forwarding only *after* oc.init to make forking easier (no threads to deal with) */
+		if (forward_std && enable_oob)
+			if (!(std_fw_fd = ioc_setup()))
+				ulog("WARNING: failed to setup stdio forwarding");
+#ifdef unix
+		/* also register an input handler, because calls like system/sleep will
+		   block the OCAP loop */
+			else
+				addInputHandler(R_InputHandlers, std_fw_fd, &std_fw_input_handler, 9);
+#endif
+
 		rs = QAP_getStorageSize(oc);
 #ifdef RSERV_DEBUG
 		printf("oc.init storage size = %ld bytes\n",(long)rs);
@@ -2842,8 +2843,65 @@ void Rserve_OCAP_connected(void *thp) {
 
 	while (OCAP_iteration(rt, 0)) {}
 	
+	/* FIXME: for compute_fd should we defer the cleanup to the compute process? */
 	Rserve_cleanup();
 	free_qap_runtime(rt);
+}
+
+static int compute_fd = -1;
+static void *compute_iobuf;
+static int compute_iobuf_len;
+
+static void compute_terminated() {
+	SEXP q = PROTECT(allocVector(VECSXP, 1));
+	int type = 0;
+	SET_VECTOR_ELT(q, 0, mkString("compute_terminated"));
+	closesocket(compute_fd);
+	compute_fd = -1;
+	if (oob_allowed) /* this should be really always true */
+		send_oob_sexp(OOB_SEND, q);
+	ulog("compute process connection lost");
+	UNPROTECT(1);
+}
+
+/* fwd decl */
+server_t *create_Rserve_QAP1(int flags);
+
+SEXP Rserve_fork_compute(SEXP sExp) {
+	int fd[2];
+	pid_t fpid;
+	if (socketpair(AF_UNIX, SOCK_STREAM, 0, fd))
+		Rf_error("unable to create a socket for communication");
+	fpid = fork();
+	if (fpid == -1)
+		Rf_error("unable to fork computing process");
+	if (fpid == 0) { /* child = compute process */
+		struct args *args = (struct args *) calloc(1, sizeof(struct args));
+		server_t *srv = create_Rserve_QAP1(SRV_QAP_OC);
+		args->s = fd[1];
+		args->ucix = UCIX++;
+		args->ss = -1;
+		args->srv = srv;
+        current_runtime = new_qap_runtime(args);
+		if (!current_runtime) {
+            ulog("OCAP-ERROR: cannot allocate QAP runtime in fork compute");
+            exit(1);
+		}
+        args->flags |= F_OUT_BIN; /* in OC everything is binary */
+		/* FIXME: we need something like on.exit(q("no")) to die on error */
+		if (sExp != R_NilValue) {
+			ulog("OCAP-compute: evaluating fork expression in child process");
+			eval(sExp, R_GlobalEnv);
+			/* FIXME: this has to be passed to the parent so it can contain parent->child OCAPs */
+		}
+		ulog("OCAP-compute: entering OCAP loop");
+		while (OCAP_iteration(current_runtime, 0) != 0) {}
+		ulog("OCAP-compute: leaving OCAP loop, terminating");
+		/* FIXME: should we clean up something? */
+		exit(0);
+	}
+	/* parent - back to normal life */
+	compute_fd = fd[0];
 }
 
 /* 1 = iteration successful - OCAP called
@@ -2863,270 +2921,376 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 	srv = args->srv;
 	s = args->s;
 	
-    while((rn = srv->recv(args, (char*)&ph, sizeof(ph))) == sizeof(ph)) {
-		size_t plen = 0;
-		unsigned int len32, hi32;
-		int cmd;
-#ifdef RSERV_DEBUG
-		printf("\nOCAP iter header read result: %d\n", rn);
-		if (rn > 0) printDump(&ph, rn);
-#endif
-		/* NOTE: do not touch ph since we may need to pass it unharmed to oob */
-		len32 = (unsigned int) ptoi(ph.len);
-		cmd = ptoi(ph.cmd);
-		plen = len32;
-#ifdef __LP64__
-		hi32 = (unsigned int) ptoi(ph.res);
-		plen |= (((size_t) hi32) << 32);
-#endif
+	while ((s = args->s) != -1) {
+		int which = 0;
+		if (compute_fd != -1) { /* two to listen to - check which is available */
+			struct timeval timv;
+			fd_set readfds;
+			timv.tv_sec = 5;
+			timv.tv_usec = 0;
+			FD_ZERO(&readfds);
+			FD_SET(s, &readfds);
+			FD_SET(compute_fd, &readfds);
+			rn =  select(((s > compute_fd) ? s : compute_fd) + 1, &readfds, 0, 0, &timv);
+			if (rn < 1 && errno != EINTR) break;
+			if (FD_ISSET(s, &readfds)) which = 1;
+			else if (FD_ISSET(compute_fd, &readfds)) which = 2;
+		} else which = 1; /* only possibility */
 
-#ifdef RSERV_DEBUG
-		if (io_log) {
-			struct timeval tv;
-			snprintf(io_log_fn, sizeof(io_log_fn), "/tmp/Rserve-io-%d.log", getpid());
-			FILE *f = fopen(io_log_fn, "a");
-			if (f) {
-				double ts = 0;
-				if (!gettimeofday(&tv, 0))
-					ts = ((double) tv.tv_sec) + ((double) tv.tv_usec) / 1000000.0;
-				if (first_ts < 1.0) first_ts = ts;
-				fprintf(f, "%.3f [+%4.3f]  SRV <-- CLI  [OCAP iter]  (%x, %ld bytes)\n   HEAD ", ts, ts - first_ts, cmd, (long) plen);
-				fprintDump(f, &ph, sizeof(ph));
-				fclose(f);
+		if (which == 2) { /* proxy pass-through */
+			size_t plen = 0, i;
+			unsigned int len32, hi32;
+			int cmd;
+
+			rn = recv(compute_fd, (char*)&ph, sizeof(ph), 0);
+			if (rn != sizeof(ph)) {
+				compute_terminated();
+				continue;
 			}
-		}
-#endif
-
-		if (oob_hdr && (cmd & CMD_OOB)) { /* we're nested in OOB and OOB has arrived - copy header and get out */
-			memcpy(oob_hdr, &ph, sizeof(ph));
-			ulog("OCiteration passing to OOB");
-			return 2;
-		}
-
-		msg_id = args->msg_id = ph.msg_id;
-
-		/* in OC mode everything but OCcall is invalid */
-		if (cmd != CMD_OCcall) {
-			ulog("VIOLATION: OCAP iteration - only OCcall is allowed but got 0x%x, aborting", cmd);
-			sendResp(args, SET_STAT(RESP_ERR, ERR_disabled));
-			closesocket(s);
-			args->s = -1;
-			return 0;
-		}
-
-		{
-			if (!maxInBuf || plen < maxInBuf) {
-				rlen_t i;
-				if (plen >= rt->buf_size) {
-#ifdef RSERV_DEBUG
-					printf("resizing input buffer (was %ld, need %ld) to %ld\n", (long)rt->buf_size, (long) plen, (long)(((plen | 0x1fffL) + 1L)));
-#endif
-					free(rt->buf); /* the buffer is just a scratchpad, so we don't need to use realloc */
-					rt->buf = (char*) malloc(rt->buf_size = ((plen | 0x1fffL) + 1L)); /* use 8kB granularity */
-					if (!rt->buf) {
-#ifdef RSERV_DEBUG
-						fprintf(stderr,"FATAL: out of memory while resizing buffer to %ld,\n", (long)rt->buf_size);
-#endif
-						ulog("ERROR: out of memory while resizing resizing buffer to %ld,\n", (long)rt->buf_size);
-						sendResp(args, SET_STAT(RESP_ERR,ERR_out_of_mem));
-						closesocket(s);
-						args->s = -1;
-						return 0;
-					}
-				}
-#ifdef RSERV_DEBUG
-				printf("loading buffer (awaiting %ld bytes)\n",(long) plen);
-#endif
-				i = 0;
-				while ((rn = srv->recv(args, ((char*)rt->buf) + i, (plen - i > max_sio_chunk) ? max_sio_chunk : (plen - i)))) {
-					if (rn > 0) i += rn;
-					if (i >= plen || rn < 1) break;
-				}
 
 #ifdef RSERV_DEBUG
-				if (io_log) {
-					FILE *f = fopen(io_log_fn, "a");
-					if (f) {
-						fprintf(f, "   BODY ");
-						if (i) fprintDump(f, rt->buf, i); else fprintf(f, "<none>\n");
-						fclose(f);
-					}
-				}
+			printf("\nOCAP pass-thru header read result: %d\n", rn);
+			if (rn > 0) printDump(&ph, rn);
+#endif
+			/* NOTE: do not touch ph since we may need to pass it unharmed to oob */
+			len32 = (unsigned int) ptoi(ph.len);
+			cmd = ptoi(ph.cmd);
+			plen = len32;
+#ifdef __LP64__
+			hi32 = (unsigned int) ptoi(ph.res);
+			plen |= (((size_t) hi32) << 32);
 #endif
 
-				if (i < plen) {
-					ulog("ERROR: incomplete OCAP message - closing connection");
-					sendResp(args, SET_STAT(RESP_ERR, ERR_conn_broken));
+			if (!compute_iobuf) {
+				if (compute_iobuf_len)
+					compute_iobuf_len = max_sio_chunk;
+				compute_iobuf = malloc(compute_iobuf_len);
+				if (!compute_iobuf) {
+#ifdef RSERV_DEBUG
+					fprintf(stderr,"FATAL: out of memory while allocating pass-thru buffer\n");
+#endif
+					ulog("ERROR: out of memory while allocating pass-thru buffer of %d\n", compute_iobuf_len);
+					closesocket(compute_fd);
+					sendResp(args, SET_STAT(RESP_ERR,ERR_out_of_mem));
 					closesocket(s);
 					args->s = -1;
 					return 0;
 				}
-				memset(rt->buf + plen, 0, 8);
-			} else {
+			}
 #ifdef RSERV_DEBUG
-				fprintf(stderr,"ERROR: input is larger than input buffer limit\n");
+			printf("loading buffer (awaiting %ld bytes from subprocess)\n",(long) plen);
 #endif
-				ulog("ERROR: input packet is larger than input buffer limit");
-				sendResp(args, SET_STAT(RESP_ERR, ERR_data_overflow));
+			/* FIXME: should we check the payload? We should only allow OOB SEND through ... */
+			/* FIXME: this is not recorded in iolog ! */
+			if (srv->send(args, &ph, sizeof(ph)) != sizeof(ph)) {
+#ifdef RSERV_DEBUG
+				fprintf(stderr,"ERROR: cannot send pass-thru OOB (header sent failed)\n");
+#endif
+				ulog("ERROR: cannot send pass-thru OOB (header sent failed)");
+				closesocket(compute_fd);
 				closesocket(s);
 				args->s = -1;
 				return 0;
 			}
-		}
+			while (plen) {
+				rn = recv(compute_fd, compute_iobuf, compute_iobuf_len, 0);
+				if (rn > 0 && srv->send(args, compute_iobuf, rn) != rn) {
+#ifdef RSERV_DEBUG
+					fprintf(stderr,"ERROR: cannot send pass-thru OOB (payload send failed)\n");
+#endif
+					ulog("ERROR: cannot send pass-thru OOB (payload send failed)");
+					closesocket(compute_fd);
+					closesocket(s);
+					args->s = -1;
+					return 0;
+				}
+				if (rn < 1) {
+					compute_terminated();
+					continue;
+				}
+				plen -= rn;
+			}
+			
+			if (i < plen) {
+				ulog("ERROR: incomplete compute OCAP message - closing connection");
+				sendResp(args, SET_STAT(RESP_ERR, ERR_conn_broken));
+				closesocket(s);
+				closesocket(compute_fd);
+				args->s = -1;
+				return 0;
+			}
+		} /* end of pass-thru processing */
 
-		{
-			int valid = 0, Rerror = 0;
-			SEXP val = R_NilValue, eval_result = 0, exp = R_NilValue;
-			unsigned int *ibuf = (unsigned int*) rt->buf;
-			/* FIXME: this is a bit hacky since we skipped parameter parsing */
-			int par_t = ibuf[0] & 0xff;
-			const char *c_ocname = 0;
-			if (par_t == DT_SEXP || par_t == (DT_SEXP | DT_LARGE)) {
-				unsigned int *sptr;
-				sptr = ibuf + ((par_t & DT_LARGE) ? 2 : 1);
-				/* FIXME: we're not checking the size?!? */
-				val = QAP_decode(&sptr);
-				if (val && TYPEOF(val) == LANGSXP) {
-					SEXP ocref = CAR(val);
-					if (TYPEOF(ocref) == STRSXP && LENGTH(ocref) == 1) {
-						SEXP ocv = oc_resolve(CHAR(STRING_ELT(ocref, 0)));
-						if (ocv && ocv != R_NilValue && CAR(ocv) != R_NilValue) {
-							/* valid reference -- replace it in the call */
-							SEXP occall = CAR(ocv), ocname = TAG(ocv);
-							SETCAR(val, occall);
-							if (ocname != R_NilValue) c_ocname = CHAR(PRINTNAME(ocname));
-							ulog("OCcall '%s': ", (ocname == R_NilValue) ? "<null>" : c_ocname);
-							valid = 1;
-						}
-					}
+		if (which == 1) {
+			size_t plen = 0;
+			unsigned int len32, hi32;
+			int cmd;
+
+			rn = srv->recv(args, (char*)&ph, sizeof(ph));
+			if (rn != sizeof(ph)) break;
+#ifdef RSERV_DEBUG
+			printf("\nOCAP iter header read result: %d\n", rn);
+			if (rn > 0) printDump(&ph, rn);
+#endif
+		/* NOTE: do not touch ph since we may need to pass it unharmed to oob */
+			len32 = (unsigned int) ptoi(ph.len);
+			cmd = ptoi(ph.cmd);
+			plen = len32;
+#ifdef __LP64__
+			hi32 = (unsigned int) ptoi(ph.res);
+			plen |= (((size_t) hi32) << 32);
+#endif
+			
+#ifdef RSERV_DEBUG
+			if (io_log) {
+				struct timeval tv;
+				snprintf(io_log_fn, sizeof(io_log_fn), "/tmp/Rserve-io-%d.log", getpid());
+				FILE *f = fopen(io_log_fn, "a");
+				if (f) {
+					double ts = 0;
+					if (!gettimeofday(&tv, 0))
+						ts = ((double) tv.tv_sec) + ((double) tv.tv_usec) / 1000000.0;
+					if (first_ts < 1.0) first_ts = ts;
+					fprintf(f, "%.3f [+%4.3f]  SRV <-- CLI  [OCAP iter]  (%x, %ld bytes)\n   HEAD ", ts, ts - first_ts, cmd, (long) plen);
+					fprintDump(f, &ph, sizeof(ph));
+					fclose(f);
 				}
 			}
-			/* invalid calls lead to immediate termination with no message */
-			if (!valid) {
-				ulog("ERROR OCcall: invalid reference");
+#endif
+
+			if (oob_hdr && (cmd & CMD_OOB)) { /* we're nested in OOB and OOB has arrived - copy header and get out */
+				/* FIXME: we need a way to detect OOB MSG reposnses that need to be forwarded to compute_fd! */
+				memcpy(oob_hdr, &ph, sizeof(ph));
+				ulog("OCiteration passing to OOB");
+				return 2;
+			}
+			
+			msg_id = args->msg_id = ph.msg_id;
+			
+			/* in OC mode everything but OCcall is invalid */
+			if (cmd != CMD_OCcall) {
+				ulog("VIOLATION: OCAP iteration - only OCcall is allowed but got 0x%x, aborting", cmd);
+				sendResp(args, SET_STAT(RESP_ERR, ERR_disabled));
 				closesocket(s);
 				args->s = -1;
 				return 0;
 			}
-			PROTECT(val);
+			
+			{
+				if (!maxInBuf || plen < maxInBuf) {
+					rlen_t i;
+					if (plen >= rt->buf_size) {
 #ifdef RSERV_DEBUG
-			printf("  running eval on SEXP (after OC replacement): ");
-			printSEXP(val);
+						printf("resizing input buffer (was %ld, need %ld) to %ld\n", (long)rt->buf_size, (long) plen, (long)(((plen | 0x1fffL) + 1L)));
 #endif
-			eval_result = R_tryEval(val, R_GlobalEnv, &Rerror);
-			args->msg_id = msg_id; /* restore msg_id - oob in eval would clober it */
-			UNPROTECT(1);
-			ulog("OCresult '%s'", c_ocname ? c_ocname : "<null>");
-
-			if (eval_result) exp = PROTECT(eval_result);
-#ifdef RSERV_DEBUG
-			printf("expression(s) evaluated (Rerror=%d).\n",Rerror);
-			if (!Rerror) printSEXP(exp);
-#endif
-			if (Rerror) {
-				sendResp(args, SET_STAT(RESP_ERR, (Rerror < 0) ? Rerror : -Rerror));
-				return 1;
-			} else {
-				char *sendhead = 0;
-				rlen_t tempSB = 0;
-				/* check buffer size vs REXP size to avoid dangerous overflows
-				   todo: resize the buffer as necessary
-				*/
-				rlen_t rs = QAP_getStorageSize(exp);
-				/* FIXME: add a 4k security margin - it should no longer be needed,
-				   originally the space was grown proportionally to account for a bug,
-				   but that bug has been fixed. */
-				rs += 4096;
-#ifdef RSERV_DEBUG
-				printf("result storage size = %ld bytes (buffer %ld bytes)\n",(long)rs, (long)rt->buf_size);
-#endif
-				if (rs > rt->buf_size - 64L) { /* is the send buffer too small ? */
-					if (maxSendBufSize && rs + 64L > maxSendBufSize) { /* first check if we're allowed to resize */
-						unsigned int osz = (rs > 0xffffffff) ? 0xffffffff : rs;
-						osz = itop(osz);
-#ifdef RSERV_DEBUG
-						printf("ERROR: object too big (buffer=%ld)\n", rt->buf_size);
-#endif
-						ulog("WARNING: object too big to send");
-						sendRespData(args, SET_STAT(RESP_ERR, ERR_object_too_big), 4, &osz);
-						return 1;
-					} else { /* try to allocate a large, temporary send buffer */
-						tempSB = rs + 64L;
-						tempSB &= rlen_max << 12;
-						tempSB += 0x1000;
-#ifdef RSERV_DEBUG
-						printf("Trying to allocate temporary send buffer of %ld bytes.\n", (long)tempSB);
-#endif
-						free(rt->buf);
-						rt->buf = (char*)malloc(tempSB);
+						free(rt->buf); /* the buffer is just a scratchpad, so we don't need to use realloc */
+						rt->buf = (char*) malloc(rt->buf_size = ((plen | 0x1fffL) + 1L)); /* use 8kB granularity */
 						if (!rt->buf) {
 #ifdef RSERV_DEBUG
-							printf("Failed to allocate temporary send buffer of %ld bytes. Restoring old send buffer of %ld bytes.\n", (long)tempSB, (long)rt->buf_size);
+							fprintf(stderr,"FATAL: out of memory while resizing buffer to %ld,\n", (long)rt->buf_size);
 #endif
-							rt->buf = (char*)malloc(rt->buf_size);
-							if (!rt->buf) { /* we couldn't re-allocate the buffer */
-#ifdef RSERV_DEBUG
-								fprintf(stderr,"FATAL: out of memory while re-allocating send buffer to %ld (fallback#1)\n", (long) rt->buf_size);
-#endif
-								sendResp(args, SET_STAT(RESP_ERR, ERR_out_of_mem));
-								closesocket(s);
-								args->s = -1;
-								return 0;
-							} else {
-								unsigned int osz = (rs > 0xffffffff) ? 0xffffffff : rs;
-								osz = itop(osz);
-#ifdef RSERV_DEBUG
-								printf("ERROR: object too big (sendBuf=%ld) and couldn't allocate big enough send buffer\n", (long) rt->buf_size);
-#endif
-								sendRespData(args, SET_STAT(RESP_ERR, ERR_object_too_big), 4, &osz);
-								return 1;
-							}
-						}
-					}
-				}
-				{
-					/* first we have 4 bytes of a header saying this is an encoded SEXP, then comes the SEXP */
-					char *sxh = rt->buf + 8;
-					char *tail = (char*)QAP_storeSEXP((unsigned int*)sxh, exp, rs);
-					
-					/* set type to DT_SEXP and correct length */
-					if ((tail - sxh) > 0xfffff0) { /* we must use the "long" format */
-						rlen_t ll = tail - sxh;
-						((unsigned int*)rt->buf)[0] = itop(SET_PAR(DT_SEXP | DT_LARGE, ll & 0xffffff));
-						((unsigned int*)rt->buf)[1] = itop(ll >> 24);
-						sendhead = rt->buf;
-					} else {
-						sendhead = rt->buf + 4;
-						((unsigned int*)rt->buf)[1] = itop(SET_PAR(DT_SEXP,tail - sxh));
-					}
-#ifdef RSERV_DEBUG
-					printf("stored SEXP; length=%ld (incl. DT_SEXP header)\n",(long) (tail - sendhead));
-#endif
-					sendRespData(args, RESP_OK, tail - sendhead, sendhead);
-					if (tempSB) { /* if this is just a temporary sendbuffer then shrink it back to normal */
-#ifdef RSERV_DEBUG
-						printf("Releasing temporary sendbuf and restoring old size of %ld bytes.\n", (long) rt->buf_size);
-#endif
-						free(rt->buf);
-						rt->buf = (char*)malloc(rt->buf_size);
-						if (!rt->buf) { /* this should be really rare since tempSB was much larger */
-#ifdef RSERV_DEBUG
-							fprintf(stderr,"FATAL: out of memory while re-allocating send buffer to %ld (fallback#2),\n", (long) rt->buf_size);
-#endif
-							sendResp(args, SET_STAT(RESP_ERR, ERR_out_of_mem));
-							ulog("ERROR: out of memory while shrinking send buffer");
+							ulog("ERROR: out of memory while resizing resizing buffer to %ld,\n", (long)rt->buf_size);
+							sendResp(args, SET_STAT(RESP_ERR,ERR_out_of_mem));
 							closesocket(s);
 							args->s = -1;
 							return 0;
 						}
 					}
-				}
-				if (eval_result) UNPROTECT(1); /* exp / eval_result */
-			}
 #ifdef RSERV_DEBUG
-			printf("reply sent.\n");
-			return 1;
+					printf("loading buffer (awaiting %ld bytes)\n",(long) plen);
 #endif
+					i = 0;
+					while ((rn = srv->recv(args, ((char*)rt->buf) + i, (plen - i > max_sio_chunk) ? max_sio_chunk : (plen - i)))) {
+						if (rn > 0) i += rn;
+						if (i >= plen || rn < 1) break;
+					}
+					
+#ifdef RSERV_DEBUG
+					if (io_log) {
+						FILE *f = fopen(io_log_fn, "a");
+						if (f) {
+							fprintf(f, "   BODY ");
+							if (i) fprintDump(f, rt->buf, i); else fprintf(f, "<none>\n");
+							fclose(f);
+						}
+					}
+#endif
+					
+					if (i < plen) {
+						ulog("ERROR: incomplete OCAP message - closing connection");
+						sendResp(args, SET_STAT(RESP_ERR, ERR_conn_broken));
+						closesocket(s);
+						args->s = -1;
+						return 0;
+					}
+					memset(rt->buf + plen, 0, 8);
+				} else {
+#ifdef RSERV_DEBUG
+					fprintf(stderr,"ERROR: input is larger than input buffer limit\n");
+#endif
+					ulog("ERROR: input packet is larger than input buffer limit");
+					sendResp(args, SET_STAT(RESP_ERR, ERR_data_overflow));
+					closesocket(s);
+					args->s = -1;
+					return 0;
+				}
+			}
+
+			{
+				int valid = 0, Rerror = 0;
+				SEXP val = R_NilValue, eval_result = 0, exp = R_NilValue;
+				unsigned int *ibuf = (unsigned int*) rt->buf;
+				/* FIXME: this is a bit hacky since we skipped parameter parsing */
+				int par_t = ibuf[0] & 0xff;
+				const char *c_ocname = 0;
+				if (par_t == DT_SEXP || par_t == (DT_SEXP | DT_LARGE)) {
+					unsigned int *sptr;
+					sptr = ibuf + ((par_t & DT_LARGE) ? 2 : 1);
+					/* FIXME: we're not checking the size?!? */
+					val = QAP_decode(&sptr);
+					if (val && TYPEOF(val) == LANGSXP) {
+						SEXP ocref = CAR(val);
+						if (TYPEOF(ocref) == STRSXP && LENGTH(ocref) == 1) {
+							SEXP ocv = oc_resolve(CHAR(STRING_ELT(ocref, 0)));
+							if (ocv && ocv != R_NilValue && CAR(ocv) != R_NilValue) {
+								/* valid reference -- replace it in the call */
+								SEXP occall = CAR(ocv), ocname = TAG(ocv);
+								SETCAR(val, occall);
+								if (ocname != R_NilValue) c_ocname = CHAR(PRINTNAME(ocname));
+								ulog("OCcall '%s': ", (ocname == R_NilValue) ? "<null>" : c_ocname);
+								valid = 1;
+							}
+						}
+					}
+				}
+				/* invalid calls lead to immediate termination with no message */
+				if (!valid) {
+					ulog("ERROR OCcall: invalid reference");
+					closesocket(s);
+					args->s = -1;
+					return 0;
+				}
+				PROTECT(val);
+#ifdef RSERV_DEBUG
+				printf("  running eval on SEXP (after OC replacement): ");
+				printSEXP(val);
+#endif
+				eval_result = R_tryEval(val, R_GlobalEnv, &Rerror);
+				args->msg_id = msg_id; /* restore msg_id - oob in eval would clober it */
+				UNPROTECT(1);
+				ulog("OCresult '%s'", c_ocname ? c_ocname : "<null>");
+				
+				if (eval_result) exp = PROTECT(eval_result);
+#ifdef RSERV_DEBUG
+				printf("expression(s) evaluated (Rerror=%d).\n",Rerror);
+				if (!Rerror) printSEXP(exp);
+#endif
+				if (Rerror) {
+					sendResp(args, SET_STAT(RESP_ERR, (Rerror < 0) ? Rerror : -Rerror));
+					return 1;
+				} else {
+					char *sendhead = 0;
+					rlen_t tempSB = 0;
+					/* check buffer size vs REXP size to avoid dangerous overflows
+					   todo: resize the buffer as necessary
+					*/
+					rlen_t rs = QAP_getStorageSize(exp);
+					/* FIXME: add a 4k security margin - it should no longer be needed,
+					   originally the space was grown proportionally to account for a bug,
+					   but that bug has been fixed. */
+					rs += 4096;
+#ifdef RSERV_DEBUG
+					printf("result storage size = %ld bytes (buffer %ld bytes)\n",(long)rs, (long)rt->buf_size);
+#endif
+					if (rs > rt->buf_size - 64L) { /* is the send buffer too small ? */
+						if (maxSendBufSize && rs + 64L > maxSendBufSize) { /* first check if we're allowed to resize */
+							unsigned int osz = (rs > 0xffffffff) ? 0xffffffff : rs;
+							osz = itop(osz);
+#ifdef RSERV_DEBUG
+							printf("ERROR: object too big (buffer=%ld)\n", rt->buf_size);
+#endif
+							ulog("WARNING: object too big to send");
+							sendRespData(args, SET_STAT(RESP_ERR, ERR_object_too_big), 4, &osz);
+							return 1;
+						} else { /* try to allocate a large, temporary send buffer */
+							tempSB = rs + 64L;
+							tempSB &= rlen_max << 12;
+							tempSB += 0x1000;
+#ifdef RSERV_DEBUG
+							printf("Trying to allocate temporary send buffer of %ld bytes.\n", (long)tempSB);
+#endif
+							free(rt->buf);
+							rt->buf = (char*)malloc(tempSB);
+							if (!rt->buf) {
+#ifdef RSERV_DEBUG
+								printf("Failed to allocate temporary send buffer of %ld bytes. Restoring old send buffer of %ld bytes.\n", (long)tempSB, (long)rt->buf_size);
+#endif
+								rt->buf = (char*)malloc(rt->buf_size);
+								if (!rt->buf) { /* we couldn't re-allocate the buffer */
+#ifdef RSERV_DEBUG
+									fprintf(stderr,"FATAL: out of memory while re-allocating send buffer to %ld (fallback#1)\n", (long) rt->buf_size);
+#endif
+									sendResp(args, SET_STAT(RESP_ERR, ERR_out_of_mem));
+									closesocket(s);
+									args->s = -1;
+									return 0;
+								} else {
+									unsigned int osz = (rs > 0xffffffff) ? 0xffffffff : rs;
+									osz = itop(osz);
+#ifdef RSERV_DEBUG
+									printf("ERROR: object too big (sendBuf=%ld) and couldn't allocate big enough send buffer\n", (long) rt->buf_size);
+#endif
+									sendRespData(args, SET_STAT(RESP_ERR, ERR_object_too_big), 4, &osz);
+									return 1;
+								}
+							}
+						}
+					}
+					
+					{
+						/* first we have 4 bytes of a header saying this is an encoded SEXP, then comes the SEXP */
+						char *sxh = rt->buf + 8;
+						char *tail = (char*)QAP_storeSEXP((unsigned int*)sxh, exp, rs);
+						
+						/* set type to DT_SEXP and correct length */
+						if ((tail - sxh) > 0xfffff0) { /* we must use the "long" format */
+							rlen_t ll = tail - sxh;
+							((unsigned int*)rt->buf)[0] = itop(SET_PAR(DT_SEXP | DT_LARGE, ll & 0xffffff));
+							((unsigned int*)rt->buf)[1] = itop(ll >> 24);
+							sendhead = rt->buf;
+						} else {
+							sendhead = rt->buf + 4;
+							((unsigned int*)rt->buf)[1] = itop(SET_PAR(DT_SEXP,tail - sxh));
+						}
+#ifdef RSERV_DEBUG
+						printf("stored SEXP; length=%ld (incl. DT_SEXP header)\n",(long) (tail - sendhead));
+#endif
+						sendRespData(args, RESP_OK, tail - sendhead, sendhead);
+						if (tempSB) { /* if this is just a temporary sendbuffer then shrink it back to normal */
+#ifdef RSERV_DEBUG
+							printf("Releasing temporary sendbuf and restoring old size of %ld bytes.\n", (long) rt->buf_size);
+#endif
+							free(rt->buf);
+							rt->buf = (char*)malloc(rt->buf_size);
+							if (!rt->buf) { /* this should be really rare since tempSB was much larger */
+#ifdef RSERV_DEBUG
+								fprintf(stderr,"FATAL: out of memory while re-allocating send buffer to %ld (fallback#2),\n", (long) rt->buf_size);
+#endif
+								sendResp(args, SET_STAT(RESP_ERR, ERR_out_of_mem));
+								ulog("ERROR: out of memory while shrinking send buffer");
+								closesocket(s);
+								args->s = -1;
+								return 0;
+							}
+						}
+					}
+					if (eval_result) UNPROTECT(1); /* exp / eval_result */
+				}
+#ifdef RSERV_DEBUG
+				printf("reply sent.\n");
+				return 1;
+#endif
+			}
 		}
 	}
 	closesocket(s);
