@@ -2944,9 +2944,13 @@ SEXP Rserve_fork_compute(SEXP sExp) {
         args->flags |= F_OUT_BIN; /* in OC everything is binary */
 		/* FIXME: we need something like on.exit(q("no")) to die on error */
 		if (sExp != R_NilValue) {
+			SEXP res;
 			ulog("OCAP-compute: evaluating fork expression in child process");
-			eval(sExp, R_GlobalEnv);
-			/* FIXME: this has to be passed to the parent so it can contain parent->child OCAPs ? */
+			res = eval(sExp, R_GlobalEnv);
+			PROTECT(res);
+			ulog("OCAP-compute: sending fork command result to parent");
+			send_oob_sexp(OOB_SEND, res);
+			UNPROTECT(1);
 		}
 		ulog("OCAP-compute: entering OCAP loop");
 		while (OCAP_iteration(current_runtime, 0) != 0) {}
@@ -2954,8 +2958,70 @@ SEXP Rserve_fork_compute(SEXP sExp) {
 		/* FIXME: should we clean up something? */
 		exit(0);
 	}
-	/* parent - back to normal life */
+	/* parent - wait for the result */
 	compute_fd = fd[0];
+	{
+		struct phdr ph;
+		unsigned int len32, hi32;
+		size_t plen;
+		int rn, cmd;
+		char *buf;
+		if ((rn = recv(compute_fd, &ph, sizeof(ph), 0)) != sizeof(ph)) {
+			ulog("ERROR: Read error when reading fork result header from OCAP-compute n = %d (expected %d)",
+				 rn, sizeof(ph));
+			closesocket(compute_fd);
+			compute_fd = -1;
+			Rf_error("error when reading result from compute process (n = %d)", rn);
+		}
+
+#ifdef RSERV_DEBUG
+		printf("\nOCAP fork result header read result: %d\n", rn);
+		if (rn > 0) printDump(&ph, rn);
+#endif
+		len32 = (unsigned int) ptoi(ph.len);
+		cmd = ptoi(ph.cmd);
+		plen = len32;
+#ifdef __LP64__
+		hi32 = (unsigned int) ptoi(ph.res);
+		plen |= (((size_t) hi32) << 32);
+#endif
+		ulog("INFO: OCAP compute fork result header, %ld bytes of payload to read", (long) plen);
+		buf = (char*) malloc(plen + 1024);
+		if (!buf) {
+			closesocket(compute_fd);
+			compute_fd = -1;
+			Rf_error("out of memory: cannot allocate buffer for OCAP fork result");
+		}
+		if ((rn = recv(compute_fd, buf, plen, 0)) != plen) {
+			ulog("ERROR: Read error when reading fork result payload from OCAP-compute n = %d (expected %d)",
+				 rn, (int) plen);
+			closesocket(compute_fd);
+			compute_fd = -1;
+			Rf_error("error when reading result from compute process (incomplete payload)");
+		}
+
+		{
+			unsigned int *ibuf = (unsigned int*) buf;
+			/* FIXME: this is a bit hacky since we skipped parameter parsing */
+			int par_t = ibuf[0] & 0xff;
+			if (par_t == DT_SEXP || par_t == (DT_SEXP | DT_LARGE)) {
+				unsigned int *sptr;
+				SEXP res;
+				sptr = ibuf + ((par_t & DT_LARGE) ? 2 : 1);
+				/* FIXME: we're not checking the size?!? */
+				res = QAP_decode(&sptr);
+				ulog("INFO: OCAP compute fork result successfully decoded");
+				free(buf);
+				return res;
+			}
+		}
+		ulog("ERROR: Invalid response from forked compute process");
+		closesocket(compute_fd);
+		compute_fd = -1;
+		Rf_error("Invalid response from forked compute process");
+	}
+	/* unreachable */
+	return R_NilValue;
 }
 
 /* 1 = iteration successful - OCAP called
@@ -3017,7 +3083,7 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 #endif
 
 			if (!compute_iobuf) {
-				if (compute_iobuf_len)
+				if (!compute_iobuf_len)
 					compute_iobuf_len = max_sio_chunk;
 				compute_iobuf = malloc(compute_iobuf_len);
 				if (!compute_iobuf) {
@@ -3050,7 +3116,7 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 			}
 			while (plen) {
 				rn = recv(compute_fd, compute_iobuf, (plen > compute_iobuf_len) ? compute_iobuf_len : plen, 0);
-				ulog("OCAP-pass-thru: read from compute yields %d\n", rn);
+				ulog("OCAP-pass-thru: read from compute yields %d (expected %d)\n", rn,  (plen > compute_iobuf_len) ? compute_iobuf_len : plen);
 				if (rn > 0 && srv->send(args, compute_iobuf, rn) != rn) {
 #ifdef RSERV_DEBUG
 					fprintf(stderr,"ERROR: cannot send pass-thru OOB (payload send failed)\n");
@@ -3227,6 +3293,7 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 								}
 								/* we don't respond since subprocess is expected to */
 								/* FIXME: should we respond to acknowledge enqueuing? */
+								continue;
 							}
 						}
 					}
