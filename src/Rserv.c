@@ -2848,13 +2848,28 @@ void Rserve_OCAP_connected(void *thp) {
 	free_qap_runtime(rt);
 }
 
-static int compute_fd = -1;
+static int   compute_fd = -1;
+static pid_t compute_pid = 0;
 static void *compute_iobuf;
-static int compute_iobuf_len;
+static int   compute_iobuf_len;
+
+typedef struct compq {
+	struct compq *next;
+	int   len;
+	char  content[1];
+} compq_t;
+
+static compq_t *compute_queue;
 
 static void compute_terminated() {
 	SEXP q = PROTECT(allocVector(VECSXP, 1));
 	int type = 0;
+	/* free the remaining queue */
+	while (compute_queue) {
+		compq_t *nxt = compute_queue->next;
+		free(compute_queue);
+		compute_queue = nxt;
+	}
 	SET_VECTOR_ELT(q, 0, mkString("compute_terminated"));
 	closesocket(compute_fd);
 	compute_fd = -1;
@@ -2864,8 +2879,35 @@ static void compute_terminated() {
 	UNPROTECT(1);
 }
 
+static int compute_send(void *p0, int p0_len, void *p1, int p1_len) {
+	if (compute_fd == -1) return -1;
+	/* FIXME: we should use the queue in blocking cases .. may need threads? */
+	if (send(compute_fd, p0, p0_len, 0) != p0_len) {
+		ulog("ERROR: failed to send OCcall to compute process (header [%d bytes] send error)", p0_len);
+		return -1;
+	}
+	if (p1_len && send(compute_fd, p1, p1_len, 0) != p1_len) {
+		ulog("ERROR: failed to send OCcall to compute process (payload [%d bytes] send error)", p1_len);
+		return -1;
+	}
+	return p0_len + p1_len;
+}
+
 /* fwd decl */
 server_t *create_Rserve_QAP1(int flags);
+
+/* from oc.c */
+extern char Rserve_oc_prefix;
+
+#define COMPUTE_OC_PREFIX '@'
+
+int server_recv(args_t *arg, void *buf, rlen_t len) {
+	return recv(arg->s, buf, len, 0);
+}
+
+int server_send(args_t *arg, const void *buf, rlen_t len) {
+	return send(arg->s, buf, len, 0);
+}
 
 SEXP Rserve_fork_compute(SEXP sExp) {
 	int fd[2];
@@ -2873,11 +2915,22 @@ SEXP Rserve_fork_compute(SEXP sExp) {
 	if (socketpair(AF_UNIX, SOCK_STREAM, 0, fd))
 		Rf_error("unable to create a socket for communication");
 	fpid = fork();
+	ulog_reset();
+	ulog("Rserve_fork_compute: fork() = %d\n", (int) fpid);
 	if (fpid == -1)
 		Rf_error("unable to fork computing process");
+	compute_pid = fpid;
 	if (fpid == 0) { /* child = compute process */
-		struct args *args = (struct args *) calloc(1, sizeof(struct args));
-		server_t *srv = create_Rserve_QAP1(SRV_QAP_OC);
+		closesocket(self_args->s);
+		struct args *args = self_args = (struct args *) calloc(1, sizeof(struct args));
+		/* create a "fake" server entry for a virtual server that doesn't exist */
+		server_t *srv =  (server_t*) calloc(1, sizeof(server_t));
+		srv->send_resp = Rserve_QAP1_send_resp;
+		srv->fin       = server_fin;
+		srv->recv      = server_recv;
+		srv->send      = server_send;
+		srv->ss        = -1;
+
 		args->s = fd[1];
 		args->ucix = UCIX++;
 		args->ss = -1;
@@ -2887,12 +2940,13 @@ SEXP Rserve_fork_compute(SEXP sExp) {
             ulog("OCAP-ERROR: cannot allocate QAP runtime in fork compute");
             exit(1);
 		}
+		Rserve_oc_prefix = COMPUTE_OC_PREFIX; /* set a prefix for all child OCAPs */
         args->flags |= F_OUT_BIN; /* in OC everything is binary */
 		/* FIXME: we need something like on.exit(q("no")) to die on error */
 		if (sExp != R_NilValue) {
 			ulog("OCAP-compute: evaluating fork expression in child process");
 			eval(sExp, R_GlobalEnv);
-			/* FIXME: this has to be passed to the parent so it can contain parent->child OCAPs */
+			/* FIXME: this has to be passed to the parent so it can contain parent->child OCAPs ? */
 		}
 		ulog("OCAP-compute: entering OCAP loop");
 		while (OCAP_iteration(current_runtime, 0) != 0) {}
@@ -2944,6 +2998,7 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 
 			rn = recv(compute_fd, (char*)&ph, sizeof(ph), 0);
 			if (rn != sizeof(ph)) {
+				ulog("read from compute incomplete - yields %d, closing", rn);
 				compute_terminated();
 				continue;
 			}
@@ -2988,34 +3043,40 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 #endif
 				ulog("ERROR: cannot send pass-thru OOB (header sent failed)");
 				closesocket(compute_fd);
+				compute_fd = -1;
 				closesocket(s);
 				args->s = -1;
 				return 0;
 			}
 			while (plen) {
-				rn = recv(compute_fd, compute_iobuf, compute_iobuf_len, 0);
+				rn = recv(compute_fd, compute_iobuf, (plen > compute_iobuf_len) ? compute_iobuf_len : plen, 0);
+				ulog("OCAP-pass-thru: read from compute yields %d\n", rn);
 				if (rn > 0 && srv->send(args, compute_iobuf, rn) != rn) {
 #ifdef RSERV_DEBUG
 					fprintf(stderr,"ERROR: cannot send pass-thru OOB (payload send failed)\n");
 #endif
 					ulog("ERROR: cannot send pass-thru OOB (payload send failed)");
 					closesocket(compute_fd);
+					compute_fd = -1;
 					closesocket(s);
 					args->s = -1;
 					return 0;
 				}
 				if (rn < 1) {
 					compute_terminated();
-					continue;
+					break;
 				}
 				plen -= rn;
 			}
-			
+
+			if (compute_fd == -1) continue;
+
 			if (i < plen) {
 				ulog("ERROR: incomplete compute OCAP message - closing connection");
 				sendResp(args, SET_STAT(RESP_ERR, ERR_conn_broken));
 				closesocket(s);
 				closesocket(compute_fd);
+				compute_fd = -1;
 				args->s = -1;
 				return 0;
 			}
@@ -3159,6 +3220,13 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 								if (ocname != R_NilValue) c_ocname = CHAR(PRINTNAME(ocname));
 								ulog("OCcall '%s': ", (ocname == R_NilValue) ? "<null>" : c_ocname);
 								valid = 1;
+							} else if (CHAR(STRING_ELT(ocref, 0))[0] == COMPUTE_OC_PREFIX) { /* it's a compute OCAP - need to pass-thru */
+								if (compute_send(&ph, sizeof(ph), rt->buf, plen) < 0) {
+									sendResp(args, SET_STAT(RESP_ERR, ERR_ctrl_closed));
+									return 1;
+								}
+								/* we don't respond since subprocess is expected to */
+								/* FIXME: should we respond to acknowledge enqueuing? */
 							}
 						}
 					}
@@ -4390,14 +4458,6 @@ int rm_server(server_t *srv) {
 	printf("INFO: removing server %p (total %d servers left)\n", (void*) srv, servers);
 #endif
 	return 1;
-}
-
-int server_recv(args_t *arg, void *buf, rlen_t len) {
-	return recv(arg->s, buf, len, 0);
-}
-
-int server_send(args_t *arg, const void *buf, rlen_t len) {
-	return send(arg->s, buf, len, 0);
 }
 
 server_t *create_Rserve_QAP1(int flags) {
