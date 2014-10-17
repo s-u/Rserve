@@ -2,7 +2,7 @@
 ## because it is optional in case we're loaded
 ## into an embedded Rserve instance
 
-.register <- c("Rserve_ctrlEval", "Rserve_ctrlSource",
+.register <- c("Rserve_ctrlEval", "Rserve_ctrlSource", "Rserve_fork_compute",
 	       "Rserve_oobSend", "Rserve_oobMsg", "Rserve_ulog",
 	       "Rserve_oc_register", "Rserve_oc_resolve", "run_Rserve")
 
