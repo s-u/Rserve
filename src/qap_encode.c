@@ -36,7 +36,7 @@ rlen_t getStorageSize(SEXP x) {
     rlen_t tl = LENGTH(x); /* although LENGTH can only be 32-bit use rlen_t to avoid downcasting */
     rlen_t len = 4;
     
-#ifdef RSERV_DEBUG
+#if defined RSERV_DEBUG && ! (defined DEBUG_NO_STORAGE)
     printf("getStorageSize(%p,type=%d,len=%ld) ", (void*)x, t, tl);
 #endif
     if (t != CHARSXP && TYPEOF(ATTRIB(x)) == LISTSXP) {
@@ -115,7 +115,7 @@ rlen_t getStorageSize(SEXP x) {
     }
     if (len > 0xfffff0) /* large types must be stored in the new format */
 		len += 4L;
-#ifdef RSERV_DEBUG
+#if defined RSERV_DEBUG && ! (defined DEBUG_NO_STORAGE)
     printf("= %lu\n", len);
 #endif
     return len;
