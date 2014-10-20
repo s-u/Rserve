@@ -3040,7 +3040,10 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 	args = rt->args;
 	srv = args->srv;
 	s = args->s;
-	
+
+#ifdef RSERV_DEBUG
+	ulog("OCAP: iteration start args=%p, s=%d", args, s);
+#endif
 	while ((s = args->s) != -1) {
 		int which = 0;
 		if (compute_fd != -1) { /* two to listen to - check which is available */
@@ -3052,7 +3055,11 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 			FD_SET(s, &readfds);
 			FD_SET(compute_fd, &readfds);
 			rn =  select(((s > compute_fd) ? s : compute_fd) + 1, &readfds, 0, 0, &timv);
-			if (rn < 1 && errno != EINTR) break;
+			if (rn == -1) {
+				if (errno == EINTR) continue; /* INTR is ok, retry */
+				ulog("NOTE: OCAP iteration, select error %d, aborting", (int) errno);
+				break; /* others are bad, get out */
+			}
 			if (FD_ISSET(s, &readfds)) which = 1;
 			else if (FD_ISSET(compute_fd, &readfds)) which = 2;
 		} else which = 1; /* only possibility */
@@ -3130,7 +3137,7 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 				}
 				if (rn < 1) {
 					compute_terminated();
-					break;
+					break; /* break out of plen loop - still inside OCAP loop */
 				}
 				plen -= rn;
 			}
@@ -3154,11 +3161,14 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 			int cmd;
 
 			rn = srv->recv(args, (char*)&ph, sizeof(ph));
-			if (rn != sizeof(ph)) break;
 #ifdef RSERV_DEBUG
 			printf("\nOCAP iter header read result: %d\n", rn);
 			if (rn > 0) printDump(&ph, rn);
 #endif
+			if (rn != sizeof(ph)) {
+				ulog("NOTE: OCAP connection read yields %d (expected %d), aborting", rn, (int) sizeof(rn));
+				break;
+			}
 		/* NOTE: do not touch ph since we may need to pass it unharmed to oob */
 			len32 = (unsigned int) ptoi(ph.len);
 			cmd = ptoi(ph.cmd);
@@ -3428,6 +3438,9 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 			}
 		}
 	}
+#ifdef RSERV_DEBUG
+	ulog("OCAP: iteration fall-through args=%p, s=%d", args, s);
+#endif
 	closesocket(s);
 	args->s = -1;
 	return 0;
