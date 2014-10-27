@@ -145,9 +145,9 @@ void ulog_add(const char *format, ...) {
 }
 
 void ulog_end() {
-#ifdef RSERV_DEBUG
+#if defined RSERV_DEBUG || defined ULOG_STDERR
     buf[buf_pos] = 0;
-    fprintf(stderr, "ULOG: %s", buf);
+    fprintf(stderr, "ULOG: %s\n", buf);
 #endif
     if (ulog_port) {
 	struct sockaddr_in sa;
