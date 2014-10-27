@@ -482,6 +482,8 @@ args_t *self_args;
 /* object to send with the idle call; it could be used for notification etc. */
  SEXP idle_object;
 
+int compute_subprocess = 0;
+
 static int send_oob_sexp(int cmd, SEXP exp);
 
 /* stdout/err re-direction feeder FD (or 0 if not used) */
@@ -1947,6 +1949,7 @@ static int send_oob_sexp(int cmd, SEXP exp) {
 			printf("stored SEXP; length=%ld (incl. DT_SEXP header)\n",(long) (tail - sendhead));
 #endif
 			a->msg_id = new_msg_id(a);
+			if (compute_subprocess) cmd |= (compute_subprocess << 8);
 			sendRespData(a, cmd, tail - sendhead, sendhead);
 			ulog("OOB sent (cmd=0x%x, %d bytes)", cmd, tail-sendhead);
 			free(sendbuf);
@@ -2934,7 +2937,7 @@ SEXP Rserve_fork_compute(SEXP sExp) {
 		Rf_error("unable to create a socket for communication");
 	fpid = fork();
 	ulog_reset();
-	ulog("Rserve_fork_compute: fork() = %d\n", (int) fpid);
+	ulog("Rserve_fork_compute: fork() = %d", (int) fpid);
 	if (fpid == -1)
 		Rf_error("unable to fork computing process");
 	compute_pid = fpid;
@@ -2959,6 +2962,7 @@ SEXP Rserve_fork_compute(SEXP sExp) {
             exit(1);
 		}
 		Rserve_oc_prefix = COMPUTE_OC_PREFIX; /* set a prefix for all child OCAPs */
+		compute_subprocess = 1;
         args->flags |= F_OUT_BIN; /* in OC everything is binary */
 		/* FIXME: we need something like on.exit(q("no")) to die on error */
 		if (sExp != R_NilValue) {
@@ -3135,7 +3139,7 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 			while (iob_pos || plen) {
 				if (plen) {
 					rn = recv(compute_fd, compute_iobuf + iob_pos, (plen > compute_iobuf_len - iob_pos) ? (compute_iobuf_len - iob_pos) : plen, 0);
-					ulog("OCAP-pass-thru: read from compute yields %d (expected %d)\n", rn,  (plen > compute_iobuf_len) ? compute_iobuf_len : plen);
+					ulog("OCAP-pass-thru: read from compute yields %d (expected %d)", rn,  (plen > compute_iobuf_len) ? compute_iobuf_len : plen);
 					if (rn > 0) {
 						plen -= rn;
 						if (iob_pos)
@@ -3176,7 +3180,7 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 		if (which == 1) {
 			size_t plen = 0;
 			unsigned int len32, hi32;
-			int cmd;
+			int cmd, compute_pass_thru = 0;
 
 			rn = srv->recv(args, (char*)&ph, sizeof(ph));
 #ifdef RSERV_DEBUG
@@ -3222,8 +3226,14 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 			
 			msg_id = args->msg_id = ph.msg_id;
 			
+
+			if (compute_pid && IS_OOB_MSG(cmd) && OOB_USR_CODE(cmd) > 0xff) { /* pass-thru OOB result */
+				ulog("INFO: OOB response pass-through (cmd=0x%x, len=%ld)", cmd, (long)plen); 
+				compute_pass_thru = 1;
+			}
+
 			/* in OC mode everything but OCcall is invalid */
-			if (cmd != CMD_OCcall) {
+			if (!compute_pass_thru && cmd != CMD_OCcall) {
 				ulog("VIOLATION: OCAP iteration - only OCcall is allowed but got 0x%x, aborting", cmd);
 				sendResp(args, SET_STAT(RESP_ERR, ERR_disabled));
 				closesocket(s);
@@ -3289,6 +3299,16 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 					args->s = -1;
 					return 0;
 				}
+			}
+
+			if (compute_pass_thru) { /* pass-thru, normally only responses to OOB_MSG */
+				if (compute_send(&ph, sizeof(ph), rt->buf, plen) < 0) {
+					ulog("ERROR: OOB msg pass-through to compute failed (errno=%d)", errno);
+					sendResp(args, SET_STAT(RESP_ERR, ERR_ctrl_closed));
+					return 1;
+				}
+				ulog("INFO: OOB msg passed to compute");
+				continue;
 			}
 
 			{
