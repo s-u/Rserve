@@ -3067,7 +3067,7 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 		if (which == 2) { /* proxy pass-through */
 			size_t plen = 0, i;
 			unsigned int len32, hi32;
-			int cmd;
+			int cmd, iob_pos;
 
 			rn = recv(compute_fd, (char*)&ph, sizeof(ph), 0);
 			if (rn != sizeof(ph)) {
@@ -3108,27 +3108,27 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 #ifdef RSERV_DEBUG
 			printf("loading buffer (awaiting %ld bytes from subprocess)\n",(long) plen);
 #endif
-			/* FIXME: should we check the payload? We should only allow OOB SEND through ... */
 			/* FIXME: this is not recorded in iolog ! */
-			if (srv->send(args, &ph, sizeof(ph)) != sizeof(ph)) {
-#ifdef RSERV_DEBUG
-				fprintf(stderr,"ERROR: cannot send pass-thru OOB (header sent failed)\n");
-#endif
-				ulog("ERROR: cannot send pass-thru OOB (header sent failed)");
-				closesocket(compute_fd);
-				compute_fd = -1;
-				closesocket(s);
-				args->s = -1;
-				return 0;
-			}
-			while (plen) {
-				rn = recv(compute_fd, compute_iobuf, (plen > compute_iobuf_len) ? compute_iobuf_len : plen, 0);
-				ulog("OCAP-pass-thru: read from compute yields %d (expected %d)\n", rn,  (plen > compute_iobuf_len) ? compute_iobuf_len : plen);
+			/* avoid fragmentation, put the header in teh buffer */
+			memcpy(compute_iobuf, &ph, sizeof(ph));
+			iob_pos = sizeof(ph);
+			/* FIXME: currently RserveJS cannot handle QAP messages that span multiple
+			   WS messages (=multiple sends). We have to either fix RserveJS or buffer everything */
+			while (iob_pos || plen) {
+				if (plen) {
+					rn = recv(compute_fd, compute_iobuf + iob_pos, (plen > compute_iobuf_len - iob_pos) ? (compute_iobuf_len - iob_pos) : plen, 0);
+					ulog("OCAP-pass-thru: read from compute yields %d (expected %d)\n", rn,  (plen > compute_iobuf_len) ? compute_iobuf_len : plen);
+					if (rn > 0) {
+						plen -= rn;
+						if (iob_pos)
+							rn += iob_pos;
+					}
+				} else rn = iob_pos;
 				if (rn > 0 && srv->send(args, compute_iobuf, rn) != rn) {
 #ifdef RSERV_DEBUG
 					fprintf(stderr,"ERROR: cannot send pass-thru OOB (payload send failed)\n");
 #endif
-					ulog("ERROR: cannot send pass-thru OOB (payload send failed)");
+					ulog("ERROR: cannot send pass-thru OOB (payload send failed; errno=%d)", (int) errno);
 					closesocket(compute_fd);
 					compute_fd = -1;
 					closesocket(s);
@@ -3139,7 +3139,7 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 					compute_terminated();
 					break; /* break out of plen loop - still inside OCAP loop */
 				}
-				plen -= rn;
+				iob_pos = 0;
 			}
 
 			if (compute_fd == -1) continue;
