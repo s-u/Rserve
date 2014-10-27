@@ -25,6 +25,8 @@ static volatile unsigned int head, tail;
 static unsigned int alloc;
 static char *buf;
 
+static volatile int ioc_active = 0;
+
 pthread_mutex_t buffer_mux = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t trigger_mux = PTHREAD_MUTEX_INITIALIZER;
 
@@ -40,7 +42,7 @@ static void *feed_thread(void *whichFD) {
 	mask = 0x80000000;
     }
     ulog("feed_thread started, mask=0x%x\n", mask);
-    while (1) {
+    while (ioc_active) {
 	int n = read(fd, thb + 4, ta), dst;
 	ulog("feed_thread n = %d\n", n);
 	if (n == -1 && errno != EINTR)
@@ -66,7 +68,7 @@ static void *feed_thread(void *whichFD) {
 
 static void *read_thread(void *dummy) {
     ulog("read_thread started\n");
-    while (1) {
+    while (ioc_active) {
 	volatile int head0, tail0;
 	/* lock just to get a consistent state */
 	pthread_mutex_lock(&buffer_mux);
@@ -128,6 +130,16 @@ static void *read_thread(void *dummy) {
 
 static int readFD;
 
+/* on fork() remove all forwarding from the children */
+static void atfork_prepare() { }
+static void atfork_parent() { }
+static void atfork_child() {
+  ioc_active = 0;
+  close(stdoutFD);
+  close(stderrFD);
+  close(triggerFD);
+}
+
 int ioc_setup() {
   int pfd[2];
   pthread_t thread;
@@ -153,17 +165,25 @@ int ioc_setup() {
   if (pipe(pfd)) return 0;
   triggerFD = pfd[1];
 
+  ioc_active = 1;
+
   pthread_attr_init(&thread_attr);
   pthread_attr_setdetachstate(&thread_attr, PTHREAD_CREATE_DETACHED);
   pthread_create(&thread, &thread_attr, feed_thread, &stdoutFD);
 
+#if defined RSERV_DEBUG || defined ULOG_STDERR
+  ulog("NOTE: cannot forward stderr in debug builds since it would cause infinite recursion");
+#else
   pthread_attr_init(&thread_attr);
   pthread_attr_setdetachstate(&thread_attr, PTHREAD_CREATE_DETACHED);
   pthread_create(&thread, &thread_attr, feed_thread, &stderrFD);
+#endif
 
   pthread_attr_init(&thread_attr);
   pthread_attr_setdetachstate(&thread_attr, PTHREAD_CREATE_DETACHED);
   pthread_create(&thread, &thread_attr, read_thread, 0);
+
+  pthread_atfork(atfork_prepare, atfork_parent, atfork_child);
 
   ulog("setup done, fd = %d\n", pfd[0]);
   return (readFD = pfd[0]);

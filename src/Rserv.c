@@ -2708,6 +2708,24 @@ static void RS_ShowMessage(const char *buf) {
 }
 #endif
 
+SEXP Rserve_forward_stdio() {
+	if (!enable_oob)
+		Rf_error("I/O forwarding can only be used when OOB is enabled");
+	if (std_fw_fd)
+		return ScalarLogical(FALSE);
+	if (!(std_fw_fd = ioc_setup())) {
+		ulog("WARNING: failed to setup stdio forwarding in Rserve_forward_stdio()");
+		Rf_error("failed to setup stdio forwarding");
+	} 
+#ifdef unix
+	/* also register an input handler, because calls like system/sleep will
+	   block the OCAP loop */
+	else
+		addInputHandler(R_InputHandlers, std_fw_fd, &std_fw_input_handler, 9);
+#endif
+	return ScalarLogical(1);
+}
+
 void Rserve_OCAP_connected(void *thp) {
     struct args *args = (struct args*)thp;
 	server_t *srv = args->srv;
