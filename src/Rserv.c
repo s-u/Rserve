@@ -3334,7 +3334,7 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 								if (ocname != R_NilValue) c_ocname = CHAR(PRINTNAME(ocname));
 								ulog("OCcall '%s': ", (ocname == R_NilValue) ? "<null>" : c_ocname);
 								valid = 1;
-							} else if (CHAR(STRING_ELT(ocref, 0))[0] == COMPUTE_OC_PREFIX) { /* it's a compute OCAP - need to pass-thru */
+							} else if (compute_pid && CHAR(STRING_ELT(ocref, 0))[0] == COMPUTE_OC_PREFIX) { /* it's a compute OCAP - need to pass-thru */
 								if (compute_send(&ph, sizeof(ph), rt->buf, plen) < 0) {
 									sendResp(args, SET_STAT(RESP_ERR, ERR_ctrl_closed));
 									return 1;
