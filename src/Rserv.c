@@ -3226,8 +3226,8 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 			
 			msg_id = args->msg_id = ph.msg_id;
 			
-
-			if (compute_pid && IS_OOB_MSG(cmd) && OOB_USR_CODE(cmd) > 0xff) { /* pass-thru OOB result */
+			/* FIXME: we have to be quite permissive here since RserveJS can mix RESP_OK/ERR with MSG_OOB */
+			if (compute_pid && (cmd & CMD_OOB) && OOB_USR_CODE(cmd) > 0xff) { /* pass-thru OOB result */
 				ulog("INFO: OOB response pass-through (cmd=0x%x, len=%ld)", cmd, (long)plen); 
 				compute_pass_thru = 1;
 			}
