@@ -2930,6 +2930,13 @@ int server_send(args_t *arg, const void *buf, rlen_t len) {
 	return send(arg->s, buf, len, 0);
 }
 
+SEXP Rserve_kill_compute(SEXP sSig) {
+	int sig = asInteger(sSig);
+	if (!compute_pid)
+		Rf_error("no compute process attached");
+	return ScalarLogical(kill(compute_pid, sig) == 0);
+}
+
 SEXP Rserve_fork_compute(SEXP sExp) {
 	int fd[2];
 	pid_t fpid;
