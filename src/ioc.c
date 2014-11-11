@@ -124,6 +124,7 @@ static void *read_thread(void *dummy) {
 	/* we don't unlock the trigger mutex
 	   since that's how the feed threads wake us up */
     }
+    return 0;
 }
 
 #include <Rinternals.h>

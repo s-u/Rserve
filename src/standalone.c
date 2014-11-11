@@ -24,6 +24,7 @@ int main(int argc, char **argv)
     int stat, i, http_flags;
 	char **top_argv;
 	int    top_argc;
+	int    rs_silent = 0;
 
 	main_argv = argv;
 	main_argc = argc;
@@ -156,6 +157,11 @@ int main(int argc, char **argv)
 			if (!strcmp(argv[i] + 2, "version")) {
 				printf("Rserve v%d.%d-%d (%s)\n",RSRV_VER>>16,(RSRV_VER>>8)&255,RSRV_VER&255,rserve_rev);
 			}
+			/* this is really an R option but we'll abuse it to stay really silent
+			   note that we don't use -q/--quiet so there is a way to pick and choose */
+			if (!strcmp(argv[i] + 2, "silent")) {
+				rs_silent = 1;
+			}
 			if (!strcmp(argv[i] + 2, "help")) {
 				printf("Usage: R CMD Rserve [<options>]\n\nOptions: --help  this help screen\n --version  prints Rserve version (also passed to R)\n --RS-port <port>  listen on the specified TCP port\n --RS-socket <socket>  use specified local (unix) socket instead of TCP/IP.\n --RS-workdir <path>  use specified working directory root for connections.\n --RS-encoding <enc>  set default server string encoding to <enc>.\n --RS-conf <file>  load additional config file.\n --RS-settings  dumps current settings of the Rserve\n --RS-source <file>  source the specified file on startup.\n --RS-enable-control  enable control commands\n --RS-enable-remote  enable remote connections\n --RS-set <config>=<value>   set configuration option as if it was\n                              read from a configuration file\n\nAll other options are passed to the R engine.\n\n");
 #ifdef RSERV_DEBUG
@@ -232,17 +238,6 @@ int main(int argc, char **argv)
     printf("Rserve: Ok, ready to answer queries.\n");
 #endif      
     
-#if defined DAEMON && defined unix
-	if (daemonize) {
-		/* ok, we're in unix, so let's daemonize properly */
-		if (fork() != 0) {
-			puts("Rserv started in daemon mode.");
-			exit(0);
-		}
-		setsid();
-		if (chdir("/")) {} /* start in root which is guaranteed to exist */
-	} else puts("Rserve started in non-daemon mode.");
-#endif
 	RSsrv_init();
 
 #ifdef unix
@@ -300,6 +295,32 @@ int main(int argc, char **argv)
 			}
 		}
 	}
+
+#if defined DAEMON && defined unix
+	if (daemonize) {
+		/* ok, we're in unix, so let's daemonize properly */
+		if (fork() != 0) {
+			if (!rs_silent)
+				puts("Rserv started in daemon mode.");
+			exit(0);
+		}
+		setsid();
+		if (chdir("/")) {} /* start in root which is guaranteed to exist */
+		if (close_all_io) {
+			int fd = open("/dev/null", O_RDWR);
+			if (fd == -1 ||
+				dup2(fd, STDOUT_FILENO) == -1 ||
+				dup2(fd, STDERR_FILENO) == -1 ||
+				dup2(fd, STDIN_FILENO) == -1)
+				ulog("WARNING: failed to redirect all I/O to /dev/null");
+			else {
+				close(STDOUT_FILENO);
+				close(STDERR_FILENO);
+				close(STDIN_FILENO);
+			}
+		}
+	} else if (rs_silent) puts("Rserve started in non-daemon mode.");
+#endif
 
 	setup_signal_handlers();
 

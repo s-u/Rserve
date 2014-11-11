@@ -177,6 +177,7 @@ typedef int socklen_t;
 #include <stdlib.h>
 #include <sisocks.h>
 #include <string.h>
+#include <fcntl.h>
 #ifdef HAVE_LIMITS_H
 #include <limits.h>
 #endif
@@ -345,7 +346,8 @@ static int disable_shutdown; /* disable the shutdown command */
 static int oob_console = 0; /* enable OOB commands for console callbacks */
 static int idle_timeout = 0; /* interval to send idle OOBs, 0 = disabled */
 static int forward_std = 0; /* flag whether to forward stdout/err as OOBs */
-
+static int close_all_io = 0; /* if enabled all I/O is re-directed to /dev/null
+								upon daemonization */
 
 static int oob_allowed = 0; /* this flag is set once handshake is done such that OOB messages are permitted */
 
@@ -1120,6 +1122,10 @@ static int setConfig(const char *c, const char *p) {
 #ifdef DAEMON
 		daemonize = conf_is_true(p);
 #endif
+		return 1;
+	}
+	if (!strcmp(c, "close.all.stdio")) {
+		close_all_io = conf_is_true(p);
 		return 1;
 	}
 	if (!strcmp(c, "msg.id")) {
