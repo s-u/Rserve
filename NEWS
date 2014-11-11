@@ -14,6 +14,17 @@
 	design this only works in configuration files and cannot be
 	used on the command line.
 
+    o	daemonize only *after* all servers have been bound such the
+	exit code can be used to detect if Rserve has actually
+	started successfully
+
+    o	added a new config option to close all stdio file descriptors
+	(stdin, stdout, stderr) on daemonization. For compatibiliy
+	the default is false.
+
+    o	Rserve will honor --silent command line option (destined for R)
+	to not print the "Rserve started .." line.
+
 
 1.8-0
     o	new logging mechanism has been added to Rserve. It can
