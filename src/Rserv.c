@@ -1492,7 +1492,7 @@ static int setConfig(const char *c, const char *p) {
 		return 1;
 	}
 	if (!strcmp(c,"auth")) {
-		authReq = conf_is_true(p);
+		authReq = (p && *p == 'r') || conf_is_true(p);
 		return 1;
 	}
 	if (!strcmp(c,"interactive")) {
