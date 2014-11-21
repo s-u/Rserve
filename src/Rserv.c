@@ -1557,8 +1557,11 @@ static int loadConfig(const char *fn)
 				while(*p && (*p == '\t' || *p == ' ')) p++;
 			}
 			c1 = p;
-			while(*c1)
-				if(*c1 == '\n' || *c1 == '\r') *c1 = 0; else c1++;
+			/* find EOL */
+			while (*c1 && (*c1 != '\n' && *c1 != '\r')) c1++;
+			/* trim trailing whitespace (PR#20) */
+			while (c1 > p && (c1[-1] == '\t' || c1[-1] == ' ')) c1--;
+			*c1 = 0;
 
 #ifdef RSERV_DEBUG
 			printf("conf> command=\"%s\", parameter=\"%s\"\n", c, p);
