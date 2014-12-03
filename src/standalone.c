@@ -319,7 +319,7 @@ int main(int argc, char **argv)
 				close(STDIN_FILENO);
 			}
 		}
-	} else if (rs_silent) puts("Rserve started in non-daemon mode.");
+	} else if (!rs_silent) puts("Rserve started in non-daemon mode.");
 #endif
 
 	setup_signal_handlers();
