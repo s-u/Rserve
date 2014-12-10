@@ -327,7 +327,7 @@ static int   wipe_workdir = 0; /* if set acts as rm -rf otherwise jsut rmdir */
 
 static SOCKET csock = -1;
 
-static int parentPID = -1;
+static pid_t parentPID = -1;
 
 #include "rsio.h"
 
@@ -1047,7 +1047,7 @@ static void RSsrv_init() {
 	if (pidfile) {
 		FILE *f = fopen(pidfile, "w");
 		if (f) {
-			fprintf(f, "%d\n", getpid());
+			fprintf(f, "%ld\n", (long) getpid());
 			fclose(f);
 		} else RSEprintf("WARNING: cannot write into pid file '%s'\n", pidfile);
 	}
