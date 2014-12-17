@@ -18,12 +18,24 @@
 	exit code can be used to detect if Rserve has actually
 	started successfully
 
-    o	added a new config option to close all stdio file descriptors
-	(stdin, stdout, stderr) on daemonization. For compatibiliy
-	the default is false.
+    o	add a new config option to close all stdio file descriptors
+	(stdin, stdout, stderr) on daemonization:
+
+	   close.all.stdio enable
+
+	For compatibiliy the default is false.
 
     o	Rserve will honor --silent command line option (destined for R)
 	to not print the "Rserve started .." line.
+
+    o	add support for console input OOB message, enabled via
+
+	    console.input enable
+
+	When enabled R will request input to ReadConsole by sending a
+	OOB message to the client, expecting back a string to be used
+	as input to the console. It is only honored if console.oob is
+	also enabled.
 
 
 1.8-0

@@ -344,6 +344,7 @@ static char *pidfile = 0;/* if set by configuration generate pid file */
 static int use_msg_id;   /* enable/disable the use of msg-ids in message frames */
 static int disable_shutdown; /* disable the shutdown command */
 static int oob_console = 0; /* enable OOB commands for console callbacks */
+static int read_console_enabled = 0; /* enable OOB MSG for read console as well */
 static int idle_timeout = 0; /* interval to send idle OOBs, 0 = disabled */
 static int forward_std = 0; /* flag whether to forward stdout/err as OOBs */
 static int close_all_io = 0; /* if enabled all I/O is re-directed to /dev/null
@@ -1165,6 +1166,10 @@ static int setConfig(const char *c, const char *p) {
 		oob_console = conf_is_true(p);
 		return 1;
 	}
+	if (!strcmp(c, "console.input")) {
+		read_console_enabled = conf_is_true(p);
+		return 1;
+	}
 	if (!strcmp(c, "websockets.qap.oc")) {
 		ws_qap_oc = conf_is_true(p);
 		return 1;
@@ -1920,6 +1925,7 @@ static char dump_buf[32768]; /* scratch buffer that is static so mem alloc doesn
 static int send_oob_sexp(int cmd, SEXP exp) {
 	if (!self_args) Rf_error("OOB commands can only be used from code evaluated inside an Rserve client instance");
 	if (!enable_oob) Rf_error("OOB command is disallowed by the current Rserve configuration - use 'oob enable' to allow its use");
+	PROTECT(exp);
 	{
 		args_t *a = self_args;
 		server_t *srv = a->srv;
@@ -1961,7 +1967,8 @@ static int send_oob_sexp(int cmd, SEXP exp) {
 			ulog("OOB sent (cmd=0x%x, %d bytes)", cmd, tail-sendhead);
 			free(sendbuf);
 		}
-	}	
+	}
+	UNPROTECT(1);
 	return 1;
 }
 
@@ -2073,6 +2080,7 @@ SEXP Rserve_oobMsg(SEXP exp, SEXP code) {
 				free(orb);
 				Rf_error("read error while reading OOB msg respose, aborting connection");
 			}
+			a->msg_id = msg_id; /* restore msg_id */
 			ulog("OOBmsg response received");
 			/* parse the payload - we ony support SEXPs though (and DT_STRING) */
 			{
@@ -2105,7 +2113,8 @@ SEXP Rserve_oobMsg(SEXP exp, SEXP code) {
 				free(orb);
 				return res;
 			}
-		}				
+		}
+		a->msg_id = msg_id; /* restore msg_id */
 	} else {
 		closesocket(a->s);
 		a->s = -1;
@@ -2688,11 +2697,41 @@ static void RS_Busy(int which) {
 }
 
 static int RS_ReadConsole(const char *prompt, unsigned char *buf, int len, int history) {
-	Rf_error("sorry, direct console input is not supported");
-	return 0;
+	SEXP args, res;
+	const char *str;
+	size_t slen;
+	if (!read_console_enabled)
+		Rf_error("direct console input is disabled");
+	
+	args = PROTECT(allocVector(VECSXP, 2));
+	SET_VECTOR_ELT(args, 0, mkString("console.in"));
+	SET_VECTOR_ELT(args, 1, mkString(prompt));
+	res = Rserve_oobMsg(args, ScalarInteger(0));
+	UNPROTECT(1); /* args */
+	if (TYPEOF(res) != STRSXP)
+		Rf_error("invalid console input from the client - expecting a string");
+	if (LENGTH(res) < 1)
+		return 0;
+	str = CHAR(STRING_ELT(res, 0));
+	/* FIXME: should we buffer? */
+	if ((slen = strlen(str)) > len - 2)
+		Rf_error("input from the client is too big (console can only read up to %d bytes)", len);
+	if (!slen)
+		return 0;
+	memcpy(buf, str, slen + 1);
+	/* R-exts suggests making sure that the string ends with "\n\0" */
+	if (slen && buf[slen - 1] != '\n') {
+		buf[slen++] = '\n';
+		buf[slen] = 0;
+	}
+	return slen;
 }
 
 static void RS_ResetConsole() {
+	SEXP s = PROTECT(allocVector(VECSXP, 1));
+	SET_VECTOR_ELT(s, 0, mkString("console.reset"));
+	UNPROTECT(1);
+	send_oob_sexp(OOB_SEND, s);
 }
 
 static void RS_FlushConsole() {
@@ -2770,7 +2809,7 @@ void Rserve_OCAP_connected(void *thp) {
 		
 		oob_allowed = 1;
 
-		if (forward_std && enable_oob)
+		if (forward_std && enable_oob) {
 			if (!(std_fw_fd = ioc_setup()))
 				ulog("WARNING: failed to setup stdio forwarding");
 #ifdef unix
@@ -2779,6 +2818,7 @@ void Rserve_OCAP_connected(void *thp) {
 			else
 				addInputHandler(R_InputHandlers, std_fw_fd, &std_fw_input_handler, 9);
 #endif
+		}
 
 		oc = R_tryEval(PROTECT(LCONS(install("oc.init"), R_NilValue)), R_GlobalEnv, &Rerr);
 		UNPROTECT(1);
