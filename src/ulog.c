@@ -129,8 +129,8 @@ void ulog_begin() {
        in textual form ... */
     /* This format is compatible with the syslog format (RFC5424)
        with hard-coded facility (3) and severity (6) */
-    snprintf(buf, sizeof(buf), "<30>1 %s %s Rserve %d %d/%d - ", ts,
-	     hn, (int) getpid(), (int) getuid(), (int) getgid());
+    snprintf(buf, sizeof(buf), "<30>1 %s %s Rserve %ld %d/%d - ", ts,
+	     hn, (long) getpid(), (int) getuid(), (int) getgid());
     buf_pos = strlen(buf);
 }
 
