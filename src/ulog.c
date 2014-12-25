@@ -145,9 +145,9 @@ void ulog_add(const char *format, ...) {
 }
 
 void ulog_end() {
-#ifdef RSERV_DEBUG
+#if defined RSERV_DEBUG || defined ULOG_STDERR
     buf[buf_pos] = 0;
-    fprintf(stderr, "ULOG: %s", buf);
+    fprintf(stderr, "ULOG: %s\n", buf);
 #endif
     if (ulog_port) {
 	struct sockaddr_in sa;
@@ -169,6 +169,12 @@ void ulog_end() {
     buf_pos = 0;
 }
 
+void ulog_reset() {
+    if (ulog_sock != -1)
+	close(ulog_sock);
+    ulog_sock = -1;
+}
+
 void ulog(const char *format, ...) {
     va_list(ap);
     va_start(ap, format);
@@ -188,5 +194,6 @@ void ulog_begin() {}
 void ulog_add(const char *format, ...) { }
 void ulog_end() {}
 void ulog(const char *format, ...) { }
+void ulog_reset() {}
 
 #endif
