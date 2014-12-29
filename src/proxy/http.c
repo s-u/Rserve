@@ -1,9 +1,6 @@
-#include "RSserver.h"
 #include "tls.h"
 #include "http.h"
 #include "websockets.h" /* for connection upgrade */
-#include "rserr.h"
-#include <sisocks.h>
 #include <string.h>
 #include <stdio.h>
 
@@ -19,6 +16,8 @@
 #else
 #define DBG(X)
 #endif
+
+#define RSEprintf(X) fprintf(stderr, X)
 
 /* --- httpd --- */
 
@@ -77,17 +76,13 @@ struct args {
 	int  attr;                     /* connection attributes */
 	char *ws_protocol, *ws_version, *ws_key;
     struct buffer *headers;        /* buffer holding header lines */
+	http_handler_fn_t handle_request;
 };
 
 #define IS_HTTP_1_1(C) (((C)->attr & HTTP_1_0) == 0)
 
 /* returns the HTTP/x.x string for a given connection - we support 1.0 and 1.1 only */
 #define HTTP_SIG(C) (IS_HTTP_1_1(C) ? "HTTP/1.1" : "HTTP/1.0")
-
-#ifndef USE_RINTERNALS
-#define USE_RINTERNALS
-#include <Rinternals.h>
-#endif
 
 /* free buffers starting from the tail(!!) */
 static void free_buffer(struct buffer *buf) {
@@ -108,18 +103,29 @@ static struct buffer *alloc_buffer(int size, struct buffer *parent) {
     return buf;
 }
 
+typedef struct {
+	size_t size;
+	char buf[1];
+} buf_t;
+
+static buf_t *alloc_buf(size_t size) {
+	buf_t *buf = (buf_t*) malloc(size + sizeof(buf_t));
+	buf->size = size;
+	return buf;
+}
+
 /* convert doubly-linked buffers into one big raw vector */
-static SEXP collect_buffers(struct buffer *buf) {
-    SEXP res;
+static buf_t *collect_buffers(struct buffer *buf) {
+    buf_t *res;
     char *dst;
-    int len = 0;
-    if (!buf) return allocVector(RAWSXP, 0);
+    size_t len = 0;
+    if (!buf) return alloc_buf(0);
     while (buf->prev) { /* count the total length and find the root */
 		len += buf->length;
 		buf = buf->prev;
     }
-    res = allocVector(RAWSXP, len + buf->length);
-    dst = (char*) RAW(res);
+    res = alloc_buf(len + buf->length);
+    dst = res->buf;
     while (buf) {
 		memcpy(dst, buf->data, buf->length);
 		dst += buf->length;
@@ -227,84 +233,6 @@ static void uri_decode(char *s)
     *t = 0;
 }
 
-/* parse a query string into a named character vector - must NOT be
- * URI decoded */
-static SEXP parse_query(char *query)
-{
-    int parts = 0;
-    SEXP res, names;
-    char *s = query, *key = 0, *value = query, *t = query;
-    while (*s) {
-		if (*s == '&') parts++;
-		s++;
-    }
-    parts++;
-    res = PROTECT(allocVector(STRSXP, parts));
-    names = PROTECT(allocVector(STRSXP, parts));
-    s = query;
-    parts = 0;
-    while (1) {
-		if (*s == '=' && !key) { /* first '=' in a part */
-			key = value;
-			*(t++) = 0;
-			value = t;
-			s++;
-		} else if (*s == '&' || !*s) { /* next part */
-			int last_entry = !*s;
-			*(t++) = 0;
-			if (!key) key = "";
-			SET_STRING_ELT(names, parts, mkChar(key));
-			SET_STRING_ELT(res, parts, mkChar(value));
-			parts++;
-			if (last_entry) break;
-			key = 0;
-			value = t;
-			s++;
-		} else if (*s == '+') { /* + -> SPC */
-			*(t++) = ' '; s++;
-		} else if (*s == '%') { /* we cannot use uri_decode becasue we need &/= *before* decoding */
-			unsigned char ec = 0;
-			s++;
-			if (*s >= '0' && *s <= '9') ec |= ((unsigned char)(*s - '0')) << 4;
-			else if (*s >= 'a' && *s <= 'f') ec |= ((unsigned char)(*s - 'a' + 10)) << 4;
-			else if (*s >= 'A' && *s <= 'F') ec |= ((unsigned char)(*s - 'A' + 10)) << 4;
-			if (*s) s++;
-			if (*s >= '0' && *s <= '9') ec |= (unsigned char)(*s - '0');
-			else if (*s >= 'a' && *s <= 'f') ec |= (unsigned char)(*s - 'a' + 10);
-			else if (*s >= 'A' && *s <= 'F') ec |= (unsigned char)(*s - 'A' + 10);
-			if (*s) s++;
-			*(t++) = (char) ec;
-		} else *(t++) = *(s++);
-    }
-    setAttrib(res, R_NamesSymbol, names);
-    UNPROTECT(2);
-    return res;
-}
-
-static SEXP R_ContentTypeName;
-
-/* create an object representing the request body. It is NULL if the body is empty (or zero length).
- * In the case of a URL encoded form it will have the same shape as the query string (named string vector).
- * In all other cases it will be a raw vector with a "content-type" attribute (if specified in the headers) */
-static SEXP parse_request_body(args_t *c) {
-    if (!c || !c->body) return R_NilValue;
-	
-    if ((c->attr & CONTENT_FORM_UENC) && !(c->srv->flags & HTTP_RAW_BODY)) { /* URL encoded form - return parsed form */
-		c->body[c->content_length] = 0; /* the body is guaranteed to have an extra byte for the termination */
-		return parse_query(c->body);
-    } else { /* something else - pass it as a raw vector */
-		SEXP res = PROTECT(Rf_allocVector(RAWSXP, c->content_length));
-		if (c->content_length)
-			memcpy(RAW(res), c->body, c->content_length);
-		if (c->content_type) { /* attach the content type so it can be interpreted */
-			if (!R_ContentTypeName) R_ContentTypeName = install("content-type");
-			setAttrib(res, R_ContentTypeName, mkString(c->content_type));
-		}
-		UNPROTECT(1);
-		return res;
-    }
-}
-
 /* finalize a request - essentially for HTTP/1.0 it means that
  * we have to close the connection */
 static void fin_request(args_t *c) {
@@ -312,21 +240,27 @@ static void fin_request(args_t *c) {
 		c->attr |= CONNECTION_CLOSE;
 }
 
+static void free_res(http_result_t* res) {
+	if (res->err) free(res->err);
+	if (res->payload) free(res->payload);
+	if (res->content_type) free(res->content_type);
+	if (res->headers) free(res->headers);
+}
+
 /* process a request by calling the httpd() function in R */
 static void process_request(args_t *c)
 {
-    const char *ct = "text/html";
     char *query = 0, *s;
-    SEXP sHeaders = R_NilValue;
-    int code = 200;
     DBG(Rprintf("process request for %p\n", (void*) c));
     if (!c || !c->url) return; /* if there is not enough to process, bail out */
+#ifdef USE_WEBSOCKETS
 	if ((c->attr & WS_UPGRADE) && (c->srv->flags & HTTP_WS_UPGRADE)) {
 		WS13_upgrade(c, c->ws_key, c->ws_protocol, c->ws_version);
 		/* the WS swtich messes up args since it replaces it with its own version so
 		   we can't go back to serving - just bail out (NOTE: only works when forked!) */
 		exit(0);
 	}
+#endif
     s = c->url;
     while (*s && *s != '?') s++; /* find the query part */
     if (*s) {
@@ -335,20 +269,15 @@ static void process_request(args_t *c)
     }
     uri_decode(c->url); /* decode the path part */
     {   /* construct "try(httpd(url, query, body, headers), silent=TRUE)" */
-		SEXP sTrue = PROTECT(ScalarLogical(TRUE));
-		SEXP sBody = PROTECT(parse_request_body(c));
-		SEXP sQuery = PROTECT(query ? parse_query(query) : R_NilValue);
-		SEXP sReqHeaders = PROTECT(c->headers ? collect_buffers(c->headers) : R_NilValue);
-		SEXP sArgs = PROTECT(list4(mkString(c->url), sQuery, sBody, sReqHeaders));
-		SEXP sTry = install("try");
-		SEXP y, x = PROTECT(lang3(sTry,
-								  LCONS(install(".http.request"), sArgs),
-								  sTrue));
-		SET_TAG(CDR(CDR(x)), install("silent"));
-		DBG(Rprintf("eval(try(.http.request('%s'),silent=TRUE))\n", c->url));
-		
-		/* evaluate the above in the global namespace */
-		x = PROTECT(eval(x, R_GlobalEnv));
+		http_request_t req;
+		http_result_t res = { 0, 0, 0, 0, 0, 0 };
+		buf_t *headers = c->headers ? collect_buffers(c->headers) : 0;
+		req.url = c->url;
+		req.body = c->body;
+		req.body_len = c->body_pos;
+		req.query = query ? query : 0;
+		req.headers = headers ? headers->buf : 0;
+		c->handle_request(&req, &res);
 		
 		/* the result is expected to have one of the following forms:
 
@@ -371,72 +300,45 @@ static void process_request(args_t *c)
 		   status code: must be an integer if present (default is 200)
 		*/
 		
-		if (TYPEOF(x) == STRSXP && LENGTH(x) > 0) { /* string means there was an error */
-			const char *s = CHAR(STRING_ELT(x, 0));
+		if (res.err) {
 			send_http_response(c, " 500 Evaluation error\r\nConnection: close\r\nContent-type: text/plain\r\n\r\n");
 			DBG(Rprintf("respond with 500 and content: %s\n", s));
 			if (c->method != METHOD_HEAD)
-				send_response(c, s, strlen(s));
+				send_response(c, res.err, strlen(res.err));
 			c->attr |= CONNECTION_CLOSE; /* force close */
-			UNPROTECT(7);
+			free_res(&res);
 			return;
 		}
 		
-		if (TYPEOF(x) == VECSXP && LENGTH(x) > 0) { /* a list (generic vector) can be a real payload */
-			SEXP xNames = getAttrib(x, R_NamesSymbol);
-			if (LENGTH(x) > 1) {
-				SEXP sCT = VECTOR_ELT(x, 1); /* second element is content type if present */
-				if (TYPEOF(sCT) == STRSXP && LENGTH(sCT) > 0)
-					ct = CHAR(STRING_ELT(sCT, 0));
-				if (LENGTH(x) > 2) { /* third element is headers vector */
-					sHeaders = VECTOR_ELT(x, 2);
-					if (TYPEOF(sHeaders) != STRSXP)
-						sHeaders = R_NilValue;
-					if (LENGTH(x) > 3) /* fourth element is HTTP code */
-						code = asInteger(VECTOR_ELT(x, 3));
-				}
+		{
+			int code = res.code ? res.code : 200; /* if no code is provided we assume 200 */
+			char buf[64];
+			const char *ct = res.content_type ? res.content_type : "text/html";
+			if (code == 200)
+				send_http_response(c, " 200 OK\r\nContent-type: ");
+			else {
+				sprintf(buf, "%s %d Code %d\r\nContent-type: ", HTTP_SIG(c), code, code);
+				send_response(c, buf, strlen(buf));
 			}
-			y = VECTOR_ELT(x, 0);
-			if (TYPEOF(y) == STRSXP && LENGTH(y) > 0) {
-				char buf[64];
-				int  is_tmp = 0;
-				const char *cs = CHAR(STRING_ELT(y, 0)), *fn = 0;
-				if (code == 200)
-					send_http_response(c, " 200 OK\r\nContent-type: ");
-				else {
-					sprintf(buf, "%s %d Code %d\r\nContent-type: ", HTTP_SIG(c), code, code);
-					send_response(c, buf, strlen(buf));
-				}
-				send_response(c, ct, strlen(ct));
-				if (sHeaders != R_NilValue) {
-					unsigned int i = 0, n = LENGTH(sHeaders);
-					for (; i < n; i++) {
-						const char *hs = CHAR(STRING_ELT(sHeaders, i));
-						if (*hs) { /* headers must be non-empty */
-							send_response(c, "\r\n", 2);
-							send_response(c, hs, strlen(hs));
-						}
-					}
-				}
-				/* special content - a file: either list(file="") or list(tmpfile="")
-				   the latter will be deleted once served */
-				if (TYPEOF(xNames) == STRSXP && LENGTH(xNames) > 0 &&
-					(!strcmp(CHAR(STRING_ELT(xNames, 0)), "file") || (is_tmp = !strcmp(CHAR(STRING_ELT(xNames, 0)), "tmpfile"))))
-					fn = cs;
+			send_response(c, ct, strlen(ct));
+			send_response(c, "\r\n", 2);
+			if (res.headers)
+				send_response(c, res.headers, strlen(res.headers));
+			if (res.payload_type == PAYLOAD_FILE || res.payload_type == PAYLOAD_TEMPFILE) {
+				const char *fn = res.payload;
 				if (fn) {
 					char *fbuf;
 					FILE *f = fopen(fn, "rb");
 					long fsz = 0;
 					if (!f) {
-						send_response(c, "\r\nContent-length: 0\r\n\r\n", 23);
-						UNPROTECT(7);
+						send_response(c, "Content-length: 0\r\n\r\n", 23);
 						fin_request(c);
 						return;
 					}
 					fseek(f, 0, SEEK_END);
 					fsz = ftell(f);
 					fseek(f, 0, SEEK_SET);
-					sprintf(buf, "\r\nContent-length: %ld\r\n\r\n", fsz);
+					sprintf(buf, "Content-length: %ld\r\n\r\n", fsz);
 					send_response(c, buf, strlen(buf));
 					if (c->method != METHOD_HEAD) {
 						fbuf = (char*) malloc(32768);
@@ -445,10 +347,10 @@ static void process_request(args_t *c)
 								int rd = (fsz > 32768) ? 32768 : fsz;
 								if (fread(fbuf, 1, rd, f) != rd) {
 									free(fbuf);
-									UNPROTECT(7);
+									free_res(&res);
 									c->attr |= CONNECTION_CLOSE;
 									fclose(f);
-									if (is_tmp) unlink(fn);
+									if (res.payload_type == PAYLOAD_TEMPFILE) unlink(fn);
 									return;
 								}
 								send_response(c, fbuf, rd);
@@ -456,57 +358,36 @@ static void process_request(args_t *c)
 							}
 							free(fbuf);
 						} else { /* allocation error - get out */
-							UNPROTECT(7);
 							c->attr |= CONNECTION_CLOSE;
+							free_res(&res);
 							fclose(f);
-							if (is_tmp) unlink(fn);
+							if (res.payload_type == PAYLOAD_TEMPFILE) unlink(fn);
 							return;
 						}
 					}
 					fclose(f);
-					if (is_tmp) unlink(fn);
-					UNPROTECT(7);
+					free_res(&res);
+					if (res.payload_type == PAYLOAD_TEMPFILE) unlink(fn);
 					fin_request(c);
 					return;
 				}
-				sprintf(buf, "\r\nContent-length: %u\r\n\r\n", (unsigned int) strlen(cs));
+				sprintf(buf, "Content-length: 0\r\n\r\n");
 				send_response(c, buf, strlen(buf));
-				if (c->method != METHOD_HEAD)
-					send_response(c, cs, strlen(cs));
-				UNPROTECT(7);
+				free_res(&res);
 				fin_request(c);
 				return;
-			}
-			if (TYPEOF(y) == RAWSXP) {
-				char buf[64];
-				Rbyte *cs = RAW(y);
-				if (code == 200)
-					send_http_response(c, " 200 OK\r\nContent-type: ");
-				else {
-					sprintf(buf, "%s %d Code %d\r\nContent-type: ", HTTP_SIG(c), code, code);
-					send_response(c, buf, strlen(buf));
-				}
-				send_response(c, ct, strlen(ct));
-				if (sHeaders != R_NilValue) {
-					unsigned int i = 0, n = LENGTH(sHeaders);
-					for (; i < n; i++) {
-						const char *hs = CHAR(STRING_ELT(sHeaders, i));
-						send_response(c, "\r\n", 2);
-						send_response(c, hs, strlen(hs));
-					}
-				}
-				sprintf(buf, "\r\nContent-length: %u\r\n\r\n", LENGTH(y));
+			} else { /* verbatim payload */
+				sprintf(buf, "Content-length: %lu\r\n\r\n", (unsigned long) res.payload_len);
 				send_response(c, buf, strlen(buf));
 				if (c->method != METHOD_HEAD)
-					send_response(c, (char*) cs, LENGTH(y));
-				UNPROTECT(7);
+					send_response(c, res.payload, res.payload_len);
+				free_res(&res);
 				fin_request(c);
 				return;
 			}
 		}
-		UNPROTECT(7);
     }
-    send_http_response(c, " 500 Invalid response from R\r\nConnection: close\r\nContent-type: text/plain\r\n\r\nServer error: invalid response from R\r\n");
+    send_http_response(c, " 500 Invalid response from handler.\r\nConnection: close\r\nContent-type: text/plain\r\n\r\nServer error: invalid response from handler.\r\n");
     c->attr |= CONNECTION_CLOSE; /* force close */
 }
 
@@ -859,7 +740,7 @@ static void http_input_iteration(args_t *c) {
 static void HTTP_connected(void *parg) {
 	args_t *arg = (args_t*) parg;
 
-	if (Rserve_prepare_child(arg) != 0) { /* parent or error */
+	if (prepare_child(arg) != 0) { /* parent or error */
 		free(arg);
 		return;
 	}
@@ -870,6 +751,8 @@ static void HTTP_connected(void *parg) {
 		return;
 	}
 
+	arg->handle_request = (http_handler_fn_t) arg->srv->aux;
+
 	if ((arg->srv->flags & SRV_TLS) && shared_tls(0))
 		add_tls(arg, shared_tls(0), 1);
 
@@ -879,7 +762,7 @@ static void HTTP_connected(void *parg) {
 	free_args(arg);
 }
 
-server_t *create_HTTP_server(int port, int flags) {
+server_t *create_HTTP_server(int port, int flags, http_handler_fn_t fn) {
 	server_t *srv = create_server(port, 0, 0, flags);
 #ifdef RSERV_DEBUG
 	fprintf(stderr, "create_HTTP_server(port = %d, flags=0x%x)\n", port, flags);
@@ -890,6 +773,7 @@ server_t *create_HTTP_server(int port, int flags) {
 		srv->recv      = server_recv;
 		srv->send      = server_send;
 		srv->fin       = server_fin;
+		srv->aux       = (void*) fn;
 		add_server(srv);
 		return srv;
 	}

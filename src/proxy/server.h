@@ -1,8 +1,6 @@
 #ifndef RS_SERVER_H__
 #define RS_SERVER_H__
 
-#include "Rsrv.h"
-
 /* this is a voluntary standart flag to request TLS support */
 #define SRV_TLS       0x0800
 
@@ -13,12 +11,43 @@
 							    a client option sice inheritance is not
 								guaranteed */
 
+#include <unistd.h>
+
+#ifndef WIN32
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <unistd.h>
+#include <arpa/inet.h>
+#include <errno.h>
+#include <stdlib.h>
+
+#define sockerrno errno
+
+#define SOCKET int
+#define INVALID_SOCKET (-1)
+#define closesocket(A) close(A)
+
+#else
+#define windows
+#include <winsock2.h>
+#include <windows.h>
+#include <string.h>
+#include <stdlib.h>
+#define inet_aton(A,B) (0, B.s_addr=inet_addr(A))
+
+#define sockerrno WSAGetLastError()
+#endif
+
+#define SA struct sockaddr
+#define SAIN struct sockaddr_in
+
 typedef struct args args_t;
 
 typedef void (*work_fn_t)(void *par);
-typedef void (*send_fn_t)(args_t *arg, int rsp, rlen_t len, const void *buf);
-typedef int  (*buf_fn_t) (args_t *arg, void *buf, rlen_t len);
-typedef int  (*cbuf_fn_t) (args_t *arg, const void *buf, rlen_t len);
+typedef void (*send_fn_t)(args_t *arg, int rsp, size_t len, const void *buf);
+typedef int  (*buf_fn_t) (args_t *arg, void *buf, size_t len);
+typedef int  (*cbuf_fn_t) (args_t *arg, const void *buf, size_t len);
 typedef int  (*fork_fn_t) (args_t *arg);
 
 /* definition of a server */
@@ -33,6 +62,7 @@ typedef struct server {
 	buf_fn_t  recv;       /* direct receive */
     fork_fn_t fork;       /* fork */
 	struct server *parent;/* parent server - used only by multi-layer servers */
+	void   *aux;
 } server_t;
 
 /* this flag can be passed to create_server for an IP socket to modify the behavior */
@@ -53,8 +83,8 @@ void release_server_stack(server_stack_t *s);
 
 /* some generic implementations */
 void server_fin(void *x);
-int server_recv(args_t *arg, void *buf, rlen_t len);
-int server_send(args_t *arg, const void *buf, rlen_t len);
+int server_recv(args_t *arg, void *buf, size_t len);
+int server_send(args_t *arg, const void *buf, size_t len);
 
 void stop_server_loop();
 void serverLoop();
@@ -63,7 +93,7 @@ void serverLoop();
    internal impleemntation - forking when desired, establishing
    pipes, setting see, uid/gid, cwd etc.
    returns 0 for the child */
-int Rserve_prepare_child(args_t *arg);
+int prepare_child(args_t *arg);
 
 /* this one is called by the former to close all server sockets in the child */
 void close_all_srv_sockets();

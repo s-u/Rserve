@@ -1,7 +1,7 @@
 #ifndef TLS_H__
 #define TLS_H__
 
-#include "RSserver.h"
+#include "server.h"
 
 typedef struct tls tls_t;
 

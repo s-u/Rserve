@@ -1,11 +1,10 @@
-#include "RSserver.h"
 #include "rserr.h"
+#include "server.h"
 
 #define SOCK_ERRORS
 #define LISTENQ 16
 
-#include <sisocks.h>
-#ifdef unix
+#ifndef WIN32
 #include <sys/un.h> /* needed for unix sockets */
 #endif
 #include <sys/types.h>
@@ -23,6 +22,8 @@
    been bound at higher privileges than the child may have at this point) */
 #define MAX_SRVS 512
 static int active_srv_sockets[MAX_SRVS];
+
+static int active = 1;
 
 static void add_active_srv_socket(int s) {
 	int i = 0;
@@ -74,20 +75,32 @@ server_t *create_server(int port, const char *localSocketName, int localSocketMo
 	struct sockaddr_in6 ssa6;
 #endif
 
-#ifdef unix
+#ifndef WIN32
 	struct sockaddr_un lusa;
 #endif
     
 #ifdef RSERV_DEBUG
 	printf(" - create_server(port = %d, socket = %s, mode = %d, flags = 0x%x)\n", port, localSocketName ? localSocketName : "<NULL>", localSocketMode, flags);
 #endif
-	initsocks();
+
+#ifdef WIN32
+	{
+		WSADATA dt;
+		/* initialize WinSock 1.1 */
+		WSAStartup(0x0101, &dt);
+	}
+#endif
+
 	if (localSocketName) {
-#ifndef unix
+#ifdef WIN32
 		RSEprintf("ERROR: Local sockets are not supported on non-unix systems.\n");
 		return 0;
 #else
-		ss = FCF("open socket", socket(AF_LOCAL, SOCK_STREAM, 0));
+		if ((ss = socket(AF_LOCAL, SOCK_STREAM, 0)) == -1) {
+			RSEprintf("ERROR: cannot create local socket: %s\n", strerror(errno));
+			return 0;
+		}
+
 		memset(&lusa, 0, sizeof(lusa));
 		lusa.sun_family = AF_LOCAL;
 		if (strlen(localSocketName) > sizeof(lusa.sun_path) - 2) {
@@ -99,10 +112,15 @@ server_t *create_server(int port, const char *localSocketName, int localSocketMo
 #endif
 	} else
 #ifdef HAVE_IPV6
-		ss = FCF("open socket", socket((flags & SRV_IPV6) ? AF_INET6 : AF_INET, SOCK_STREAM, 0));
+		ss = socket((flags & SRV_IPV6) ? AF_INET6 : AF_INET, SOCK_STREAM, 0);
 #else
-		ss = FCF("open socket", socket(AF_INET, SOCK_STREAM, 0));
+	    ss = socket(AF_INET, SOCK_STREAM, 0);
 #endif
+
+	if (ss == INVALID_SOCKET) {
+		RSEprintf("ERROR: no available socket: %s\n", strerror(errno));
+		return 0;
+	}
 
 	srv = (server_t*) calloc(1, sizeof(server_t));
 	if (!srv) {
@@ -118,9 +136,12 @@ server_t *create_server(int port, const char *localSocketName, int localSocketMo
 	reuse = 1; /* enable socket address reusage */
 	setsockopt(ss, SOL_SOCKET, SO_REUSEADDR, (const char*)&reuse, sizeof(reuse));
 
-#ifdef unix
+#ifndef WIN32
 	if (localSocketName) {
-		FCF("bind", bind(ss, (SA*) &lusa, sizeof(lusa)));    
+		if (bind(ss, (SA*) &lusa, sizeof(lusa))) {
+			RSEprintf("ERROR: unable to bind to %s: %s\n", lusa.sun_path, strerror(errno));
+			return 0;
+		}
 		if (localSocketMode)
 			chmod(localSocketName, localSocketMode);
 	} else {
@@ -131,24 +152,36 @@ server_t *create_server(int port, const char *localSocketName, int localSocketMo
 			ssa6.sin6_family = AF_INET6;
 			ssa6.sin6_port = htons(port);
 			ssa6.sin6_addr = (flags & SRV_LOCAL) ? in6addr_loopback : in6addr_any;
-			FCF("bind", bind(ss, (struct sockaddr*) &ssa6, sizeof(ssa6)));
+			if (bind(ss, (struct sockaddr*) &ssa6, sizeof(ssa6))) {
+				RSEprintf("ERROR: unable to bind to IPv6 port %d: %s\n", port, strerror(errno));
+				closesocket(ss);
+				return 0;
+			}
 		} else {
 #endif
 			memset(&ssa, 0, sizeof(ssa));
 			ssa.sin_family = AF_INET;
 			ssa.sin_port = htons(port);
 			ssa.sin_addr.s_addr = htonl((flags & SRV_LOCAL) ? INADDR_LOOPBACK : INADDR_ANY);
-			FCF("bind", bind(ss, (struct sockaddr*) &ssa, sizeof(ssa)));
+			if (bind(ss, (struct sockaddr*) &ssa, sizeof(ssa))) {
+				RSEprintf("ERROR: unable to bind to IPv4 port %d: %s\n", port, strerror(errno));
+				closesocket(ss);
+				return 0;
+			}
 #ifdef HAVE_IPV6
 		} /* if (flags & SRV_IPV6) else */
 #endif
-#ifdef unix
+#ifndef WIN32
 	} /* if (localSocketName) else */
 #endif
     
-	add_active_srv_socket(ss);
+	if (listen(ss, LISTENQ)) {
+		RSEprintf("ERROR: listen failed: %s\n", strerror(errno));
+		closesocket(ss);
+		return 0;
+	}
 
-	FCF("listen", listen(ss, LISTENQ));
+	add_active_srv_socket(ss);
 
 	return srv;
 }
@@ -205,6 +238,288 @@ int server_stack_size(server_stack_t *s) {
 		s = s->next;
 	}
 	return n;
+}
+
+#define MAX_SERVERS 128
+static int servers;
+static server_t *server[MAX_SERVERS];
+
+int add_server(server_t *srv) {
+	if (!srv) return 0;
+	if (servers >= MAX_SERVERS) {
+		RSEprintf("ERROR: too many servers\n");
+		return 0;
+	}
+	server[servers++] = srv;
+#ifdef RSERV_DEBUG
+	printf("INFO: adding server %p (total %d servers)\n", (void*) srv, servers);
+#endif
+
+	return 1;
+}
+
+int rm_server(server_t *srv) {
+	int i = 0;
+	if (!srv) return 0;
+	while (i < servers) {
+		if (server[i] == srv) {
+			int j = i + 1;
+			while (j < servers) { server[j - 1] = server[j]; j++; }
+			servers--;
+		} else i++;
+	}
+	if (srv->fin) srv->fin(srv);
+#ifdef RSERV_DEBUG
+	printf("INFO: removing server %p (total %d servers left)\n", (void*) srv, servers);
+#endif
+	return 1;
+}
+
+/* FIXME: those are copied from Rserve.c for now - clean it up ! */
+static int UCIX = 1;
+static int use_ipv6 = 0;
+static int is_child = 0;
+static char **allowed_ips;
+
+struct args {
+	server_t *srv; /* server that instantiated this connection */
+    SOCKET s;
+	SOCKET ss;
+	int msg_id;
+	void *res1, *res2;
+	/* the following entries are not populated by Rserve but can be used by server implemetations */
+	char *buf, *sbuf;
+	int   ver, bp, bl, sp, sl, flags;
+	long  l1, l2;
+	/* The following fields are informational, populated by Rserve */
+    SAIN sa;
+    int ucix;
+#ifndef WIN32
+    struct sockaddr_un su;
+#endif
+};
+
+int server_recv(args_t *arg, void *buf, size_t len) {
+	return recv(arg->s, buf, len, 0);
+}
+
+int server_send(args_t *arg, const void *buf, size_t len) {
+	return send(arg->s, buf, len, 0);
+}
+
+typedef void (*sig_fn_t)(int);
+
+#ifndef WIN32
+
+#include <signal.h>
+
+/* NULL ptr is used on some systems as SIG_DFL so we have
+   to define our own value for "not set" */
+static void sig_not_set(int x) {}
+
+#ifdef FORKED
+static void sigHandler(int i) {
+	active = 0;
+}
+#endif
+
+sig_fn_t old_HUP = sig_not_set, old_TERM = sig_not_set, old_INT = sig_not_set;
+
+static void setup_signal_handlers() {
+#ifdef FORKED
+	if (old_HUP == sig_not_set)  old_HUP  = signal(SIGHUP,  sigHandler);
+	if (old_TERM == sig_not_set) old_TERM = signal(SIGTERM, sigHandler);
+	if (old_INT == sig_not_set)  old_INT  = signal(SIGINT,  sigHandler);
+#endif
+}
+
+static void restore_signal_handlers() {
+	if (old_HUP != sig_not_set) {
+		signal(SIGHUP, old_HUP);
+		old_HUP = sig_not_set;
+	}
+	if (old_TERM != sig_not_set) {
+		signal(SIGTERM, old_TERM);
+		old_TERM = sig_not_set;
+	}
+	if (old_INT != sig_not_set) {
+		signal(SIGINT, old_INT);
+		old_INT = sig_not_set;
+	}
+}
+#else
+static void setup_signal_handlers() {
+}
+static void restore_signal_handlers() {
+}
+#endif
+
+static int RS_fork(args_t *arg) {
+#ifndef WIN32
+	return (arg->srv && arg->srv->fork) ? arg->srv->fork(arg) : fork();
+#else
+	return -1;
+#endif
+}
+
+void serverLoop() {
+    struct timeval timv;
+    int selRet = 0;
+    fd_set readfds;
+
+	setup_signal_handlers();
+
+    while(active && servers) { /* main serving loop */
+		int i;
+		int maxfd = 0;
+#ifdef FORKED
+		while (waitpid(-1, 0, WNOHANG) > 0);
+#endif
+		/* 500ms (used to be 10ms) - it shouldn't really matter since
+		   it's ok for us to sleep -- the timeout will only influence
+		   how often we collect terminated children and (maybe) how
+		   quickly we react to shutdown */
+		timv.tv_sec = 0; timv.tv_usec = 500000;
+		FD_ZERO(&readfds);
+		for (i = 0; i < servers; i++)
+			if (server[i])
+				{
+					int ss = server[i]->ss;
+					if (ss > maxfd)
+						maxfd = ss;
+					FD_SET(ss, &readfds);
+				}
+
+		selRet = select(maxfd + 1, &readfds, 0, 0, &timv);
+
+		if (selRet > 0) {
+			for (i = 0; i < servers; i++) {
+				socklen_t al;
+				struct args *sa;
+				server_t *srv = server[i];
+				int ss = srv->ss;
+				int succ = 0;
+				if (server[i] && FD_ISSET(ss, &readfds)) {
+					sa = (struct args*)malloc(sizeof(struct args));
+					memset(sa, 0, sizeof(struct args));
+					al = sizeof(sa->sa);
+#ifndef WIN32
+					if (server[i]->unix_socket) {
+						al = sizeof(sa->su);
+						sa->s = accept(ss, (SA*)&(sa->su), &al);
+					} else
+#endif
+						sa->s = accept(ss, (SA*)&(sa->sa), &al);
+					if (sa->s == INVALID_SOCKET) {
+						RSEprintf("accept failed: %s", strerror(errno));
+						continue;
+					}
+
+					accepted_server(srv, sa->s);
+					sa->ucix = UCIX++;
+					sa->ss = ss;
+					sa->srv = srv;
+					/*
+					  memset(sa->sk,0,16);
+					  sa->sfd=-1;
+					  #if defined SESSIONS && defined FORKED
+					  {
+					  int pd[2];
+					  if (!pipe(&pd)) {
+					  
+					  }
+					  }
+					  #endif
+					*/
+					if (allowed_ips && !srv->unix_socket && !use_ipv6) {
+						/* FIXME: IPv6 unsafe - filtering won't work on IPv6 addresses */
+						char **laddr = allowed_ips;
+						int allowed = 0;
+						while (*laddr)
+							if (sa->sa.sin_addr.s_addr == inet_addr(*(laddr++)))
+								{ allowed=1; break; }
+						if (allowed) {
+#ifdef RSERV_DEBUG
+							printf("INFO: accepted connection for server %p, calling connected\n", (void*) srv);
+#endif
+							srv->connected(sa);
+							succ = 1;
+#ifdef FORKED
+							/* when the child returns it means it's done (likely an error)
+							   but it is forked, so the only right thing to do is to exit */
+							if (is_child)
+								exit(2);
+#endif
+						} else {
+#ifdef RSERV_DEBUG
+							printf("INFO: peer is not on allowed IP list, closing connection\n");
+#endif
+							closesocket(sa->s);
+						}
+					} else { /* ---> remote enabled */
+#ifdef RSERV_DEBUG
+						printf("INFO: accepted connection for server %p, calling connected\n", (void*) srv);
+#endif
+						srv->connected(sa);
+						succ = 1;
+						if (is_child) /* same as above */
+							exit(2);
+					}
+				} /* ready server */
+			} /* severs loop */
+		} /* select */
+    } /* end while(active) */
+}
+
+#include <time.h>
+
+static pid_t lastChild, parentPID;
+static args_t *self_args;
+
+int prepare_child(args_t *args) {
+#ifdef FORKED  
+	long rseed = random();
+
+    rseed ^= time(0);
+
+	if (is_child) return 0; /* this is a no-op if we are already a child
+							   FIXME: thould this be an error ? */
+
+    if ((lastChild = RS_fork(args)) != 0) { /* parent/master part */
+		int forkErrno = errno; //grab errno close to source before it can be changed by other failures
+		/* close the connection socket - the child has it already */
+		closesocket(args->s);
+		if (lastChild == -1)
+			RSEprintf("WARNING: fork() failed in prepare_child(): %s\n",strerror(forkErrno));
+		return lastChild;
+    }
+
+	/* child part */
+	restore_signal_handlers(); /* the handlers handle server shutdown so not needed in the child */
+
+#if 0
+	if (main_argv && tag_argv && strlen(main_argv[0]) >= 8)
+		strcpy(main_argv[0] + strlen(main_argv[0]) - 8, "/RsrvCHx");
+#endif
+	is_child = 1;
+
+	srandom(rseed);
+    
+    parentPID = getppid();
+    close_all_srv_sockets(); /* close all server sockets - this includes arg->ss */
+
+#ifdef CAN_TCP_NODELAY
+    {
+     	int opt = 1;
+        setsockopt(args->s, IPPROTO_TCP, TCP_NODELAY, (const char*) &opt, sizeof(opt));
+    }
+#endif
+
+#endif
+
+	self_args = args;
+
+	return 0;
 }
 
 /*--- The following makes the indenting behavior of emacs compatible
