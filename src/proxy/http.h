@@ -1,7 +1,11 @@
 #ifndef HTTP_H__
 #define HTTP_H__
 
+#ifdef NO_WEBSOCKETS
 #include "server.h"
+#else
+#include "websockets.h"
+#endif
 
 typedef struct {
     char  *url;
@@ -30,6 +34,10 @@ typedef void (*http_handler_fn_t)(http_request_t *req, http_result_t *res);
 #define HTTP_WS_UPGRADE 0x10
 #define HTTP_RAW_BODY   0x20 /* if set, no attempts are made to decode the request body of known types */
 
-server_t *create_HTTP_server(int port, int flags, http_handler_fn_t handler);
+#ifdef NO_WEBSOCKETS
+server_t *create_HTTP_server(int port, int flags, http_handler_fn_t handler, void *dummy);
+#else
+server_t *create_HTTP_server(int port, int flags, http_handler_fn_t handler, ws_connected_fn_t ws_connected);
+#endif
 
 #endif

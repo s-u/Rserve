@@ -1,13 +1,12 @@
-#include "Rsrv.h"
 #include "websockets.h"
 #include "md5.h"
 #include "sha1.h"
 #include "tls.h"
-
+#include "qap.h"
+#ifdef RSERV_DEBUG
 #include "rsdebug.h"
-#include "rserr.h"
+#endif
 
-#include <sisocks.h>
 #include <string.h>
 #include <stdio.h>
 #include <signal.h>
@@ -25,20 +24,18 @@ struct args {
 	long  l1, l2;
 };
 
-static int  WS_recv_data(args_t *arg, void *buf, rlen_t read_len);
-static void WS_send_resp(args_t *arg, int rsp, rlen_t len, const void *buf);
-static int  WS_send_data(args_t *arg, const void *buf, rlen_t len);
+static int  WS_recv_data(args_t *arg, void *buf, size_t read_len);
+static void WS_send_resp(args_t *arg, int rsp, size_t len, const void *buf);
+static int  WS_send_data(args_t *arg, const void *buf, size_t len);
 
-/* those will eventually be in the API but for now ... */
-int cio_send(int s, const void *buffer, int length, int flags);
-int cio_recv(int s, void *buffer, int length, int flags);
+static int WS_wire_send(args_t *arg, const void *buf, size_t len) {
+	return (arg->tls_arg) ? arg->tls_arg->srv->send(arg->tls_arg, buf, len) : send(arg->s, buf, len, 0);
+}
 
-static int WS_wire_send(args_t *arg, const void *buf, rlen_t len) {
-	return (arg->tls_arg) ? arg->tls_arg->srv->send(arg->tls_arg, buf, len) : cio_send(arg->s, buf, len, 0);
+static int WS_wire_recv(args_t *arg, void *buf, size_t len) {
+	return (arg->tls_arg) ? arg->tls_arg->srv->recv(arg->tls_arg, buf, len) : recv(arg->s, buf, len, 0);
 }
-static int WS_wire_recv(args_t *arg, void *buf, rlen_t len) {
-	return (arg->tls_arg) ? arg->tls_arg->srv->recv(arg->tls_arg, buf, len) : cio_recv(arg->s, buf, len, 0);
-}
+
 static void WS_wire_close(args_t *arg) {
 	if (arg->tls_arg) {
 		close_tls(arg->tls_arg);
@@ -104,9 +101,6 @@ static unsigned long count_digits(const char *c) {
 
 /* from base64.c */
 void base64encode(const unsigned char *src, int len, char *dst);
-/* from Rserve.c */
-void Rserve_QAP1_connected(args_t *arg);
-void Rserve_text_connected(args_t *arg);
 
 #define FRAME_BUFFER_SIZE 65536
 
@@ -120,7 +114,7 @@ static void WS_connected(void *parg) {
 
 	/* we have to perform a handshake before giving over to QAP 
 	   but we have to fork() first as to not block the server on handshake */
-	if (Rserve_prepare_child(arg) != 0) { /* parent or error */
+	if (prepare_child(arg) != 0) { /* parent or error */
 		free(arg);
 		return;
 	}
@@ -328,17 +322,14 @@ static void WS_connected(void *parg) {
 	arg->sl = FRAME_BUFFER_SIZE;
 	arg->sbuf = (char*) malloc(FRAME_BUFFER_SIZE);
 
-	/* textual protocol */
-	if (h.protocol && strstr(h.protocol, "text")) {
-		free_header(&h);
-		Rserve_text_connected(arg);
-		return;
-	}
-
+	buf = h.protocol ? strdup(h.protocol) : 0;
+	
 	free_header(&h);
-
-	/* switch to underlying QAP1 */
-	Rserve_QAP1_connected(arg);
+	
+	{
+		ws_connected_fn_t connected = (ws_connected_fn_t) arg->srv->aux;
+		connected(arg, buf);
+	}
 }
 
 static server_t *ws_upgrade_srv, *wss_upgrade_srv; /* virtual server that represents the WS layer in HTTP/WS stack */
@@ -348,7 +339,7 @@ static server_t *ws_upgrade_srv, *wss_upgrade_srv; /* virtual server that repres
 /* IMPORTANT: it mangles the arg structure, so the caller should make sure it releases any obejcts from
               the structure that may leak */
 /* FIXME: it only works on connections that have a direct socket since we don't have a stack to do TLS <-> WS <-> QAP */
-void WS13_upgrade(args_t *arg, const char *key, const char *protocol, const char *version) {
+void WS13_upgrade(args_t *arg, const char *key, const char *protocol, const char *version, ws_connected_fn_t connected) {
 	char buf[512];
 	unsigned char hash[21];
 	char b64[44];
@@ -368,6 +359,10 @@ void WS13_upgrade(args_t *arg, const char *key, const char *protocol, const char
 		srv->send      = WS_send_data;
 		srv->fin       = server_fin;
 		srv->flags     = arg->srv->flags & SRV_QAP_FLAGS; /* pass-through QAP flags */
+		/* FIXME: this is really ugly - we have to pass ws_connected as aux, but
+		   since we are caching the server instance this means you cannot have different
+		   functions for different servers that are upgraded! */
+		srv->aux       = (void*) connected;
 		if (arg->srv->flags & WS_TLS) wss_upgrade_srv = srv; else ws_upgrade_srv = srv;
 	}
 
@@ -399,22 +394,22 @@ void WS13_upgrade(args_t *arg, const char *key, const char *protocol, const char
 	arg->srv = srv;
 	arg->ver = version ? atoi(version) : 13; /* let's assume 13 if not present */
 
-	/* textual protocol */
-	if (protocol && strstr(protocol, "text")) {
-		Rserve_text_connected(arg);
-		return;
+	{
+		ws_connected_fn_t connected = (ws_connected_fn_t) srv->aux;
+		connected(arg, protocol ? strdup(protocol) : 0);
 	}
-
-	/* switch to underlying QAP1 */
-	Rserve_QAP1_connected(arg);
 }
 
-static void WS_send_resp(args_t *arg, int rsp, rlen_t len, const void *buf) {
+/* FIXME: big endian machines? */
+#define itop(X) (X)
+#define ptoi(X) (X)
+
+static void WS_send_resp(args_t *arg, int rsp, size_t len, const void *buf) {
 	unsigned char *sbuf = (unsigned char*) arg->sbuf;
 	if (arg->ver == 0) {
 		/* FIXME: we can't really tunnel QAP1 without some encoding ... */
 	} else {
-		struct phdr ph;
+		qap_hdr_t ph;
 		int pl = 0;
 		long flen = len + sizeof(ph);
 		ph.cmd = itop(rsp | ((rsp & CMD_OOB) ? 0 : CMD_RESP));
@@ -485,7 +480,7 @@ static void WS_send_resp(args_t *arg, int rsp, rlen_t len, const void *buf) {
 }
 
 /* we use send_data only to send the ID string so we don't bother supporting frames bigger than the buffer */
-static int  WS_send_data(args_t *arg, const void *buf, rlen_t len) {
+static int  WS_send_data(args_t *arg, const void *buf, size_t len) {
 	unsigned char *sbuf = (unsigned char*) arg->sbuf;
 	if (arg->ver == 0) {
 		if (len < arg->sl - 2) {
@@ -536,7 +531,7 @@ static int  WS_send_data(args_t *arg, const void *buf, rlen_t len) {
 	return 0;
 }
 
-static int  WS_recv_data(args_t *arg, void *buf, rlen_t read_len) {
+static int  WS_recv_data(args_t *arg, void *buf, size_t read_len) {
 #ifdef RSERV_DEBUG
 	fprintf(stderr, "WS_recv_data for %d (bp = %d)\n", (int) read_len, arg->bp);
 #endif
@@ -732,7 +727,7 @@ static int  WS_recv_data(args_t *arg, void *buf, rlen_t read_len) {
 	} /* in frame */
 }
 
-server_t *create_WS_server(int port, int flags) {
+server_t *create_WS_server(int port, int flags, ws_connected_fn_t connected) {
 	server_t *srv = create_server(port, 0, 0, flags);
 	if (srv) {
 		srv->connected = WS_connected;
@@ -740,41 +735,13 @@ server_t *create_WS_server(int port, int flags) {
 		srv->recv      = WS_recv_data;
 		srv->send      = WS_send_data;
 		srv->fin       = server_fin;
+		srv->aux       = (void*) connected;
 		add_server(srv);
 		return srv;
 	}
 	return 0;
 }
 
-#include <Rinternals.h>
-
-void serverLoop(void);
-
-typedef void (*sig_fn_t)(int);
-
-#ifdef unix
-static void brkHandler_R(int i) {
-    Rprintf("Caught break signal, shutting down WebSockets.\n");
-    stop_server_loop();
-}
-#endif
-
-SEXP run_WSS(SEXP sPort) {
-	server_t *srv = create_WS_server(asInteger(sPort), WS_PROT_ALL);
-	if (srv) {
-		sig_fn_t old;
-		Rprintf("-- starting WebSockets server at port %d (pid=%d) --\n", asInteger(sPort), getpid());
-#ifdef unix
-		old = signal(SIGINT, brkHandler_R);
-#endif
-		serverLoop();
-#ifdef unix
-		signal(SIGINT, old);
-#endif
-		rm_server(srv);
-	}
-	return ScalarLogical(TRUE);
-}
 
 /*--- The following makes the indenting behavior of emacs compatible
       with Xcode's 4/4 setting ---*/

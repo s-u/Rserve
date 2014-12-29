@@ -51,6 +51,15 @@ struct buffer {
 #include <sys/un.h> /* needed for unix sockets */
 #endif
 
+struct aux_pass {
+	http_handler_fn_t http_handler;
+#ifdef NO_WEBSOCKETS
+	void *ws_connected;
+#else
+	ws_connected_fn_t ws_connected;
+#endif
+};	
+
 struct args {
 	server_t *srv; /* server that instantiated this connection */
     SOCKET s;
@@ -76,7 +85,7 @@ struct args {
 	int  attr;                     /* connection attributes */
 	char *ws_protocol, *ws_version, *ws_key;
     struct buffer *headers;        /* buffer holding header lines */
-	http_handler_fn_t handle_request;
+	struct aux_pass *aux;
 };
 
 #define IS_HTTP_1_1(C) (((C)->attr & HTTP_1_0) == 0)
@@ -251,16 +260,17 @@ static void free_res(http_result_t* res) {
 static void process_request(args_t *c)
 {
     char *query = 0, *s;
-    DBG(Rprintf("process request for %p\n", (void*) c));
+    DBG(fprintf(stderr, "process request for %p\n", (void*) c));
     if (!c || !c->url) return; /* if there is not enough to process, bail out */
-#ifdef USE_WEBSOCKETS
+#ifndef NO_WEBSOCKETS
 	if ((c->attr & WS_UPGRADE) && (c->srv->flags & HTTP_WS_UPGRADE)) {
-		WS13_upgrade(c, c->ws_key, c->ws_protocol, c->ws_version);
+		WS13_upgrade(c, c->ws_key, c->ws_protocol, c->ws_version, c->aux->ws_connected);
 		/* the WS swtich messes up args since it replaces it with its own version so
 		   we can't go back to serving - just bail out (NOTE: only works when forked!) */
 		exit(0);
 	}
 #endif
+
     s = c->url;
     while (*s && *s != '?') s++; /* find the query part */
     if (*s) {
@@ -277,7 +287,7 @@ static void process_request(args_t *c)
 		req.body_len = c->body_pos;
 		req.query = query ? query : 0;
 		req.headers = headers ? headers->buf : 0;
-		c->handle_request(&req, &res);
+		c->aux->http_handler(&req, &res);
 		
 		/* the result is expected to have one of the following forms:
 
@@ -302,7 +312,7 @@ static void process_request(args_t *c)
 		
 		if (res.err) {
 			send_http_response(c, " 500 Evaluation error\r\nConnection: close\r\nContent-type: text/plain\r\n\r\n");
-			DBG(Rprintf("respond with 500 and content: %s\n", s));
+			DBG(fprintf(stderr, "respond with 500 and content: %s\n", s));
 			if (c->method != METHOD_HEAD)
 				send_response(c, res.err, strlen(res.err));
 			c->attr |= CONNECTION_CLOSE; /* force close */
@@ -628,7 +638,7 @@ static void http_input_iteration(args_t *c) {
 								if (c->ws_version) free(c->ws_version);
 								c->ws_version = strdup(k);
 							}
-							DBG(Rprintf(" [attr = %x]\n", c->attr));
+							DBG(fprintf(stderr, " [attr = %x]\n", c->attr));
 						}
 					}
 				}
@@ -751,7 +761,7 @@ static void HTTP_connected(void *parg) {
 		return;
 	}
 
-	arg->handle_request = (http_handler_fn_t) arg->srv->aux;
+	arg->aux = (struct aux_pass*) arg->srv->aux;
 
 	if ((arg->srv->flags & SRV_TLS) && shared_tls(0))
 		add_tls(arg, shared_tls(0), 1);
@@ -762,18 +772,27 @@ static void HTTP_connected(void *parg) {
 	free_args(arg);
 }
 
-server_t *create_HTTP_server(int port, int flags, http_handler_fn_t fn) {
+#ifdef NO_WEBSOCKETS
+server_t *create_HTTP_server(int port, int flags, http_handler_fn_t handler, void *ws_connected)
+#else
+server_t *create_HTTP_server(int port, int flags, http_handler_fn_t handler, ws_connected_fn_t ws_connected)
+#endif
+{
 	server_t *srv = create_server(port, 0, 0, flags);
 #ifdef RSERV_DEBUG
 	fprintf(stderr, "create_HTTP_server(port = %d, flags=0x%x)\n", port, flags);
 #endif
 	if (srv) {
+		struct aux_pass *aux = (struct aux_pass*) malloc(sizeof(struct aux_pass));
+		if (!aux) return 0;  /* FIXME: release srv? */
+		aux->http_handler = handler;
+		aux->ws_connected = ws_connected;
 		srv->connected = HTTP_connected;
 		/* srv->send_resp = */
 		srv->recv      = server_recv;
 		srv->send      = server_send;
 		srv->fin       = server_fin;
-		srv->aux       = (void*) fn;
+		srv->aux       = aux;
 		add_server(srv);
 		return srv;
 	}

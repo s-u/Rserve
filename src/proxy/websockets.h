@@ -1,7 +1,7 @@
 #ifndef WEBSOCKETS_H__
 #define WEBSOCKETS_H__
 
-#include "RSserver.h"
+#include "server.h"
 
 #define WS_PROT_QAP   0x01
 #define WS_PROT_TEXT  0x02
@@ -13,11 +13,13 @@
 
 #define WS_PROT_ALL   (WS_PROT_QAP | WS_PROT_TEXT)
 
-server_t *create_WS_server(int port, int protocols);
+typedef void (*ws_connected_fn_t)(args_t *arg, char *protocol);
+
+server_t *create_WS_server(int port, int protocols, ws_connected_fn_t connected);
 
 /* upgrade HTTP connection to WS - assumes that the HTTP server has parsed the request already
    only WS 13+ handshake is supported by this function */
-void WS13_upgrade(args_t *arg, const char *key, const char *protocol, const char *version);
+void WS13_upgrade(args_t *arg, const char *key, const char *protocol, const char *version, ws_connected_fn_t connected);
 
 /* flags used in args_t.flags */
 #define F_INFRAME 0x010
