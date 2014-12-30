@@ -13,6 +13,7 @@ typedef struct {
     size_t body_len;
     char  *query;
     char  *headers;
+    double date;
 } http_request_t;
 
 #define PAYLOAD_VERBATIM 0
@@ -26,6 +27,7 @@ typedef struct {
     int payload_type;
     char *content_type;
     char *headers;
+    double date;
     int code;
 } http_result_t;
 	

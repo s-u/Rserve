@@ -50,6 +50,7 @@ struct buffer {
 #ifdef unix
 #include <sys/un.h> /* needed for unix sockets */
 #endif
+#include <time.h>
 
 struct aux_pass {
 	http_handler_fn_t http_handler;
@@ -83,6 +84,7 @@ struct args {
     long content_length;           /* desired content length */
     char part, method;             /* request part, method */
 	int  attr;                     /* connection attributes */
+	double req_date;               /* request date */
 	char *ws_protocol, *ws_version, *ws_key;
     struct buffer *headers;        /* buffer holding header lines */
 	struct aux_pass *aux;
@@ -133,13 +135,15 @@ static buf_t *collect_buffers(struct buffer *buf) {
 		len += buf->length;
 		buf = buf->prev;
     }
-    res = alloc_buf(len + buf->length);
+	len += buf->length;
+    res = alloc_buf(len + 1);
     dst = res->buf;
     while (buf) {
 		memcpy(dst, buf->data, buf->length);
 		dst += buf->length;
 		buf = buf->next;
     }
+	res->buf[len] = 0; /* guarantee a trailing NUL so it can be used as a string */
     return res;
 }
 
@@ -256,6 +260,11 @@ static void free_res(http_result_t* res) {
 	if (res->headers) free(res->headers);
 }
 
+/* -- from date.c -- */
+
+char  *posix2http(double ts); /* Note: returned buffer is static */
+double http2posix(const char *c);
+
 /* process a request by calling the httpd() function in R */
 static void process_request(args_t *c)
 {
@@ -287,6 +296,7 @@ static void process_request(args_t *c)
 		req.body_len = c->body_pos;
 		req.query = query ? query : 0;
 		req.headers = headers ? headers->buf : 0;
+		req.date = c->req_date;
 		c->aux->http_handler(&req, &res);
 		
 		/* the result is expected to have one of the following forms:
@@ -324,14 +334,29 @@ static void process_request(args_t *c)
 			int code = res.code ? res.code : 200; /* if no code is provided we assume 200 */
 			char buf[64];
 			const char *ct = res.content_type ? res.content_type : "text/html";
-			if (code == 200)
+			if (code == 200) {
 				send_http_response(c, " 200 OK\r\nContent-type: ");
-			else {
+				send_response(c, ct, strlen(ct));
+			} else if (code == 304) { /* not modified - don't need content type */
+				sprintf(buf, "%s 304 Not Modified", HTTP_SIG(c));
+				send_response(c, buf, strlen(buf));
+			} else {
 				sprintf(buf, "%s %d Code %d\r\nContent-type: ", HTTP_SIG(c), code, code);
 				send_response(c, buf, strlen(buf));
+				send_response(c, ct, strlen(ct));
 			}
-			send_response(c, ct, strlen(ct));
-			send_response(c, "\r\n", 2);
+			/* the handler may explicitly avoid the generation of the Date: header by setting
+			   res.date to a negative value. Value of 0.0 (default) instructs the server to
+			   populate it with the current timestamp, other values are explicit dates */
+			if (res.date == 0.0)
+				res.date = (double) time(0);
+			if (res.date < 0.0)
+				send_response(c, "\r\n", 2);
+			else {
+				sprintf(buf, "\r\nDate: %s\r\n", posix2http(res.date));
+				send_response(c, buf, strlen(buf));
+			}
+				
 			if (res.headers)
 				send_response(c, res.headers, strlen(res.headers));
 			if (res.payload_type == PAYLOAD_FILE || res.payload_type == PAYLOAD_TEMPFILE) {
@@ -387,10 +412,14 @@ static void process_request(args_t *c)
 				fin_request(c);
 				return;
 			} else { /* verbatim payload */
-				sprintf(buf, "Content-length: %lu\r\n\r\n", (unsigned long) res.payload_len);
-				send_response(c, buf, strlen(buf));
-				if (c->method != METHOD_HEAD)
-					send_response(c, res.payload, res.payload_len);
+				if (res.code == 304) /* 304 may NOT send any body and thus no content-length */
+					send_response(c, "\r\n", 2);
+				else {
+					sprintf(buf, "Content-length: %lu\r\n\r\n", (unsigned long) res.payload_len);
+					send_response(c, buf, strlen(buf));
+					if (c->method != METHOD_HEAD)
+						send_response(c, res.payload, res.payload_len);
+				}
 				free_res(&res);
 				fin_request(c);
 				return;
@@ -620,6 +649,8 @@ static void http_input_iteration(args_t *c) {
 							}
 							if (!strcmp(bol, "host"))
 								c->attr |= HOST_HEADER;
+							if (!strcmp(bol, "date"))
+								c->req_date = http2posix(k);
 							if (!strcmp(bol, "connection")) {
 								char *l = k;
 								while (*l) { if (*l >= 'A' && *l <= 'Z') *l |= 0x20; l++; }
