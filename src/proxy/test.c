@@ -42,6 +42,7 @@ static void http_request(http_request_t *req, http_result_t *res) {
     struct stat st;
     double ts;
     int not_modified = 0;
+    const char *append_headers = 0;
 
     fprintf(stderr, "----\nINFO: request for '%s', Date: %s, headers:\n%s\n", req->url, posix2http(req->date), req->headers ? req->headers : "<NONE>");
     s = (char*) malloc(strlen(req->url) + 8);
@@ -70,6 +71,22 @@ static void http_request(http_request_t *req, http_result_t *res) {
     }
 
     if (!not_modified) {
+	const char *accept = get_header(req, "Accept-Encoding");
+	if (accept) { /* check whether the client is ok with gzip compressed version */
+	    const char *e = strchr(accept, '\n');
+	    if (e && strnstr(accept, "gzip", e - accept)) { /* accepts gzip? */
+		struct stat gzst;
+		FILE *gzf;
+		strcat(s, ".gz");
+		/* .gz present and not older than the source = serve the compressed version */
+		if (!stat(s, &gzst) && gzst.st_mtimespec.tv_sec >= st.st_mtimespec.tv_sec && (gzf = fopen(s, "rb"))) {
+		    fclose(f);
+		    f = gzf;
+		    st = gzst;
+		    append_headers = "Content-Encoding: gzip\r\n";
+		}
+	    }
+	}
 	res->payload = (char*) malloc((st.st_size < 512) ? 512 : st.st_size);
 	res->payload_len = st.st_size;
 	if (fread(res->payload, 1, res->payload_len, f) != res->payload_len) {
@@ -78,13 +95,17 @@ static void http_request(http_request_t *req, http_result_t *res) {
 	    res->payload = 0;
 	    res->payload_len = 0;
 	    res->code = 501;
+	    fclose(f);
 	    return;
 	}
     }
 
+    fclose(f);
     ts = (double) time(0);
-    snprintf(buf, sizeof(buf), "Last-Modified: %s\r\nCache-control: no-cache\r\n",
-	     posix2http((st.st_mtimespec.tv_sec > ts) ? ts : st.st_mtimespec.tv_sec));
+    snprintf(buf, sizeof(buf), "Last-Modified: %s\r\nCache-control: no-cache\r\n%s",
+	     posix2http((st.st_mtimespec.tv_sec > ts) ? ts : st.st_mtimespec.tv_sec),
+	     append_headers ? append_headers : ""
+	     );
     res->headers = strdup(buf);
 }
 
