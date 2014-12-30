@@ -1,15 +1,49 @@
 #include "http.h"
 #include "websockets.h"
 
+#include <time.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
+
+/* from date.c */
+char  *posix2http(double);
+double http2posix(const char*);
+
+static char buf[1024];
+
+static const char *get_header(http_request_t *req, const char *name) {
+    const char *c = req->headers, *e;
+    int name_len = strlen(name);
+    if (!c) return 0;
+    while (*c && (e = strchr(c, '\n'))) {
+	const char *v = strchr(c, ':');
+	if (v && (v < e) && (v - c == name_len)) {
+	    int i;
+	    for (i = 0; i < name_len; i++)
+		if ((name[i] & 0xdf) != (c[i] & 0xdf))
+		    break;
+	    if (i == name_len) {
+		v++;
+		while (*v == '\t' || *v == ' ')
+		    v++;
+		return v;
+	    }
+	}
+	while (*e == '\n' || *e == '\t') e++;
+	c = e;
+    }
+    return 0;
+}
 
 static void http_request(http_request_t *req, http_result_t *res) {
     FILE *f;
     char *s;
     struct stat st;
-    fprintf(stderr, "INFO: request for '%s'\n", req->url);
+    double ts;
+    int not_modified = 0;
+
+    fprintf(stderr, "----\nINFO: request for '%s', Date: %s, headers:\n%s\n", req->url, posix2http(req->date), req->headers ? req->headers : "<NONE>");
     s = (char*) malloc(strlen(req->url) + 8);
     strcpy(s + 2, req->url);
     s[0] = '.';
@@ -19,16 +53,39 @@ static void http_request(http_request_t *req, http_result_t *res) {
 	res->code = 404;
 	return;
     }
-    res->payload = (char*) malloc((st.st_size < 512) ? 512 : st.st_size);
-    res->payload_len = st.st_size;
-    if (fread(res->payload, 1, res->payload_len, f) != res->payload_len) {
-	snprintf(res->payload, 512, "I/O error: %s", strerror(errno));
-	res->err = res->payload;
-	res->payload = 0;
-	res->payload_len = 0;
-	res->code = 501;
-	return;
+
+    /* check for conditional GET */
+    if (req->headers) {
+	const char *if_mod = get_header(req, "If-Modified-Since");
+	fprintf(stderr, "INFO: If-Mod? %s\n", if_mod ? if_mod : "<NO>");
+	if (if_mod) {
+	    double since = http2posix(if_mod);
+	    fprintf(stderr, "INFO: last mod comparison: %d vs %d\n",
+		    (int) since, (int) st.st_mtimespec.tv_sec);
+	    if (since >= st.st_mtimespec.tv_sec) {
+		not_modified = 1;
+		res->code = 304;
+	    }
+	}
     }
+
+    if (!not_modified) {
+	res->payload = (char*) malloc((st.st_size < 512) ? 512 : st.st_size);
+	res->payload_len = st.st_size;
+	if (fread(res->payload, 1, res->payload_len, f) != res->payload_len) {
+	    snprintf(res->payload, 512, "I/O error: %s", strerror(errno));
+	    res->err = res->payload;
+	    res->payload = 0;
+	    res->payload_len = 0;
+	    res->code = 501;
+	    return;
+	}
+    }
+
+    ts = (double) time(0);
+    snprintf(buf, sizeof(buf), "Last-Modified: %s\r\nCache-control: no-cache\r\n",
+	     posix2http((st.st_mtimespec.tv_sec > ts) ? ts : st.st_mtimespec.tv_sec));
+    res->headers = strdup(buf);
 }
 
 struct args {
