@@ -23,6 +23,9 @@
 #include <signal.h>
 #include <sys/un.h> /* needed for unix sockets */
 
+/* send OOB idle on WebSockets every 10 min (FIXME: make this configurable) */
+#define HEARTBEAT_INTERVAL 600
+
 #define MAX_READ_CHUNK (1024 * 1024)
 #define MAX_SEND_CHUNK (1024 * 1024)
 
@@ -112,6 +115,7 @@ struct args {
 
 typedef struct queue {
     unsigned long len;
+    unsigned long seq;
     struct queue *next;
     char data[1];
 } queue_t;
@@ -123,8 +127,9 @@ typedef struct {
     int qap;     /* QAP socket */
     pthread_mutex_t mux;
     pthread_cond_t  queue_available;
+    int queue_sleeping; /* if set the queue consumer is sleeping and wants to be signalled */
+    unsigned long queue_seq;
     int qap_stage, active, qap_alive, ws_alive;
-    queue_t *qap_to_ws;
     queue_t *ws_to_qap;
 } proxy_t;
 
@@ -182,7 +187,7 @@ static void *forward(void *ptr) {
 		}
 		pthread_mutex_lock(&proxy->mux);
 		ulog("QAP->WS  INFO: forwarding IDstring (%d bytes)", 32);
-		n = proxy->ws->srv->send(proxy->ws, idstr, 32);
+		n = proxy->ws_alive ? proxy->ws->srv->send(proxy->ws, idstr, 32) : -2;
 		pthread_mutex_unlock(&proxy->mux);
 		if (n < 32) { /* ID string forward failed */
 		    ulog("QAP->WS  ERROR: send QAP1 ID string failed: %d read, %d expected [%s]", n, 32, strerror(errno));
@@ -221,6 +226,8 @@ static void *forward(void *ptr) {
 	    //tl = ptoi(hdr.len);
 	    //#endif
 	    ulog("QAP->WS  INFO: <<== message === (cmd=0x%x, msg_id=0x%x), size = %lu", hdr.cmd, hdr.msg_id, tl);
+
+	    /* FIXME: this is really an abuse of queue_t for historical reasons -- we just use it as a buffer!! */
 	    if (!(qe = malloc(tl + sizeof(hdr) + sizeof(queue_t)))) { /* failed to allocate buffer for the message */
 		/* FIXME: we should flush the contents and respond with an error condition */
 		ulog("QAP->WS  ERROR: unable to allocate memory for message of size %lu", tl);
@@ -246,7 +253,7 @@ static void *forward(void *ptr) {
 	    ulog("QAP->WS  INFO: sending total of %lu bytes", qe->len);
 	    /* message complete - send */
 	    pthread_mutex_lock(&proxy->mux);
-	    n = proxy->ws->srv->send(proxy->ws, qe->data, qe->len);
+	    n = (proxy->ws_alive) ? proxy->ws->srv->send(proxy->ws, qe->data, qe->len) : -2;
 	    ulog("QAP->WS  INFO: send returned %d", n);
 	    pthread_mutex_unlock(&proxy->mux);
 	    if (n < qe->len) {
@@ -317,6 +324,7 @@ static void *enqueue(void *ptr) {
 	ulog("WS ->Q   INFO: enqueuing message");
 	/* got the message - enqueue */
 	pthread_mutex_lock(&proxy->mux);
+	qe->seq = ++proxy->queue_seq; /* curretnly not needed, but safer to increment when locked */
 	if (proxy->ws_to_qap) {
 	    queue_t *q = proxy->ws_to_qap;
 	    while (q->next)
@@ -324,14 +332,15 @@ static void *enqueue(void *ptr) {
 	    q->next = qe;
 	} else
 	    proxy->ws_to_qap = qe;
-	pthread_cond_signal(&proxy->queue_available);
+	if (proxy->queue_sleeping)
+	    pthread_cond_signal(&proxy->queue_available);
 	pthread_mutex_unlock(&proxy->mux);
 	ulog("WS ->Q   INFO: done enqueuing");
     }
 
+    pthread_mutex_lock(&proxy->mux);
     proxy->ws_alive = 0;
     /* signal queue so the main thread can check our status and find out that we're done */
-    pthread_mutex_lock(&proxy->mux);
     pthread_cond_signal(&proxy->queue_available);
     pthread_mutex_unlock(&proxy->mux);
 
@@ -340,11 +349,40 @@ static void *enqueue(void *ptr) {
     /* WS will be closed by exitting from the main thread */
     return 0;
 }
+
+static void *heartbeat(void *ptr) {
+    proxy_t *proxy = (proxy_t*) ptr;
+    struct {
+	qap_hdr_t hdr;
+	unsigned int sexp_hdr, list_hdr, str_hdr;
+	char str[8];
+    } idle_msg;
+    
+    /* construct list("idle") OOB SEND packet by hand:
+       QAP1(SEXP(list("idle"))) */
+    memset(&idle_msg, 0, sizeof(idle_msg));
+    idle_msg.hdr.cmd = itop(OOB_SEND);
+    idle_msg.hdr.len = itop(20); /* 4 (SEXP) + 4 (VECTOR) + 4 (STR) + 8 ("idle\0\1\1\1") */
+    idle_msg.sexp_hdr = itop(SET_PAR(DT_SEXP, 16));
+    idle_msg.list_hdr = itop(SET_PAR(XT_VECTOR, 12));
+    idle_msg.str_hdr  = itop(SET_PAR(XT_ARRAY_STR, 8));
+    memset(idle_msg.str, 1, 8); /* pad with 1 */
+    strcpy(idle_msg.str, "idle");
+
+    while (proxy->active && proxy->ws_alive) {
+	sleep(HEARTBEAT_INTERVAL);
+	pthread_mutex_lock(&proxy->mux);
+	if (proxy->ws_alive)
+	    proxy->ws->srv->send(proxy->ws, &idle_msg, ptoi(idle_msg.hdr.len) + sizeof(qap_hdr_t));
+	pthread_mutex_unlock(&proxy->mux);
+    }
+    return 0;
+}
 	    
 static void ws_connected(args_t *arg, char *protocol) {
     int s;
     struct sockaddr_un sau;
-    pthread_t forward_thread, enqueue_thread;
+    pthread_t forward_thread, enqueue_thread, heartbeat_thread;
     pthread_attr_t thread_attr;
     
     fprintf(stderr, "INFO: web sockets connected (protocol %s)\n", protocol ? protocol : "<NULL>");
@@ -376,7 +414,6 @@ static void ws_connected(args_t *arg, char *protocol) {
     pthread_mutex_init(&proxy->mux, 0);	
     pthread_cond_init(&proxy->queue_available, 0);
     proxy->qap_stage = 0;
-    proxy->qap_to_ws = 0;
     proxy->ws_to_qap = 0;
     proxy->active = 1;
     proxy->ws_alive = 1;
@@ -392,21 +429,32 @@ static void ws_connected(args_t *arg, char *protocol) {
     pthread_attr_setdetachstate(&thread_attr, PTHREAD_CREATE_DETACHED);
     pthread_create(&enqueue_thread, &thread_attr, enqueue, proxy);
 
+    /* create WS heartbeat thread */
+    pthread_attr_init(&thread_attr);
+    pthread_attr_setdetachstate(&thread_attr, PTHREAD_CREATE_DETACHED);
+    pthread_create(&heartbeat_thread, &thread_attr, heartbeat, proxy);
+
     /* Note about the mutex:
        the mutex is locked for
        a) all operations on the queue
        b) for all WS send operations
        so the one operation that doesn't lock is
        the blocking WS read. Hence no other thread
-       than "equeue" is allowed to call WS read. */
+       than "enqueue" (WS->Q) is allowed to call WS read. */
 
-    /* what's left is queue -> QAP */
+    /* what's left is queue -> QAP
+       we use queue_available condition var to yield until
+       equeue signals contents on the queue
+     */
     while (proxy->active) {
 	queue_t *q;
 	pthread_mutex_lock(&proxy->mux);
 	ulog("Q  ->QAP INFO: waiting for message in the queue");
-	if (!proxy->ws_to_qap && proxy->qap_alive) /* if there is nothing to process, wait until enqueue posts something */
+	if (!proxy->ws_to_qap && proxy->qap_alive) { /* if there is nothing to process, wait until enqueue posts something */
+	    proxy->queue_sleeping = 1;
 	    pthread_cond_wait(&proxy->queue_available, &proxy->mux);
+	    proxy->queue_sleeping = 0;
+	}
 	/* ok, we land here with the queue mutex still locked 
 	   so we pull the message from the head of the queue and release the rest of the queue
 	 */
@@ -428,7 +476,8 @@ static void ws_connected(args_t *arg, char *protocol) {
 		hdr.msg_id = src->msg_id;
 		/* QAP is dead - signal an error */
 		pthread_mutex_lock(&proxy->mux);
-		proxy->ws->srv->send(proxy->ws, &hdr, sizeof(hdr));
+		if (proxy->ws_alive)
+		    proxy->ws->srv->send(proxy->ws, &hdr, sizeof(hdr));
 		pthread_mutex_unlock(&proxy->mux);
 		/* don't close WS - we'll still respond to all
 		   messages WS sends our way so it can unwind
@@ -461,25 +510,22 @@ static void ws_connected(args_t *arg, char *protocol) {
     }
 
     if (proxy->qap_alive) {
-	/* QAP is still alive ... */
-	/* FIXME: should we somehow inform the QAP thread?
-	   Right now it will simply die with the process,
-	   which is currently OK since it's blocking on read()
-	   without any active allocations, but in case we care ... */
+	/* QAP is still alive ... inform the thread that we're done and signal
+	   so it breaks out of recv() */
 	proxy->qap_alive = 0;
 	pthread_kill(forward_thread, SIGINT);
     }
     
     /* if WS is still alive, we inform it about our shutdown */
+    pthread_mutex_lock(&proxy->mux);
     if (proxy->ws_alive) {
 	qap_hdr_t hdr = { 0, 0, 0, 0 };
 	hdr.cmd = itop(OOB_SEND);
-	pthread_mutex_lock(&proxy->mux);
 	proxy->ws_alive = 0;
 	proxy->ws->srv->send(proxy->ws, &hdr, sizeof(hdr));
-	pthread_mutex_unlock(&proxy->mux);
     }
-    ulog("INFO: WebSockets frowarding process done.");
+    pthread_mutex_unlock(&proxy->mux);
+    ulog("INFO: WebSockets forwarding process done.");
  }
 
 int main() {
