@@ -218,13 +218,13 @@ static void *forward(void *ptr) {
 	/* from here on it's guaranteed QAP */
 	{
 	    unsigned long tl, pos = 0;
-	    //#if LONG_MAX > 2147483647
+#if LONG_MAX > 2147483647
 	    tl = ptoi(hdr.res);
 	    tl <<= 32;
 	    tl |= ptoi(hdr.len);
-	    //#else
-	    //tl = ptoi(hdr.len);
-	    //#endif
+#else
+	    tl = ptoi(hdr.len);
+#endif
 	    ulog("QAP->WS  INFO: <<== message === (cmd=0x%x, msg_id=0x%x), size = %lu", hdr.cmd, hdr.msg_id, tl);
 
 	    /* FIXME: this is really an abuse of queue_t for historical reasons -- we just use it as a buffer!! */
@@ -292,13 +292,13 @@ static void *enqueue(void *ptr) {
 	    break;
 	}
 
-	//#if LONG_MAX > 2147483647
+#if LONG_MAX > 2147483647
 	tl = ptoi(hdr.res);
 	tl <<= 32;
 	tl |= ptoi(hdr.len);
-	//#else
-	//tl = ptoi(hdr.len);
-	//#endif
+#else
+	tl = ptoi(hdr.len);
+#endif
 	ulog("WS ->Q   INFO: === message ==>> (cmd=0x%x, msg_id=0x%x), size = %lu", hdr.cmd, hdr.msg_id, tl);
 
 	if (!(qe = malloc(tl + sizeof(hdr) + sizeof(queue_t)))) { /* failed to allocate buffer for the message */
@@ -324,12 +324,13 @@ static void *enqueue(void *ptr) {
 	ulog("WS ->Q   INFO: enqueuing message");
 	/* got the message - enqueue */
 	pthread_mutex_lock(&proxy->mux);
-	qe->seq = ++proxy->queue_seq; /* curretnly not needed, but safer to increment when locked */
+	qe->seq = ++proxy->queue_seq; /* currently not needed, but safer to increment when locked */
 	if (proxy->ws_to_qap) {
 	    queue_t *q = proxy->ws_to_qap;
+	    /* find the end of the queue */
 	    while (q->next)
 		q = q->next;
-	    q->next = qe;
+	    q->next = qe; /* append */
 	} else
 	    proxy->ws_to_qap = qe;
 	if (proxy->queue_sleeping)
