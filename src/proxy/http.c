@@ -17,7 +17,7 @@
 #define DBG(X)
 #endif
 
-#define RSEprintf(X) fprintf(stderr, X)
+#include "rserr.h"
 
 /* --- httpd --- */
 
@@ -47,7 +47,7 @@ struct buffer {
     char data[1];
 };
 
-#ifdef unix
+#ifndef WIN32
 #include <sys/un.h> /* needed for unix sockets */
 #endif
 #include <time.h>
