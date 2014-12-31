@@ -40,4 +40,7 @@ typedef struct phdr {   /* always 16 bytes */
 /* mask of all flags that are relevant to QAP (so they can be passed through) */
 #define SRV_QAP_FLAGS (SRV_QAP_OC)
 
+#define ERR_auth_failed      0x41
+#define ERR_conn_broken      0x42
+
 #endif
