@@ -17,6 +17,8 @@ typedef void (*ws_connected_fn_t)(args_t *arg, char *protocol);
 
 server_t *create_WS_server(int port, int protocols, ws_connected_fn_t connected);
 
+void WS_set_binary(args_t *arg, int flag);
+
 /* upgrade HTTP connection to WS - assumes that the HTTP server has parsed the request already
    only WS 13+ handshake is supported by this function */
 void WS13_upgrade(args_t *arg, const char *key, const char *protocol, const char *version, ws_connected_fn_t connected);

@@ -462,7 +462,9 @@ static void WS_send_resp(args_t *arg, int rsp, size_t len, const void *buf) {
 #ifdef RSERV_DEBUG
 			if (pl) {
 				fprintf(stderr, "WS_send_resp: sending 4+ frame (ver %02d), n = %d / %d (of total %ld)\n", arg->ver, n, send_here, flen);
+#ifdef WS_DEBUG
 				{ int i, m = send_here; if (m > 100) m = 100; for (i = 0; i < m; i++) fprintf(stderr, " %02x", (int) sbuf[i]); fprintf(stderr,"\n"); }
+#endif
 			} else
 				fprintf(stderr, "WS_send_resp: continuation (%d bytes)\n", n);
 #endif
@@ -477,6 +479,13 @@ static void WS_send_resp(args_t *arg, int rsp, size_t len, const void *buf) {
 			pl = 0;
 		}
 	}
+}
+
+void WS_set_binary(args_t *arg, int flag) {
+	if (flag)
+		arg->flags |= F_OUT_BIN;
+	else
+		arg->flags &= ~F_OUT_BIN;
 }
 
 /* we use send_data only to send the ID string so we don't bother supporting frames bigger than the buffer */
@@ -502,31 +511,53 @@ static int  WS_send_data(args_t *arg, const void *buf, size_t len) {
 			return -1;
 		}
 	} else {
-		if (len < arg->sl - 8 && len < 65536) {
-			int n, pl = 0;
-			sbuf[pl++] =  ((arg->flags & F_OUT_BIN) ? 1 : 0) + ((arg->ver < 4) ? 0x04 : 0x81); /* text, 4+ has inverted FIN bit */
-			if (len < 126) /* short length */
-				sbuf[pl++] = len;
-			else if (len < 65536) { /* 16-bit */
-				sbuf[pl++] = 126;
-				sbuf[pl++] = len >> 8;
-				sbuf[pl++] = len & 255;
+		unsigned long total = len;
+		int pl = 0;
+		sbuf[pl++] =  ((arg->flags & F_OUT_BIN) ? 1 : 0) + ((arg->ver < 4) ? 0x04 : 0x81); /* text, 4+ has inverted FIN bit */
+		if (len < 126) /* short length */
+			sbuf[pl++] = len;
+		else if (len < 65536) { /* 16-bit */
+			sbuf[pl++] = 126;
+			sbuf[pl++] = len >> 8;
+			sbuf[pl++] = len & 255;
+		} else { /* 64-bit */
+			sbuf[pl++] = 127;
+			{
+				int i = 8;
+				unsigned long l = len;
+				while (i--) {
+					sbuf[pl + i] = l & 255;
+					l >>= 8;
+				}
 			}
-			/* no masking or other stuff */
-			memcpy(sbuf + pl, buf, len);
-			n = WS_wire_send(arg, sbuf, len + pl);
+			pl += 8;
+		}
+
+        while (len + pl) {
+            int n, send_here = (len + pl > arg->sl) ? arg->sl : (len + pl);
+            if (send_here > pl)
+                memcpy(sbuf + pl, buf, send_here - pl);
+            n = WS_wire_send(arg, sbuf, send_here);
 #ifdef RSERV_DEBUG
-			fprintf(stderr, "WS_send_data: sending 4+ frame (ver %02d), n = %d / %d\n", arg->ver, n, (int) len + pl);
+            if (pl) {
+                fprintf(stderr, "WS_send_data: sending 4+ frame (ver %02d), n = %d / %d (of total %ld)\n", arg->ver, n, send_here, len);
+#ifdef WS_DEBUG
+                { int i, m = send_here; if (m > 100) m = 100; for (i = 0; i < m; i++) fprintf(stderr, " %02x", (int) sbuf[i]); fprintf(stderr,"\n"); }
 #endif
-			if (n == len + pl) return len;
-			if (n < len + pl && n >= len) return len - 1;
-			return n;
-		} else {
+            } else
+                fprintf(stderr, "WS_send_data: continuation (%d bytes)\n", n);
+#endif
+            if (n != send_here) {
 #ifdef RSERV_DEBUG
-			fprintf(stderr, "ERROR in WS_send_data: data too large\n");
+                fprintf(stderr, "WS_send_data: write failed (%d expected, got %d)\n", send_here, n);
 #endif
-			return -1;
-		}		
+                return -1;
+            }
+            buf = ((char*)buf) + send_here - pl;
+            len -= send_here - pl;
+            pl = 0;
+        }
+		return total;
 	}
 	return 0;
 }
@@ -542,7 +573,9 @@ static int  WS_recv_data(args_t *arg, void *buf, size_t read_len) {
 			int n = WS_wire_recv(arg, arg->buf + arg->bp, arg->bl - arg->bp);
 #ifdef RSERV_DEBUG
 			fprintf(stderr, "WS_recv_data: needs ver 00 frame, reading %d bytes in addition to %d\n", n, arg->bp);
+#ifdef WS_DEBUG
 			{ int i; fprintf(stderr, "Buffer: "); for (i = 0; i < n; i++) fprintf(stderr, " %02x", (int) (unsigned char) arg->buf[i]); fprintf(stderr,"\n"); }
+#endif
 #endif
 			if (n < 1) return n;
 			arg->bp += n;
@@ -613,7 +646,9 @@ static int  WS_recv_data(args_t *arg, void *buf, size_t read_len) {
 		arg->bp = n;
 #ifdef RSERV_DEBUG
 		fprintf(stderr, "INFO: WS_recv_data: read %d bytes:\n", n);
+#ifdef WS_DEBUG
 		{ int i; for (i = 0; i < n; i++) fprintf(stderr, " %02x", (int) (unsigned char) arg->buf[i]); fprintf(stderr,"\n"); }
+#endif
 #endif
 	}
 	if (arg->flags & F_INFRAME) { /* in frame with new content */
@@ -687,12 +722,12 @@ static int  WS_recv_data(args_t *arg, void *buf, size_t read_len) {
 		}
 		/* FIXME: more recent protocols require MASK at all times */
 		if (mask) {
-#ifdef RSERV_DEBUG
+#if defined RSERV_DEBUG && defined WS_DEBUG
 			{ int i; for (i = 0; i < payload; i++) fprintf(stderr, " %02x", (int) (unsigned char) arg->buf[need + i]); fprintf(stderr,"\n"); }
 #endif
 			SET_F_MASK(arg->flags, do_mask(arg->buf + need, payload, 0, arg->buf + need - 4));
 			memcpy(&arg->l2, arg->buf + need - 4, 4);
-#ifdef RSERV_DEBUG
+#if defined RSERV_DEBUG && defined WS_DEBUG
 			{ int i; for (i = 0; i < payload; i++) fprintf(stderr, " %02x", (int) (unsigned char) arg->buf[need + i]); fprintf(stderr,"\n"); }
 #endif
 		} else arg->flags &= ~ F_MASK;
