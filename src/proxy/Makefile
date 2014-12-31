@@ -13,19 +13,19 @@ forward: forward.o http.o http_tools.o server.o tls.o websockets.o md5.o sha1.o 
 websockets.o: websockets.c websockets.h server.h md5.h sha1.h tls.h qap.h base64.c
 
 md5.c: ../md5.c
-	ln -s $^ $@
+	ln -sfn $^ $@
 md5.h: ../md5.h
-	ln -s $^ $@
+	ln -sfn $^ $@
 ulog.c: ../ulog.c
-	ln -s $^ $@
+	ln -sfn $^ $@
 ulog.h: ../ulog.h
-	ln -s $^ $@
+	ln -sfn $^ $@
 sha1.c: ../sha1.c
-	ln -s $^ $@
+	ln -sfn $^ $@
 sha1.h: ../sha1.h
-	ln -s $^ $@
+	ln -sfn $^ $@
 base64.c: ../base64.c
-	ln -s $^ $@
+	ln -sfn $^ $@
 
 clean:
 	rm -f *.o test

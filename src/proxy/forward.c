@@ -139,18 +139,21 @@ static void *forward(void *ptr) {
     ssize_t n;
     queue_t *qe;
 
-    ulog("QAP->WS INFO: started forwarding thread");
+    ulog("QAP->WS  INFO: started forwarding thread");
     while (proxy->active && proxy->qap_alive) {
 	n = read(s, &hdr, sizeof(hdr));
-	ulog("QAP->WS INFO: read n = %d", n);
+	ulog("QAP->WS  INFO: read n = %d", n);
 	if (n < 0) { /* error */
 	    if (errno == EINTR)
 		continue; /* don't worry about EINTR */
-	    ulog("QAP->WS ERROR: read header: %s", strerror(errno));
+	    ulog("QAP->WS  ERROR: read header: %s", strerror(errno));
 	    break;
 	}
 	if (n != sizeof(hdr)) { /* not even complete header */
-	    ulog("QAP->WS ERROR: read header: %d read, %d expected", n, (int) sizeof(hdr));
+	    if (n == 0)
+		ulog("QAP->WS  NOTE: QAP socket closed");
+	    else
+		ulog("QAP->WS  ERROR: read header: %d read, %d expected", n, (int) sizeof(hdr));
 	    break;
 	}
 	/* there is one special case - if this is non-OCAP mode and qap_stage is zero
@@ -160,24 +163,29 @@ static void *forward(void *ptr) {
 					RSpx - Rserve proxy
 					RsOC - OCAP mode
 				     */
-	    if (!memcmp((char*)&hdr, "Rsrv", 4)) { /* QAP1 = ID string */
+	    if (!memcmp((char*)&hdr, "Rsrv", 4) && !memcmp(((char*)&hdr) + 8, "QAP1", 4)) { /* QAP1 = ID string */
 		memcpy(idstr, &hdr, sizeof(hdr));
+		{
+		    idstr[12] = 0; /* it's Rsrv<version>QAP1 and stop at that for display purposes */
+		    ulog("QAP->WS  INFO: *** server protocol: %s", idstr);
+		    memcpy(idstr, &hdr, sizeof(hdr));
+		}
 		n = read(s, idstr + sizeof(hdr), 32 - sizeof(hdr));
-		ulog("QAP->WS INFO: read[IDstring] n = %d", n);
+		ulog("QAP->WS  INFO: read[IDstring] n = %d", n);
 		if (n < 32 - sizeof(hdr)) {
-		    ulog("QAP->WS ERROR: read QAP1 ID string: %d read, %d expected", n, 32 - sizeof(hdr));
+		    ulog("QAP->WS  ERROR: read QAP1 ID string: %d read, %d expected", n, 32 - sizeof(hdr));
 		    break;
 		}
 		if (memcmp(idstr + 8, "QAP1", 4)) {
-		    ulog("QAP->WS ERROR: Rserve protocol used is not QAP1");
+		    ulog("QAP->WS  ERROR: Rserve protocol used is not QAP1");
 		    break;
 		}
 		pthread_mutex_lock(&proxy->mux);
-		ulog("QAP->WS INFO: forwarding IDstring (%d bytes)", 32);
+		ulog("QAP->WS  INFO: forwarding IDstring (%d bytes)", 32);
 		n = proxy->ws->srv->send(proxy->ws, idstr, 32);
 		pthread_mutex_unlock(&proxy->mux);
 		if (n < 32) { /* ID string forward failed */
-		    ulog("QAP->WS ERROR: send QAP1 ID string failed: %d read, %d expected [%s]", n, 32, strerror(errno));
+		    ulog("QAP->WS  ERROR: send QAP1 ID string failed: %d read, %d expected [%s]", n, 32, strerror(errno));
 		    break;
 		}
 		/* done - back to normal mode */
@@ -187,16 +195,17 @@ static void *forward(void *ptr) {
 	    }
 
 	    if (!memcmp((char*)&hdr, "RSpx", 4)) { /* RSpx = Rserve proxy */
-		ulog("QAP->WS ERROR: RSpx proxy protocol is currently unsupported");
+		ulog("QAP->WS  ERROR: RSpx proxy protocol is currently unsupported");
 		/* currently unsupported */
 		break;
 	    }
 
 	    if (!memcmp((char*)&hdr, "RsOC", 4)) { /* RsOC = OCAP mode - strictly QAP from the start */
+		ulog("QAP->WS  INFO: *** server protocol: Rserve OCAP QAP1");
 		proxy->qap_stage = 1;
 		WS_set_binary(proxy->ws, 1); /* QAP is binary */
 	    } else { /* everything else = bad packet */
-		ulog("QAP->WS ERROR: server doesn't use any of QAP1, RSpx, RsOC - aborting");
+		ulog("QAP->WS  ERROR: server doesn't use any of Rsrv/QAP1, RSpx, RsOC - aborting");
 		break;
 	    }
 	}
@@ -211,10 +220,10 @@ static void *forward(void *ptr) {
 	    //#else
 	    //tl = ptoi(hdr.len);
 	    //#endif
-	    ulog("QAP->WS INFO: <<== message === (cmd=0x%x, msg_id=0x%x), size = %lu", hdr.cmd, hdr.msg_id, tl);
+	    ulog("QAP->WS  INFO: <<== message === (cmd=0x%x, msg_id=0x%x), size = %lu", hdr.cmd, hdr.msg_id, tl);
 	    if (!(qe = malloc(tl + sizeof(hdr) + sizeof(queue_t)))) { /* failed to allocate buffer for the message */
 		/* FIXME: we should flush the contents and respond with an error condition */
-		ulog("QAP->WS ERROR: unable to allocate memory for message of size %lu", tl);
+		ulog("QAP->WS  ERROR: unable to allocate memory for message of size %lu", tl);
 		break;
 	    }
 
@@ -224,24 +233,24 @@ static void *forward(void *ptr) {
 
 	    while (pos < tl) {
 	        n = read(s, qe->data + sizeof(hdr) + pos, (tl - pos > MAX_READ_CHUNK) ? MAX_READ_CHUNK : (tl - pos));
-		ulog("QAP->WS INFO: read n=%d (%lu of %lu)", n, pos, tl);		     
+		ulog("QAP->WS  INFO: read n=%d (%lu of %lu)", n, pos, tl);		     
 		if (n < 1) break;
 		pos += n;
 	    }
 
 	    if (pos < tl) {
-	        ulog("QAP->WS ERROR: could read only %lu bytes of %lu bytes message [%s]", pos, tl, strerror(errno));
+	        ulog("QAP->WS  ERROR: could read only %lu bytes of %lu bytes message [%s]", pos, tl, strerror(errno));
 		break; /* bail out on read error/EOF */
 	    }
 
-	    ulog("QAP->WS INFO: sending total of %lu bytes", qe->len);
+	    ulog("QAP->WS  INFO: sending total of %lu bytes", qe->len);
 	    /* message complete - send */
 	    pthread_mutex_lock(&proxy->mux);
 	    n = proxy->ws->srv->send(proxy->ws, qe->data, qe->len);
-	    ulog("QAP->WS INFO: send returned %d", n);
+	    ulog("QAP->WS  INFO: send returned %d", n);
 	    pthread_mutex_unlock(&proxy->mux);
 	    if (n < qe->len) {
-	        ulog("QAP->WS ERROR: was able to send only %ld bytes of %lu bytes message [%s]", (long) n, tl, strerror(errno));
+	        ulog("QAP->WS  ERROR: was able to send only %ld bytes of %lu bytes message [%s]", (long) n, tl, strerror(errno));
 		free(qe);
 		break;
 	    }
@@ -252,7 +261,7 @@ static void *forward(void *ptr) {
     proxy->qap_alive = 0;
     proxy->qap = -1;
     /* QAP socket is dead */
-    ulog("QAP->WS INFO: finished forwarding thread, QAP closed");
+    ulog("QAP->WS  INFO: finished forwarding thread, QAP closed");
     return 0;
 }
 
@@ -261,15 +270,18 @@ static void *enqueue(void *ptr) {
     proxy_t *proxy = (proxy_t*) ptr;
     qap_hdr_t hdr;
 
-    ulog("WS->Q INFO: started enqueuing thread");
+    ulog("WS ->Q   INFO: started enqueuing thread");
     while (proxy->active && proxy->ws_alive) {
 	int n = proxy->ws->srv->recv(proxy->ws, &hdr, sizeof(hdr));
 	unsigned long tl, pos = 0;
 	queue_t *qe;
 
-	ulog("WS->Q INFO: WS recv = %d", n);
+	ulog("WS ->Q   INFO: WS recv = %d", n);
 	if (n < sizeof(hdr)) {
-	    ulog("WS->Q ERROR: header read expected %d, got %d [%s]", sizeof(hdr), n, strerror(errno));
+	    if (n == 0)
+		ulog("WS ->Q   INFO: WebSocket closed");
+	    else
+		ulog("WS ->Q   ERROR: header read expected %d, got %d [%s]", sizeof(hdr), n, strerror(errno));
 	    break;
 	}
 
@@ -280,11 +292,11 @@ static void *enqueue(void *ptr) {
 	//#else
 	//tl = ptoi(hdr.len);
 	//#endif
-	ulog("WS->Q INFO: === message ==>> (cmd=0x%x, msg_id=0x%x), size = %lu", hdr.cmd, hdr.msg_id, tl);
+	ulog("WS ->Q   INFO: === message ==>> (cmd=0x%x, msg_id=0x%x), size = %lu", hdr.cmd, hdr.msg_id, tl);
 
 	if (!(qe = malloc(tl + sizeof(hdr) + sizeof(queue_t)))) { /* failed to allocate buffer for the message */
 	    /* FIXME: we should flush the contents and respond with an error condition */
-	    ulog("WS->Q ERROR: unable to allocate memory for message of size %lu", tl);
+	    ulog("WS ->Q   ERROR: unable to allocate memory for message of size %lu", tl);
 	    break;
 	}
 
@@ -292,17 +304,17 @@ static void *enqueue(void *ptr) {
 	qe->len = tl + sizeof(hdr);
 	memcpy(qe->data, &hdr, sizeof(hdr));
 	while (pos < tl) {
-	    ulog("WS->Q INFO: requesting %lu (so far %lu of %lu)", tl - pos, pos, tl);
+	    ulog("WS ->Q   INFO: requesting %lu (so far %lu of %lu)", tl - pos, pos, tl);
 	    n = proxy->ws->srv->recv(proxy->ws, qe->data + sizeof(hdr) + pos, tl - pos);
 	    if (n < 1) {
-		ulog("WS->Q ERROR: read %lu of %lu then got %d [%s]", pos, tl, n, strerror(errno));
+		ulog("WS ->Q   ERROR: read %lu of %lu then got %d [%s]", pos, tl, n, strerror(errno));
 		break;
 	    }
 	    pos += n;
 	}
 	if (pos < tl) break;
 
-	ulog("WS->Q INFO: enqueuing message");
+	ulog("WS ->Q   INFO: enqueuing message");
 	/* got the message - enqueue */
 	pthread_mutex_lock(&proxy->mux);
 	if (proxy->ws_to_qap) {
@@ -314,7 +326,7 @@ static void *enqueue(void *ptr) {
 	    proxy->ws_to_qap = qe;
 	pthread_cond_signal(&proxy->queue_available);
 	pthread_mutex_unlock(&proxy->mux);
-	ulog("WS->Q INFO: done enqueuing");
+	ulog("WS ->Q   INFO: done enqueuing");
     }
 
     proxy->ws_alive = 0;
@@ -323,7 +335,7 @@ static void *enqueue(void *ptr) {
     pthread_cond_signal(&proxy->queue_available);
     pthread_mutex_unlock(&proxy->mux);
 
-    ulog("WS->Q INFO: finished enqueuing thread");
+    ulog("WS ->Q   INFO: finished enqueuing thread");
 
     /* WS will be closed by exitting from the main thread */
     return 0;
@@ -392,14 +404,14 @@ static void ws_connected(args_t *arg, char *protocol) {
     while (proxy->active) {
 	queue_t *q;
 	pthread_mutex_lock(&proxy->mux);
-	//ulog("Q->QAP INFO: waiting for message in the queue");
+	ulog("Q  ->QAP INFO: waiting for message in the queue");
 	if (!proxy->ws_to_qap && proxy->qap_alive) /* if there is nothing to process, wait until enqueue posts something */
 	    pthread_cond_wait(&proxy->queue_available, &proxy->mux);
 	/* ok, we land here with the queue mutex still locked 
 	   so we pull the message from the head of the queue and release the rest of the queue
 	 */
 	q = proxy->ws_to_qap;
-	//ulog("Q->QAP INFO: queue signalled - %s", q ? "message present" : "queue empty");
+	ulog("Q  ->QAP INFO: queue signalled - %s", q ? "message present" : "queue empty");
 	if (q)
 	    proxy->ws_to_qap = q->next;
 	pthread_mutex_unlock(&proxy->mux);
@@ -425,20 +437,20 @@ static void ws_connected(args_t *arg, char *protocol) {
 		unsigned long tl = q->len, pos = 0;
 		while (pos < tl && proxy->qap != -1) {
 		    int n = send(proxy->qap, q->data + pos, (tl - pos > MAX_SEND_CHUNK) ? MAX_SEND_CHUNK : (tl - pos), 0);
-		    ulog("Q->QAP INFO: sent %d (at %lu of %lu)", n, pos, tl);
+		    ulog("Q  ->QAP INFO: sent %d (at %lu of %lu)", n, pos, tl);
 		    if (n < 1)
 			break; /* send failed or broken pipe */
 		    pos += n;
 		}
 		if (pos < tl) { /* QAP broken */
-		    ulog("Q->QAP ERROR: send error, aborting QAP connection");
+		    ulog("Q  ->QAP ERROR: send error, aborting QAP connection");
 		    closesocket(proxy->qap);
 		    proxy->qap = -1;
 		    proxy->qap_alive = 0;
 		    free(q);
 		    break;
 		}
-		ulog("Q->QAP INFO: message delivered");
+		ulog("Q  ->QAP INFO: message delivered");
 	    }
 	    free(q);
 	} else if (!proxy->ws_alive) { /* if the queue is empty and WS is dead,
