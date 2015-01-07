@@ -527,7 +527,31 @@ static void ws_connected(args_t *arg, char *protocol) {
     }
     pthread_mutex_unlock(&proxy->mux);
     ulog("INFO: WebSockets forwarding process done.");
- }
+}
+
+/* queuing notes:
+
+   so far we are using a simple FIFO, but we need something smarter
+   due to OOB_MSG which have to deliver results back by "jumping" the queue.
+   For that, we have to keep track of requests sent to the QAP side
+   hold any further requests until the reqeust is done. In the meantime,
+   we have to allow OOB MSG to pass. This meas that QAP->WS thread
+   has to also signal the queue in case the queue is blocked due
+   to a pending request result.
+
+   To make things even more fun, we may need to support multiple QAP
+   connections, thus running one QAP->WS thread for each.
+   We may be ok with just one Q->QAP thread - it simplifies things
+   and the only issue is that transmitting a message to one QAP
+   process blocks transmission to another one. However,
+   Q->QAP connection is a local socket, so it's really fast
+   (a 20Mb packet took only 36ms to transmit in debugging mode).
+
+   Finally, we may want some protocol for QAPs to exchange
+   messages with each other. Thsi should be easy, though, since
+   the QAP->WS thread can simply enqueue the message instead
+   of sending it.
+*/
 
 int main() {
     proxy = (proxy_t*) malloc(sizeof(proxy_t));
