@@ -231,12 +231,6 @@ int main(int argc, char **argv)
 	
 	performConfig(SU_SERVER);
 
-#if defined RSERV_DEBUG || defined Win32
-    printf("Rserve: Ok, ready to answer queries.\n");
-#endif      
-    
-	RSsrv_init();
-
 #ifdef unix
     umask(umask_value);
 #endif
@@ -318,6 +312,12 @@ int main(int argc, char **argv)
 		}
 	} else if (!rs_silent) puts("Rserve started in non-daemon mode.");
 #endif
+
+#if defined RSERV_DEBUG || defined Win32
+    printf("Rserve: Ok, ready to answer queries.\n");
+#endif
+
+	RSsrv_init();
 
 	setup_signal_handlers();
 
