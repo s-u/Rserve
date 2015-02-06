@@ -25,9 +25,11 @@ Rserve.eval(what, where = .GlobalEnv, last.value = FALSE, exp.value = FALSE)
     it will only store the index of the expression in \code{what}.}
 }
 \details{
-  If \code{what} contains more than one expression, they are evaluated
+  If \code{what} contains one or more expressions, they are evaluated
   one by one while printing the result of each if visible. Upon error
-  subsequent expressions are not evaluated.
+  subsequent expressions are not evaluated. If \code{what} is not an
+  expression then the only a single evaluation of \code{what} is
+  performed and the result is not printed.
 
   The main purpose of this function is to implement console front-ends
   where the front-end uses \code{parse()} + \code{Rserve.eval()} to
@@ -45,8 +47,8 @@ Rserve.eval(what, where = .GlobalEnv, last.value = FALSE, exp.value = FALSE)
   (\code{exp.value=FALSE}) or the actual expression (otherwise).}
 
   If the evaluation finished without an error then the result is either
-  \code{TRUE} if \code{last.value=FALSE} or a named list with one
-  element \code{result} containing the last value.
+  \code{TRUE} if \code{last.value=FALSE} or the value of the last
+  expression otherwise.
 }
 %\references{
 %}
@@ -58,6 +60,6 @@ Rserve.eval(what, where = .GlobalEnv, last.value = FALSE, exp.value = FALSE)
   f <- function() g()
   (Rserve.eval(expression(f())))
   (Rserve.eval(parse(text="1:5\n1+1")))
-  (Rserve.eval(expression(1+1), last.value=TRUE))
+  (Rserve.eval(quote(1+1), last.value=TRUE))
 }
 \keyword{manip}
