@@ -18,6 +18,8 @@
 	exit code can be used to detect if Rserve has actually
 	started successfully
 
+    o   add Rserve.eval() function to perfrom REPL-like evaluation
+
     o	add a new config option to close all stdio file descriptors
 	(stdin, stdout, stderr) on daemonization:
 

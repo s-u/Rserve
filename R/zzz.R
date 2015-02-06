@@ -3,7 +3,7 @@
 ## into an embedded Rserve instance
 
 .register <- c("Rserve_ctrlEval", "Rserve_ctrlSource",
-	       "Rserve_oobSend", "Rserve_oobMsg", "Rserve_ulog",
+	       "Rserve_oobSend", "Rserve_oobMsg", "Rserve_ulog", "Rserve_eval",
 	       "Rserve_oc_register", "Rserve_oc_resolve", "run_Rserve")
 
 .onLoad <- function(libname, pkgname) {

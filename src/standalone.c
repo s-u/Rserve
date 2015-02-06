@@ -13,6 +13,9 @@ extern int Rf_initEmbeddedR(int, char**);
 SEXP Rserve_oc_register(SEXP what, SEXP sName);
 SEXP Rserve_oc_resolve(SEXP what);
 
+/* from utils.c */
+SEXP Rserve_eval(SEXP what, SEXP rho);
+
 static int ex(int res) {
 	RSsrv_done();
 	return res;
@@ -207,6 +210,7 @@ int main(int argc, char **argv)
 			{"Rserve_oc_register", (DL_FUNC) &Rserve_oc_register, 2},
 			{"Rserve_oc_resolve", (DL_FUNC) &Rserve_oc_resolve, 1},
 			{"Rserve_ulog", (DL_FUNC) &Rserve_ulog, 1},
+			{"Rserve_eval", (DL_FUNC) &Rserve_eval, 4},
 			{NULL, NULL, 0}
 		};
 		R_registerRoutines(R_getEmbeddingDllInfo(), 0, mainCallMethods, 0, 0);
