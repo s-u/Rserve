@@ -48,8 +48,7 @@ static SEXP Rserve_eval_do(void *arg) {
         e->exp = -1;
         x = eval(what, rho);
         R_PreserveObject(x);
-        if (R_Visible)
-            PrintValue(x);
+        /* intentionally we don't print if it is not an expression vector */
         e->last = x;
     }
     return R_NilValue;
@@ -96,13 +95,10 @@ SEXP Rserve_eval(SEXP what, SEXP rho, SEXP retLast, SEXP retExp) {
 
     if (need_last) {
         if (e.last) {
-            SEXP res = PROTECT(mkNamed(VECSXP, (const char*[]) { "result", "" }));
-            SET_VECTOR_ELT(res, 0, e.last);
             R_ReleaseObject(e.last);
-            UNPROTECT(1);
-            return res;
+            return e.last;
         }
-        return allocVector(VECSXP, 0);
+        return R_NilValue;
     }
     return ScalarLogical(TRUE);
 }
