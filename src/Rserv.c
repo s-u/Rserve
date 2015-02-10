@@ -2694,7 +2694,49 @@ static void free_qap_runtime(qap_runtime_t *rt) {
 }
 
 #ifdef R_INTERFACE_PTRS
-/* -- callbacks -- */
+
+/* -- console buffering -- */
+
+typedef struct {
+	 int pos;
+	 const char *oob;
+	 char buf[8192];
+} con_buf_t;
+
+con_buf_t con_out = { 0, "console.out" }, con_err = { 0, "console.err" };
+
+static void send_oob_str(const char *msg, const char *what, int len) {
+	SEXP s = PROTECT(allocVector(VECSXP, 2));
+	SET_VECTOR_ELT(s, 0, mkString(msg));
+	SET_VECTOR_ELT(s, 1, ScalarString(Rf_mkCharLenCE(what, len, CE_UTF8)));
+	UNPROTECT(1);
+	send_oob_sexp(OOB_SEND, s);
+}
+
+static void con_flush_output(con_buf_t *cb) {
+	if (cb->pos)
+		send_oob_str(cb->oob, cb->buf, cb->pos);
+	cb->pos = 0;
+}
+
+static void con_add_output(con_buf_t *cb, const char *what, int len) {
+	 if (len > sizeof(cb->buf)) { /* it's too big to fit anyway */
+		 con_flush_output(cb);
+		 send_oob_str(cb->oob, what, len);
+		 return;
+	 }
+	 
+	 if (cb->pos + len > sizeof(cb->buf))
+		 con_flush_output(cb);
+	 memcpy(cb->buf + cb->pos, what, len);
+	 cb->pos += len;
+	 /* is there any newline? if so, flush it */
+	 if (memchr(what, '\n', len))
+		 con_flush_output(cb);
+}
+
+/* --- actual callbacks --- */
+
 static void RS_Busy(int which) {
 }
 
@@ -2704,7 +2746,9 @@ static int RS_ReadConsole(const char *prompt, unsigned char *buf, int len, int h
 	size_t slen;
 	if (!read_console_enabled)
 		Rf_error("direct console input is disabled");
-	
+
+	con_flush_output(&con_out);
+	con_flush_output(&con_err);
 	args = PROTECT(allocVector(VECSXP, 2));
 	SET_VECTOR_ELT(args, 0, mkString("console.in"));
 	SET_VECTOR_ELT(args, 1, mkString(prompt));
@@ -2731,23 +2775,26 @@ static int RS_ReadConsole(const char *prompt, unsigned char *buf, int len, int h
 
 static void RS_ResetConsole() {
 	SEXP s = PROTECT(allocVector(VECSXP, 1));
+	con_flush_output(&con_out);
+	con_flush_output(&con_err);
 	SET_VECTOR_ELT(s, 0, mkString("console.reset"));
 	UNPROTECT(1);
 	send_oob_sexp(OOB_SEND, s);
 }
 
 static void RS_FlushConsole() {
+	con_flush_output(&con_out);
+	con_flush_output(&con_err);
 }
 
 static void RS_ClearerrConsole() {
+	con_flush_output(&con_out);
+	con_flush_output(&con_err);
 }
 
 static void RS_WriteConsoleEx(const char *buf, int len, int oType) {
-	SEXP s = PROTECT(allocVector(VECSXP, 2));
-	SET_VECTOR_ELT(s, 0, mkString(oType ? "console.err" : "console.out"));
-	SET_VECTOR_ELT(s, 1, ScalarString(Rf_mkCharLenCE(buf, len, CE_UTF8)));
-	UNPROTECT(1);
-	send_oob_sexp(OOB_SEND, s);
+	con_flush_output(oType ? (&con_out) : (&con_err)); /* flush the other console type */
+	con_add_output(oType ? (&con_err) : (&con_out), buf, len);
 }
 
 static void RS_ShowMessage(const char *buf) {
