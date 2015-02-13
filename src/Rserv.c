@@ -890,7 +890,7 @@ static void printSEXP(SEXP e) /* merely for debugging purposes
 static int localonly = 1;
 
 /* send a response including the data part */
-void Rserve_QAP1_send_resp(args_t *arg, int rsp, rlen_t len, const void *buf) {
+int Rserve_QAP1_send_resp(args_t *arg, int rsp, rlen_t len, const void *buf) {
 	server_t *srv = arg->srv;
 	struct phdr ph;
 	rlen_t i = 0;
@@ -932,14 +932,17 @@ void Rserve_QAP1_send_resp(args_t *arg, int rsp, rlen_t len, const void *buf) {
 	}
 #endif
     
-    srv->send(arg, (char*)&ph, sizeof(ph));
+    if (srv->send(arg, (char*)&ph, sizeof(ph)) < 0)
+		return -1;
 	
 	while (i < len) {
 		int rs = srv->send(arg, (char*)buf + i, (len - i > max_sio_chunk) ? max_sio_chunk : (len - i));
 		if (rs < 1)
-			break;
+			return -1;
 		i += rs;
 	}
+	
+	return 0;
 }
 
 /* initial ID string */
@@ -1924,6 +1927,7 @@ static int new_msg_id(args_t *args) {
 static char dump_buf[32768]; /* scratch buffer that is static so mem alloc doesn't fail */
 
 static int send_oob_sexp(int cmd, SEXP exp) {
+	int send_res = -1;
 	if (!self_args) Rf_error("OOB commands can only be used from code evaluated inside an Rserve client instance");
 	if (!enable_oob) Rf_error("OOB command is disallowed by the current Rserve configuration - use 'oob enable' to allow its use");
 	PROTECT(exp);
@@ -1965,13 +1969,13 @@ static int send_oob_sexp(int cmd, SEXP exp) {
 #endif
 			a->msg_id = new_msg_id(a);
 			if (compute_subprocess) cmd |= (compute_subprocess << 8);
-			sendRespData(a, cmd, tail - sendhead, sendhead);
-			ulog("OOB sent (cmd=0x%x, %d bytes)", cmd, tail-sendhead);
+			send_res = sendRespData(a, cmd, tail - sendhead, sendhead);
+			ulog("OOB sent (cmd=0x%x, %d bytes, result=%d)", cmd, tail-sendhead, send_res);
 			free(sendbuf);
 		}
 	}
 	UNPROTECT(1);
-	return 1;
+	return (send_res >= 0) ? 1 : send_res;
 }
 
 SEXP Rserve_ulog(SEXP sWhat) {
@@ -1985,15 +1989,15 @@ SEXP Rserve_oobSend(SEXP exp, SEXP code) {
 	return ScalarLogical(send_oob_sexp(OOB_USR_CODE(oob_code) | OOB_SEND, exp) == 1 ? TRUE : FALSE);
 }
 
-SEXP Rserve_oobMsg(SEXP exp, SEXP code) {
+/* internal version that can return NULL instead of throwing an error */
+static SEXP Rserve_oobMsg_(SEXP exp, SEXP code, int throw_error) {
 	struct phdr ph;
 	int oob_code = asInteger(code), n;
 	int res = send_oob_sexp(OOB_USR_CODE(oob_code) | OOB_MSG, exp);
 	args_t *a = self_args; /* send_oob_sexp has checked this already so it's ok */
 	server_t *srv = a->srv;
 	int msg_id = a->msg_id; /* remember the msg id since it may get clobered */
-	if (res != 1) /* never happens since send_oob_sexp returns only on success */
-		Rf_error("Sending OOB_MSG failed");
+	if (res != 1) { if (throw_error) Rf_error("Sending OOB_MSG failed"); else return 0; }
 
 	/* FIXME: this is very similar (but not the same) as the
 	   read loop in Rserve itself - we should modularize this
@@ -2054,9 +2058,13 @@ SEXP Rserve_oobMsg(SEXP exp, SEXP code) {
 					/* FIXME: is this ok? do we need a common close function to shutdown TLS etc.? */
 					closesocket(a->s);
 					a->s = -1;
-					Rf_error("cannot allocate buffer for OOB msg result + read error, aborting conenction");
+					if (!throw_error)
+						return 0;
+					Rf_error("cannot allocate buffer for OOB msg result + read error, aborting connection");
 				}
 				/* packet discarded so connection is ok, but it is still a mem alloc error */
+				if (!throw_error)
+					return 0;
 				Rf_error("cannot allocate buffer for OOB msg result");
 			}
 			/* ok, got the buffer, fill it */
@@ -2080,6 +2088,7 @@ SEXP Rserve_oobMsg(SEXP exp, SEXP code) {
 				a->s = -1;
 				ulog("ERROR: read error while reading OOB msg respose, aborting connection");
 				free(orb);
+				if (!throw_error) return 0;
 				Rf_error("read error while reading OOB msg respose, aborting connection");
 			}
 			a->msg_id = msg_id; /* restore msg_id */
@@ -2099,6 +2108,7 @@ SEXP Rserve_oobMsg(SEXP exp, SEXP code) {
 					while (se-- > s) if (!*se) break;
 					if (se == s && *s) {
 						free(orb);
+						if (!throw_error) return 0;
 						Rf_error("unterminated string in OOB msg response");
 					}
 					res = mkString(s);
@@ -2107,6 +2117,7 @@ SEXP Rserve_oobMsg(SEXP exp, SEXP code) {
 				}
 				if (pt != DT_SEXP) {
 					free(orb);
+					if (!throw_error) return 0;
 					Rf_error("unsupported parameter type %d in OOB msg response", PAR_TYPE(ptoi(hi[0])));
 				}
 				hi++;
@@ -2121,10 +2132,14 @@ SEXP Rserve_oobMsg(SEXP exp, SEXP code) {
 		closesocket(a->s);
 		a->s = -1;
 		ulog("ERROR: read error in OOB msg header");
+		if (!throw_error) return 0;
 		Rf_error("read error im OOB msg header");
 	}
 	return R_NilValue;
 }
+
+/* visible API version */
+SEXP Rserve_oobMsg(SEXP exp, SEXP code) { return Rserve_oobMsg_(exp, code, 1); }
 
 
 /* server forking
@@ -2641,6 +2656,7 @@ void Rserve_cleanup() {
 		rsio_free(parent_io);
 		parent_io = 0;
 	}
+	ulog("INFO: closing session");
 }
 
 /*---- this is an attempt to factor out the OCAP mode into a minimal
@@ -2752,8 +2768,10 @@ static int RS_ReadConsole(const char *prompt, unsigned char *buf, int len, int h
 	args = PROTECT(allocVector(VECSXP, 2));
 	SET_VECTOR_ELT(args, 0, mkString("console.in"));
 	SET_VECTOR_ELT(args, 1, mkString(prompt));
-	res = Rserve_oobMsg(args, ScalarInteger(0));
+	res = Rserve_oobMsg_(args, ScalarInteger(0), 0);
 	UNPROTECT(1); /* args */
+	if (!res) /* this typically means I/O issues so we better signal EOF rather than an error */
+		return -1;
 	if (TYPEOF(res) != STRSXP)
 		Rf_error("invalid console input from the client - expecting a string");
 	if (LENGTH(res) < 1)

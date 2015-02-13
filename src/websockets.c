@@ -26,7 +26,7 @@ struct args {
 };
 
 static int  WS_recv_data(args_t *arg, void *buf, rlen_t read_len);
-static void WS_send_resp(args_t *arg, int rsp, rlen_t len, const void *buf);
+static int  WS_send_resp(args_t *arg, int rsp, rlen_t len, const void *buf);
 static int  WS_send_data(args_t *arg, const void *buf, rlen_t len);
 
 /* those will eventually be in the API but for now ... */
@@ -409,7 +409,7 @@ void WS13_upgrade(args_t *arg, const char *key, const char *protocol, const char
 	Rserve_QAP1_connected(arg);
 }
 
-static void WS_send_resp(args_t *arg, int rsp, rlen_t len, const void *buf) {
+static int WS_send_resp(args_t *arg, int rsp, rlen_t len, const void *buf) {
 	unsigned char *sbuf = (unsigned char*) arg->sbuf;
 	if (arg->ver == 0) {
 		/* FIXME: we can't really tunnel QAP1 without some encoding ... */
@@ -477,13 +477,14 @@ static void WS_send_resp(args_t *arg, int rsp, rlen_t len, const void *buf) {
 #ifdef RSERV_DEBUG
 				fprintf(stderr, "WS_send_resp: write failed (%d expected, got %d)\n", send_here, n);
 #endif
-				return;
+				return -1;
 			}
 			buf = ((char*)buf) + send_here - pl;
 			len -= send_here - pl;
 			pl = 0;
 		}
 	}
+	return 0;
 }
 
 /* we use send_data only to send the ID string so we don't bother supporting frames bigger than the buffer */
