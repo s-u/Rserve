@@ -2756,6 +2756,8 @@ static void con_add_output(con_buf_t *cb, const char *what, int len) {
 static void RS_Busy(int which) {
 }
 
+static int eof_on_error;
+
 static int RS_ReadConsole(const char *prompt, unsigned char *buf, int len, int history) {
 	SEXP args, res;
 	const char *str;
@@ -2770,8 +2772,16 @@ static int RS_ReadConsole(const char *prompt, unsigned char *buf, int len, int h
 	SET_VECTOR_ELT(args, 1, mkString(prompt));
 	res = Rserve_oobMsg_(args, ScalarInteger(0), 0);
 	UNPROTECT(1); /* args */
-	if (!res) /* this typically means I/O issues so we better signal EOF rather than an error */
-		return -1;
+	if (!res) {
+		/* in order to try to break infinite loops we try both error and EOF
+		   since each of them causes a different infinite loop.
+		   EOF will cause an infinite loop for things like readLines()
+		   while error will cause an infinite loop in browser() */
+		eof_on_error = !eof_on_error;
+		if (eof_on_error)
+			return -1;
+		Rf_error("console.in OOB message failed");
+	}
 	if (TYPEOF(res) != STRSXP)
 		Rf_error("invalid console input from the client - expecting a string");
 	if (LENGTH(res) < 1)
