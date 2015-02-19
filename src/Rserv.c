@@ -1935,10 +1935,15 @@ static int send_oob_sexp(int cmd, SEXP exp) {
 		args_t *a = self_args;
 		server_t *srv = a->srv;
 		char *sendhead = 0, *sendbuf;
+		rlen_t rs;
+
+		if (!a || a->s == -1) /* if there is no connection, bail out right away */
+			return -1;
 
 		/* check buffer size vs REXP size to avoid dangerous overflows
 		   todo: resize the buffer as necessary */
-		rlen_t rs = QAP_getStorageSize(exp);
+		rs = QAP_getStorageSize(exp);
+
 		/* FIXME: add a 4k security margin - it should no longer be needed,
 		   originally the space was grown proportionally to account for a bug,
 		   but that bug has been fixed. */
