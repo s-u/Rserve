@@ -1970,7 +1970,9 @@ static int send_oob_sexp(int cmd, SEXP exp) {
 			a->msg_id = new_msg_id(a);
 			if (compute_subprocess) cmd |= (compute_subprocess << 8);
 			send_res = sendRespData(a, cmd, tail - sendhead, sendhead);
+#ifdef OOB_ULOG
 			ulog("OOB sent (cmd=0x%x, %d bytes, result=%d)", cmd, tail-sendhead, send_res);
+#endif
 			free(sendbuf);
 		}
 	}
@@ -3269,7 +3271,9 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 			while (iob_pos || plen) {
 				if (plen) {
 					rn = recv(compute_fd, compute_iobuf + iob_pos, (plen > compute_iobuf_len - iob_pos) ? (compute_iobuf_len - iob_pos) : plen, 0);
+#ifdef OOB_ULOG
 					ulog("OCAP-pass-thru: read from compute yields %d (expected %d)", rn,  (plen > compute_iobuf_len) ? compute_iobuf_len : plen);
+#endif
 					if (rn > 0) {
 						plen -= rn;
 						if (iob_pos)
@@ -3350,7 +3354,9 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 			if (oob_hdr && (cmd & CMD_OOB)) { /* we're nested in OOB and OOB has arrived - copy header and get out */
 				/* FIXME: we need a way to detect OOB MSG reposnses that need to be forwarded to compute_fd! */
 				memcpy(oob_hdr, &ph, sizeof(ph));
+#ifdef OOB_ULOG
 				ulog("OCiteration passing to OOB");
+#endif
 				return 2;
 			}
 			
@@ -3358,7 +3364,9 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 			
 			/* FIXME: we have to be quite permissive here since RserveJS can mix RESP_OK/ERR with MSG_OOB */
 			if (compute_pid && (cmd & CMD_OOB) && OOB_USR_CODE(cmd) > 0xff) { /* pass-thru OOB result */
+#ifdef OOB_ULOG
 				ulog("INFO: OOB response pass-through (cmd=0x%x, len=%ld)", cmd, (long)plen); 
+#endif
 				compute_pass_thru = 1;
 			}
 
@@ -3437,7 +3445,9 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 					sendResp(args, SET_STAT(RESP_ERR, ERR_ctrl_closed));
 					return 1;
 				}
+#ifdef OOB_ULOG
 				ulog("INFO: OOB msg passed to compute");
+#endif
 				continue;
 			}
 
