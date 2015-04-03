@@ -15,6 +15,7 @@
 #include "rserr.h"
 #include "ulog.h"
 #include "bsdcmpt.h"
+#include "chandler.h"
 
 #include <time.h>
 #include <stdio.h>
@@ -61,6 +62,17 @@ static void http_request(http_request_t *req, http_result_t *res) {
 	res->code = 404;
 	return;
     }
+
+    /* NOTE: we are currently only serving content that does exist in
+       the file system - that is actually an unnecessary restriction */
+    /* if any handler served the request, exit */
+    if (call_content_handlers(req, res, s)) {
+        free(s);
+        return;
+    }
+
+    /* FIXME: technically, the processing of regular, static files
+       should also be jsut a handler -- move the code below into one. */
 
     /* check for conditional GET */
     if (req->headers) {
@@ -563,6 +575,9 @@ static void ws_connected(args_t *arg, char *protocol) {
    of sending it.
 */
 
+/* from rscript.c */
+int R_script_handler(http_request_t *req, http_result_t *res, const char *path);
+
 static int die(const char *str) { fprintf(stderr,"\nError: %s\n\n", str); return 1; }
 
 int main(int ac, char **av) {
@@ -593,6 +608,7 @@ int main(int ac, char **av) {
     doc_root_len = strlen(doc_root);
     ulog_set_path(ulog_path);
     ulog("----------------");
+    add_content_handler(R_script_handler);
     if (http_port > 0) create_HTTP_server(http_port, HTTP_WS_UPGRADE, http_request, ws_connected);
     if (ws_port > 0) create_WS_server(ws_port, WS_PROT_QAP, ws_connected);
     ulog("WS/QAP INFO: starting server loop (http=%d, ws=%d, qap='%s', doc_root='%s'", http_port, ws_port, proxy->qap_socket_path, doc_root);

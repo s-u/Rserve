@@ -43,10 +43,21 @@ typedef struct phdr {   /* always 16 bytes */
 #define ERR_auth_failed      0x41
 #define ERR_conn_broken      0x42
 
+#define CMD_OCcall       0x00f
+#define CMD_OCinit  0x434f7352
+
 #define DT_SEXP       10
+#define DT_LARGE      64
 
 #define XT_STR           3
 #define XT_VECTOR        16
+#define XT_LIST_TAG      21
+#define XT_LANG_NOTAG    22
+#define XT_LANG_TAG      23
 #define XT_ARRAY_STR     34
+#define XT_RAW           37
+
+#define XT_LARGE         64
+#define XT_HAS_ATTR      128
 
 #endif
