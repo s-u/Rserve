@@ -400,8 +400,10 @@ void serverLoop() {
 				int ss = srv->ss;
 				int succ = 0;
 				if (server[i] && FD_ISSET(ss, &readfds)) {
-					sa = (struct args*)malloc(sizeof(struct args));
-					memset(sa, 0, sizeof(struct args));
+					/* we may not know the size of args since servers may
+					   choose to add fileds, so allocate 1k which is safe */
+					sa = (struct args*)malloc(1024);
+					memset(sa, 0, 1024);
 					al = sizeof(sa->sa);
 #ifndef WIN32
 					if (server[i]->unix_socket) {
@@ -465,6 +467,7 @@ void serverLoop() {
 						if (is_child) /* same as above */
 							exit(2);
 					}
+					free(sa);
 				} /* ready server */
 			} /* severs loop */
 		} /* select */
