@@ -298,6 +298,10 @@ static void process_request(args_t *c)
 		req.headers = headers ? headers->buf : 0;
 		req.date = c->req_date;
 		c->aux->http_handler(&req, &res);
+		if (headers) {
+			free(headers);
+			headers = 0;
+		}
 		
 		/* the result is expected to have one of the following forms:
 
