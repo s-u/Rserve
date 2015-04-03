@@ -36,20 +36,27 @@
 
 static char buf[1024];
 
+static char *doc_root = ".";
+static int   doc_root_len = 1;
+
 static void http_request(http_request_t *req, http_result_t *res) {
     FILE *f;
     char *s;
     struct stat st;
     double ts;
-    int not_modified = 0;
+    int not_modified = 0, add_slash = 0;
     const char *append_headers = 0;
 
     fprintf(stderr, "----\nINFO: request for '%s', Date: %s, headers:\n%s\n", req->url, posix2http(req->date), req->headers ? req->headers : "<NONE>");
-    s = (char*) malloc(strlen(req->url) + 8);
-    strcpy(s + 2, req->url);
-    s[0] = '.';
-    s[1] = '/';
+    /* leave room for ".gz\0" plus leading slash */
+    if (req->url[0] != '/' && doc_root_len && doc_root[doc_root_len - 1] != '/') add_slash = 1;
+    s = (char*) malloc(strlen(req->url) + doc_root_len + 8);
+    /* FIXME: if (!s) */
+    strcpy(s + doc_root_len + add_slash, req->url);
+    memcpy(s, doc_root, doc_root_len);
+    if (add_slash) s[doc_root_len] = '/';
     if (stat(s, &st) || !(f = fopen(s, "rb"))) {
+        free(s);
 	res->err = strdup("Path not found");
 	res->code = 404;
 	return;
@@ -96,9 +103,11 @@ static void http_request(http_request_t *req, http_result_t *res) {
 	    res->payload_len = 0;
 	    res->code = 500;
 	    fclose(f);
+            free(s);
 	    return;
 	}
     }
+    free(s);
 
     fclose(f);
     /* append Last-Modified: based on the served file and set no-cache */
@@ -106,7 +115,7 @@ static void http_request(http_request_t *req, http_result_t *res) {
     snprintf(buf, sizeof(buf), "Last-Modified: %s\r\nCache-control: no-cache\r\n%s",
 	     posix2http((MTIME(st) > ts) ? ts : MTIME(st)),
 	     append_headers ? append_headers : ""
-	     );
+        );
     res->headers = strdup(buf);
 }
 
@@ -571,8 +580,9 @@ int main(int ac, char **av) {
             case 'u': if (++i < ac) ulog_path = av[i]; else return die("missing path in -u <ulog-socket>"); break;
             case 'p': if (++i < ac) http_port = atoi(av[i]); else return die("missing HTTP port in -p <port>"); break;
             case 'w': if (++i < ac) ws_port = atoi(av[i]); else return die("missing WebSockets port in -w <port>"); break;
+            case 'r': if (++i < ac) doc_root = av[i]; else return die("missing path in -r <doc-root>"); break;
             case 'h': printf("\n\
- Usage: %s [-h] [-p <http-port>] [-w <ws-port>] [-s <QAP-socket>]\n     \
+ Usage: %s [-h] [-p <http-port>] [-w <ws-port>] [-s <QAP-socket>] [-r <doc-root>]\n\
 \n", av[0]);
                 return 0;
             default:
@@ -580,11 +590,12 @@ int main(int ac, char **av) {
                 return 1;
             }
     
+    doc_root_len = strlen(doc_root);
     ulog_set_path(ulog_path);
     ulog("----------------");
     if (http_port > 0) create_HTTP_server(http_port, HTTP_WS_UPGRADE, http_request, ws_connected);
     if (ws_port > 0) create_WS_server(ws_port, WS_PROT_QAP, ws_connected);
-    ulog("WS/QAP INFO: starting server loop");
+    ulog("WS/QAP INFO: starting server loop (http=%d, ws=%d, qap='%s', doc_root='%s'", http_port, ws_port, proxy->qap_socket_path, doc_root);
     serverLoop();
     return 0;
 }
