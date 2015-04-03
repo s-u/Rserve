@@ -185,6 +185,7 @@ int R_script_handler(http_request_t *req, http_result_t *res, const char *path) 
                         ulog("INFO: sending %d bytes (n = %d)", itop(oh->len) + sizeof(qap_hdr_t),
                              send(s, outp, itop(oh->len) + sizeof(qap_hdr_t), 0));
 
+#if 0
                         {
                             char qq[4096], *q = qq;
                             int i;
@@ -192,8 +193,50 @@ int R_script_handler(http_request_t *req, http_result_t *res, const char *path) 
                                 q += snprintf(q, 8, " %02x", (int) ((unsigned char*)outp)[i]);
                             ulog(qq);
                         }
+#endif
 
                         free(outp);
+                        /* ok, now we just wait for the response ... */
+
+                        if ((n = recvn(s, (char*) &hdr, sizeof(hdr))) != sizeof(hdr)) {
+                            ulog("ERROR: read error on OCcall response header (n = %d, errno: %s)", n, strerror(errno));
+                            res->err = strdup("R aborted on the request");
+                            res->code = 500;
+                            close(s);
+                            return 1;
+                        }
+                        hdr.cmd = itop(hdr.cmd);
+                        hdr.len = itop(hdr.len);
+
+                        ulog("INFO: OCcall response 0x%08x (%d bytes)", hdr.cmd, hdr.len);
+                        
+                        free(oci);
+                        oci = (char*) malloc(hdr.len + 128);
+                        if (!oci) {
+                            ulog("ERROR: out of memory when allocating buffer for OCcall response (%u bytes)", hdr.len + 128);
+                            res->err = strdup("out of memory");
+                            res->code = 500;
+                            close(s);
+                            return 1;
+                        }
+                        if ((n = recvn(s, oci, hdr.len)) != hdr.len) {
+                            free(oci);
+                            ulog("ERROR: read error in OCCall response payload (n = %d, errno: %s)", n, strerror(errno));
+                            res->err = strdup("incomplete response from R");
+                            res->code = 500;
+                            close(s);
+                            return 1;
+                        }
+
+                        {
+                            char qq[4096], *q = qq;
+                            int i;
+                            for (i = 0; i < hdr.len; i++) q += snprintf(q, 8, " %02x", (int) ((unsigned char*)oci)[i]);
+                            ulog(qq);
+                        }
+
+                        /* expect: DT_SEXP -> XT_VECTOR -> XT_ARRAY_STR ... */
+
                     }
 
                     close(s);
