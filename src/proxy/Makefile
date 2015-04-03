@@ -10,6 +10,7 @@ test: test.o http.o http_tools.o server.o tls.o websockets.o md5.o sha1.o base64
 forward: forward.o http.o http_tools.o server.o tls.o websockets.o md5.o sha1.o base64.o date.o ulog.o
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS) -lssl
 
+forward.o: forward.c http.h websockets.h server.h http_tools.h qap.h rserr.h ulog.h
 websockets.o: websockets.c websockets.h server.h md5.h sha1.h tls.h qap.h base64.c
 
 md5.c: ../md5.c

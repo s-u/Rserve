@@ -14,6 +14,7 @@
 #include "qap.h"
 #include "rserr.h"
 #include "ulog.h"
+#include "bsdcmpt.h"
 
 #include <time.h>
 #include <stdio.h>
@@ -59,7 +60,7 @@ static void http_request(http_request_t *req, http_result_t *res) {
 	const char *if_mod = get_header(req, "If-Modified-Since");
 	if (if_mod) {
 	    double since = http2posix(if_mod);
-	    if (since >= st.st_mtimespec.tv_sec) {
+	    if (since >= MTIME(st)) {
 		not_modified = 1;
 		res->code = 304;
 	    }
@@ -77,7 +78,7 @@ static void http_request(http_request_t *req, http_result_t *res) {
 		FILE *gzf;
 		strcat(s, ".gz");
 		/* .gz present and not older than the source = serve the compressed version */
-		if (!stat(s, &gzst) && gzst.st_mtimespec.tv_sec >= st.st_mtimespec.tv_sec && (gzf = fopen(s, "rb"))) {
+		if (!stat(s, &gzst) && MTIME(gzst) >= MTIME(st) && (gzf = fopen(s, "rb"))) {
 		    fclose(f);
 		    f = gzf;
 		    st = gzst;
@@ -103,7 +104,7 @@ static void http_request(http_request_t *req, http_result_t *res) {
     /* append Last-Modified: based on the served file and set no-cache */
     ts = (double) time(0);
     snprintf(buf, sizeof(buf), "Last-Modified: %s\r\nCache-control: no-cache\r\n%s",
-	     posix2http((st.st_mtimespec.tv_sec > ts) ? ts : st.st_mtimespec.tv_sec),
+	     posix2http((MTIME(st) > ts) ? ts : MTIME(st)),
 	     append_headers ? append_headers : ""
 	     );
     res->headers = strdup(buf);
@@ -553,12 +554,33 @@ static void ws_connected(args_t *arg, char *protocol) {
    of sending it.
 */
 
-int main() {
+static int die(const char *str) { fprintf(stderr,"\nError: %s\n\n", str); return 1; }
+
+int main(int ac, char **av) {
+    int http_port = 8088, ws_port = -1, i = 0;
+    const char *ulog_path = "ulog_socket";
+
     proxy = (proxy_t*) malloc(sizeof(proxy_t));
     memset(proxy, 0, sizeof(proxy_t));
     proxy->qap_socket_path = "Rserve_socket";
 
-    ulog_set_path("ulog_socket");
+    while (++i < ac)
+        if (av[i][0] == '-')
+            switch (av[i][1]) {
+            case 's': if (++i < ac) proxy->qap_socket_path = av[i]; else return die("missing path in -s <http-socket>");
+            case 'u': if (++i < ac) ulog_path = av[i]; else return die("missing path in -u <ulog-socket>");
+            case 'p': if (++i < ac) http_port = atoi(av[i]); else return die("missing HTTP port in -p <port>");
+            case 'w': if (++i < ac) ws_port = atoi(av[i]); else return die("missing WebSockets port in -w <port>");
+            case 'h': printf("\n\
+ Usage: %s [-h] [-p <http-port>] [-w <ws-port>] [-s <QAP-socket>]\n\
+\n", av[0]);
+                return 0;
+            default:
+                fprintf(stderr, "\nUnrecognized flag -%c\n", av[i][1]);
+                return 1;
+            }
+    
+    ulog_set_path(ulog_path);
     ulog("----------------");
     create_HTTP_server(8088, HTTP_WS_UPGRADE, http_request, ws_connected);
     create_WS_server(8089, WS_PROT_QAP, ws_connected);

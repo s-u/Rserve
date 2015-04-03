@@ -1,5 +1,6 @@
 #include "http.h"
 #include "websockets.h"
+#include "bsdcmpt.h"
 
 #include <time.h>
 #include <stdio.h>
@@ -62,8 +63,8 @@ static void http_request(http_request_t *req, http_result_t *res) {
 	if (if_mod) {
 	    double since = http2posix(if_mod);
 	    fprintf(stderr, "INFO: last mod comparison: %d vs %d\n",
-		    (int) since, (int) st.st_mtimespec.tv_sec);
-	    if (since >= st.st_mtimespec.tv_sec) {
+		    (int) since, (int) MTIME(st));
+	    if (since >= MTIME(st)) {
 		not_modified = 1;
 		res->code = 304;
 	    }
@@ -79,7 +80,7 @@ static void http_request(http_request_t *req, http_result_t *res) {
 		FILE *gzf;
 		strcat(s, ".gz");
 		/* .gz present and not older than the source = serve the compressed version */
-		if (!stat(s, &gzst) && gzst.st_mtimespec.tv_sec >= st.st_mtimespec.tv_sec && (gzf = fopen(s, "rb"))) {
+		if (!stat(s, &gzst) && MTIME(gzst) >= MTIME(st) && (gzf = fopen(s, "rb"))) {
 		    fclose(f);
 		    f = gzf;
 		    st = gzst;
@@ -103,7 +104,7 @@ static void http_request(http_request_t *req, http_result_t *res) {
     fclose(f);
     ts = (double) time(0);
     snprintf(buf, sizeof(buf), "Last-Modified: %s\r\nCache-control: no-cache\r\n%s",
-	     posix2http((st.st_mtimespec.tv_sec > ts) ? ts : st.st_mtimespec.tv_sec),
+	     posix2http((MTIME(st) > ts) ? ts : MTIME(st)),
 	     append_headers ? append_headers : ""
 	     );
     res->headers = strdup(buf);
