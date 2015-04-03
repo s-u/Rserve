@@ -567,12 +567,12 @@ int main(int ac, char **av) {
     while (++i < ac)
         if (av[i][0] == '-')
             switch (av[i][1]) {
-            case 's': if (++i < ac) proxy->qap_socket_path = av[i]; else return die("missing path in -s <http-socket>");
-            case 'u': if (++i < ac) ulog_path = av[i]; else return die("missing path in -u <ulog-socket>");
-            case 'p': if (++i < ac) http_port = atoi(av[i]); else return die("missing HTTP port in -p <port>");
-            case 'w': if (++i < ac) ws_port = atoi(av[i]); else return die("missing WebSockets port in -w <port>");
+            case 's': if (++i < ac) proxy->qap_socket_path = av[i]; else return die("missing path in -s <http-socket>"); break;
+            case 'u': if (++i < ac) ulog_path = av[i]; else return die("missing path in -u <ulog-socket>"); break;
+            case 'p': if (++i < ac) http_port = atoi(av[i]); else return die("missing HTTP port in -p <port>"); break;
+            case 'w': if (++i < ac) ws_port = atoi(av[i]); else return die("missing WebSockets port in -w <port>"); break;
             case 'h': printf("\n\
- Usage: %s [-h] [-p <http-port>] [-w <ws-port>] [-s <QAP-socket>]\n\
+ Usage: %s [-h] [-p <http-port>] [-w <ws-port>] [-s <QAP-socket>]\n     \
 \n", av[0]);
                 return 0;
             default:
@@ -582,9 +582,9 @@ int main(int ac, char **av) {
     
     ulog_set_path(ulog_path);
     ulog("----------------");
-    create_HTTP_server(8088, HTTP_WS_UPGRADE, http_request, ws_connected);
-    create_WS_server(8089, WS_PROT_QAP, ws_connected);
-    ulog("INFO: starting server loop");
+    if (http_port > 0) create_HTTP_server(http_port, HTTP_WS_UPGRADE, http_request, ws_connected);
+    if (ws_port > 0) create_WS_server(ws_port, WS_PROT_QAP, ws_connected);
+    ulog("WS/QAP INFO: starting server loop");
     serverLoop();
     return 0;
 }
