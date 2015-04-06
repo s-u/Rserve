@@ -68,15 +68,7 @@ static void http_request(http_request_t *req, http_result_t *res) {
     strcpy(s + doc_root_len + add_slash, req->url);
     memcpy(s, doc_root, doc_root_len);
     if (add_slash) s[doc_root_len] = '/';
-    if (stat(s, &st) || !(f = fopen(s, "rb"))) {
-        free(s);
-	res->err = strdup("Path not found");
-	res->code = 404;
-	return;
-    }
 
-    /* NOTE: we are currently only serving content that does exist in
-       the file system - that is actually an unnecessary restriction */
     /* if any handler served the request, exit */
     if (call_content_handlers(req, res, s)) {
         free(s);
@@ -85,6 +77,13 @@ static void http_request(http_request_t *req, http_result_t *res) {
 
     /* FIXME: technically, the processing of regular, static files
        should also be jsut a handler -- move the code below into one. */
+
+    if (stat(s, &st) || !(f = fopen(s, "rb"))) {
+        free(s);
+	res->err = strdup("Path not found");
+	res->code = 404;
+	return;
+    }
 
     c_type = infer_content_type(s);
 
