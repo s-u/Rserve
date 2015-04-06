@@ -467,7 +467,7 @@ void serverLoop() {
 						if (is_child) /* same as above */
 							exit(2);
 					}
-					free(sa);
+					if (!succ) free(sa);
 				} /* ready server */
 			} /* severs loop */
 		} /* select */
