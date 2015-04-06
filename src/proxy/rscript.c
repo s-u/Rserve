@@ -9,10 +9,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
+#include <stdio.h>
 
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #include <sys/time.h>
 #include <errno.h>
@@ -99,13 +101,58 @@ static long string_par_len(par_info_t *pi) {
     return (c) ? (c - pi->payload) : -1;
 }
 
+static char fs_buf[4096];
+
 int R_script_handler(http_request_t *req, http_result_t *res, const char *path) {
     int l = strlen(path), s;
+    const char *path_script = path, *path_info = 0;
+    struct stat st;
 
     /* we only serve .R scripts */
-    if (l < 2 || strcmp(path + l - 2, ".R")) return 0;
+    if (l < 2 || (strcmp(path + l - 2, ".R") && !strstr(path, ".R/"))) return 0;
 
-    ulog("INFO: serving R script '%s'", path);
+    {
+        size_t l = strlen(path);
+        FILE *f;
+
+        if (stat(path, &st)) { /* no match? try partial patch */
+            if (l < sizeof(fs_buf)) { /* also guard about too long strings */
+                char *d = fs_buf + l;
+                
+                strcpy(fs_buf, path);
+                while (d > fs_buf) {
+                    while (d > fs_buf && *d != '/') d--;
+                    if (d == fs_buf) break;
+                    *d = 0;
+                    ulog("INFO: no match, try '%s'", fs_buf);
+                    if (!stat(fs_buf, &st)) {
+                        if (st.st_mode & S_IFREG) {
+                            path_script = fs_buf;
+                            path_info = d + 1;
+                        }
+                        break;
+                    }
+                    /* restore since it will be part of path.info */
+                    *d = '/';
+                    d--;
+                }
+            }
+        }
+        /* try once again - must be a regular file*/
+        if (stat(path_script, &st) || ((st.st_mode & S_IFREG) == 0)) {
+            res->err = strdup("Path not found");
+            res->code = 404;
+            return 1;
+        }
+        
+        if (!(f = fopen(path_script, "rb"))) {
+            res->err = strdup("Cannot open script file");
+            res->code = 403;
+            return 1;
+        } else fclose(f);
+    }
+
+    ulog("INFO: serving R script '%s' (pi='%s')", path_script, path_info ? path_info : "<none>");
     
     s = socket(AF_LOCAL, SOCK_STREAM, 0);
 
@@ -291,7 +338,7 @@ int R_script_handler(http_request_t *req, http_result_t *res, const char *path) 
                         {
                             char qq[4096], *q = qq;
                             int i;
-                            for (i = 0; i < hdr.len; i++) q += snprintf(q, 8, " %02x", (int) ((unsigned char*)oci)[i]);
+                            for (i = 0; i < ((hdr.len > 256) ? 256 : hdr.len); i++) q += snprintf(q, 8, " %02x", (int) ((unsigned char*)oci)[i]);
                             ulog(qq);
                         }
 
@@ -323,29 +370,45 @@ int R_script_handler(http_request_t *req, http_result_t *res, const char *path) 
                             eoci = cp + pi.len;
                             res->payload = 0;
                             if (pi.type == XT_VECTOR) {
-                                /* FIXME: add support for named vectors that serve files */
-                                long strl;
-                                if (!(peo = parse_par(&pi, cp, eoci)) &&
-                                    (strl = string_par_len(&pi)) >= 0) {
-                                    res->payload = strdup(pi.payload);
-                                    res->payload_len = strl;
-                                    ulog("INFO: text body (%ld bytes)", strl);
+                                if (!(peo = parse_par(&pi, cp, eoci))) {
+                                    if (pi.type == XT_RAW) {
+                                        unsigned int *ptr = (unsigned int*) pi.payload, pl;
+                                        pl = itop(*ptr);
+                                        if (pl + 4 <= pi.len) {
+                                            if ((res->payload = (char*) malloc(pl))) {
+                                                res->payload_len = pl;
+                                                memcpy(res->payload, (char*) (ptr + 1), pl);
+                                                ulog("INFO: raw body (%u bytes)", pl);
+                                            }
+                                        }
+                                    } else {
+                                        long strl = string_par_len(&pi);
+                                        /* FIXME: add support for named vectors that serve files */
+                                        if (strl >= 0) {
+                                            res->payload = strdup(pi.payload);
+                                            res->payload_len = strl;
+                                            ulog("INFO: text body (%ld bytes)", strl);
+                                        }
+                                    }
                                     cp = pi.next;
-                                    if (cp < eoci && !(peo = parse_par(&pi, cp, eoci)) &&
-                                        (strl = string_par_len(&pi)) >= 0) {
-                                        res->content_type = strdup(pi.payload);
-                                        ulog("INFO: content-type: '%s'", res->content_type);
-                                        cp = pi.next;
+                                    if (res->payload) {
+                                        long strl;
                                         if (cp < eoci && !(peo = parse_par(&pi, cp, eoci)) &&
                                             (strl = string_par_len(&pi)) >= 0) {
-                                            res->headers = strdup(pi.payload);
-                                            ulog("INFO: headers: '%s'", res->headers);
-                                        } /* headers */
-                                    } /* content-type */
-                                    free(oci);
-                                    close(s);
-                                    return 1;
-                                } /* body */
+                                            res->content_type = strdup(pi.payload);
+                                            ulog("INFO: content-type: '%s'", res->content_type);
+                                            cp = pi.next;
+                                            if (cp < eoci && !(peo = parse_par(&pi, cp, eoci)) &&
+                                                (strl = string_par_len(&pi)) >= 0) {
+                                                res->headers = strdup(pi.payload);
+                                                ulog("INFO: headers: '%s'", res->headers);
+                                            } /* headers */
+                                        } /* content-type */
+                                        free(oci);
+                                        close(s);
+                                        return 1;
+                                    } /* body */
+                                }
                                 free(oci);
                                 ulog("ERROR: invalid payload (missing body in the result list, parse error %d)", peo);
                                 res->err = strdup("missing body in response list from R");
