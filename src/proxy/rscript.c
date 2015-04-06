@@ -40,6 +40,65 @@ static char *strapp(char *x, char *y) {
     return x;
 }
 
+typedef struct par_info {
+    int type, attr_type;
+    unsigned long len, attr_len;
+    const char *attr, *payload, *next;
+} par_info_t;
+
+/* parse one parameter - check consistency of lengths involved,
+   doesn't check alignment */
+static int parse_par(par_info_t *pi, const char *buf, const char *eob) {
+    const unsigned int *i = (const unsigned int*) buf;
+    pi->type = 0;
+    pi->len = 0;
+    if (eob - buf < 4) return -1; /* incomplete (nothing is valid) */
+    pi->type = PAR_TYPE(itop(*i));
+    pi->len  = PAR_LEN(itop(*(i++)));
+    pi->attr_type = 0;
+    pi->attr_len = 0;
+    pi->attr = 0;
+    if (pi->type & XT_LARGE) {
+        if (eob - buf < 8)
+            return -1;
+        pi->len |= ((unsigned long) *(i++)) << 24;
+    }
+    pi->payload = (const char*) i;
+    pi->next = pi->payload + pi->len;
+    ulog("PAR [%d, %d bytes] %d left", pi->type, (int) pi->len, (int) (eob - pi->payload));
+    if ((eob - (const char*) i) < pi->len)
+        return -2; /* truncated payload (type/len is valid) */
+    
+    /* parse the attribute and check length consistencies */
+    if (pi->type & XT_HAS_ATTR) {
+        if (pi->len < 4) return -3; /* inconsistent (attr doesn't fit) */
+        pi->attr_type = PAR_TYPE(*i);
+        pi->attr_len = PAR_LEN(*(i++));
+        if (pi->attr_type & XT_HAS_ATTR)
+            return -4; /* invalid recursive attribute */
+        if (pi->attr_type & XT_LARGE) {
+            if (pi->attr_len < 8) return -3;
+            pi->attr_len |= ((unsigned long) *(i++)) << 24;
+        }
+        if (pi->len < (pi->attr_len + ((pi->attr_type & XT_LARGE) ? 8 : 4)))
+            return -3;
+        pi->attr = (const char*) i;
+        pi->payload = pi->attr + pi->attr_len;
+        pi->attr_type &= 0x3F; /* strip LARGE/HAS_ATTR */
+    }
+    pi->type &= 0x3F; /* strip LARGE/HAS_ATTR */
+    return 0;
+}
+
+/* >= 0 (string length) if the parameter has string, -1 otherwise */
+static long string_par_len(par_info_t *pi) {
+    char *c;
+    if (pi->type != XT_ARRAY_STR && pi->len < 1)
+        return -1;
+    c = memchr(pi->payload, 0, pi->len);
+    return (c) ? (c - pi->payload) : -1;
+}
+
 int R_script_handler(http_request_t *req, http_result_t *res, const char *path) {
     int l = strlen(path), s;
 
@@ -147,7 +206,7 @@ int R_script_handler(http_request_t *req, http_result_t *res, const char *path) 
                         }
 
                         tpl = l + ocl + 36; /* DT_SEXP; XT_LANG_NOTAG; OCAP; XT_RAW; raw-len + 16-byte hdr */
-                        tpl = (tpl + 3) & (~3);
+                        tpl = (tpl + 3) & (~3); /* align */
                         ulog("l = %lu, tpl = %lu", l, tpl);
                         outp = (char*) malloc(tpl);
                         if (!outp) {
@@ -199,6 +258,7 @@ int R_script_handler(http_request_t *req, http_result_t *res, const char *path) 
                         /* ok, now we just wait for the response ... */
 
                         if ((n = recvn(s, (char*) &hdr, sizeof(hdr))) != sizeof(hdr)) {
+                            free(oci);
                             ulog("ERROR: read error on OCcall response header (n = %d, errno: %s)", n, strerror(errno));
                             res->err = strdup("R aborted on the request");
                             res->code = 500;
@@ -236,7 +296,78 @@ int R_script_handler(http_request_t *req, http_result_t *res, const char *path) 
                         }
 
                         /* expect: DT_SEXP -> XT_VECTOR -> XT_ARRAY_STR ... */
-
+                        {
+                            par_info_t pi;
+                            const char *eoci = oci + hdr.len, *cp = oci;
+                            int peo;
+                            
+                            if ((peo = parse_par(&pi, cp, eoci)) || pi.type != DT_SEXP || pi.len < 4) {
+                                free(oci);
+                                ulog("ERROR: invalid payload (at DT, parse error %d, type = %, length = %d)",
+                                     peo, pi.type, pi.len);
+                                res->err = strdup("invalid response payload from R");
+                                res->code = 500;
+                                close(s);
+                                return 1;
+                            }
+                            cp = pi.payload;
+                            if ((peo = parse_par(&pi, cp, eoci))) {
+                                free(oci);
+                                ulog("ERROR: invalid payload (at SEXP, parse error %d)",peo);
+                                res->err = strdup("invalid response payload from R");
+                                res->code = 500;
+                                close(s);
+                                return 1;
+                            }
+                            cp = pi.payload;
+                            eoci = cp + pi.len;
+                            res->payload = 0;
+                            if (pi.type == XT_VECTOR) {
+                                /* FIXME: add support for named vectors that serve files */
+                                long strl;
+                                if (!(peo = parse_par(&pi, cp, eoci)) &&
+                                    (strl = string_par_len(&pi)) >= 0) {
+                                    res->payload = strdup(pi.payload);
+                                    res->payload_len = strl;
+                                    ulog("INFO: text body (%ld bytes)", strl);
+                                    cp = pi.next;
+                                    if (cp < eoci && !(peo = parse_par(&pi, cp, eoci)) &&
+                                        (strl = string_par_len(&pi)) >= 0) {
+                                        res->content_type = strdup(pi.payload);
+                                        ulog("INFO: content-type: '%s'", res->content_type);
+                                        cp = pi.next;
+                                        if (cp < eoci && !(peo = parse_par(&pi, cp, eoci)) &&
+                                            (strl = string_par_len(&pi)) >= 0) {
+                                            res->headers = strdup(pi.payload);
+                                            ulog("INFO: headers: '%s'", res->headers);
+                                        } /* headers */
+                                    } /* content-type */
+                                    free(oci);
+                                    close(s);
+                                    return 1;
+                                } /* body */
+                                free(oci);
+                                ulog("ERROR: invalid payload (missing body in the result list, parse error %d)", peo);
+                                res->err = strdup("missing body in response list from R");
+                                res->code = 500;
+                                close(s);
+                                return 1;
+                            } else if (pi.type == XT_ARRAY_STR && string_par_len(&pi) >= 0) {
+                                res->err = strdup(pi.payload);
+                                free(oci);
+                                res->code = 500;
+                                close(s);
+                                return 1;
+                            } else {
+                                free(oci);
+                                ulog("ERROR: invalid payload (expected list[16]/string[34], got %d with %d bytes)",
+                                     pi.type, pi.len);
+                                res->err = strdup("invalid response from R - neither a vector or character result");
+                                res->code = 500;
+                                close(s);
+                                return 1;
+                            }
+                        }
                     }
 
                     close(s);
