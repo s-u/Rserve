@@ -28,5 +28,8 @@ sha1.h: ../sha1.h
 base64.c: ../base64.c
 	ln -sfn $^ $@
 
+distclean: clean
+	rm -f md5.[ch] ulog.[ch] sha1.[ch] base64.c *~
+
 clean:
 	rm -f *.o test
