@@ -2,8 +2,8 @@
 ## because it is optional in case we're loaded
 ## into an embedded Rserve instance
 
-.register <- c("Rserve_ctrlEval", "Rserve_ctrlSource",
-	       "Rserve_oobSend", "Rserve_oobMsg", "Rserve_ulog",
+.register <- c("Rserve_ctrlEval", "Rserve_ctrlSource", "Rserve_fork_compute", "Rserve_kill_compute",
+	       "Rserve_oobSend", "Rserve_oobMsg", "Rserve_ulog", "Rserve_forward_stdio", "Rserve_eval",
 	       "Rserve_oc_register", "Rserve_oc_resolve", "run_Rserve")
 
 .onLoad <- function(libname, pkgname) {

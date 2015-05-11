@@ -39,6 +39,9 @@ static const char b64map[] = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMN
 /* currently we use 21 bytes = 168 bits --> 28 bytes encoded */
 #define MAX_OC_TOKEN_LEN 31
 
+/* this is used to create multi-tier OCAPs if needed (0=no prefix, default) */
+char Rserve_oc_prefix;
+
 static void oc_new(char *dst) {
     int have_hash = 0, i;
     unsigned char hash[21];
@@ -73,6 +76,8 @@ static void oc_new(char *dst) {
 	/* the last byte is the hold-out byte -- just because SHA gives only 160 bits */
 	hash[20] = rbuf[sizeof(rbuf) - 1];
     }
+    if (Rserve_oc_prefix)
+      *(dst++) = Rserve_oc_prefix;
     for (i = 0; i < 21; i += 3) {
 	*(dst++) = b64map[hash[i] & 63];
 	*(dst++) = b64map[((hash[i] >> 6) | (hash[i + 1] << 2)) & 63];

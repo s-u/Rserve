@@ -7,5 +7,6 @@ void ulog_add(const char *format, ...);
 void ulog_end();
 void ulog(const char *format, ...);
 int ulog_enabled();
+void ulog_reset();
 
 #endif

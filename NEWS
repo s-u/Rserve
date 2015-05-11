@@ -1,7 +1,12 @@
  NEWS/Changelog for Rserve
 ---------------------------
 
-1.8-1	(under development)
+1.8-2	(under development)
+    o   fix bug in the WebSockets protocol implementation where frames
+	over 64kB from the client may be parsed incorrectly.
+
+
+1.8-1
     o	add ulog() R function to allow custom logging from R code
 
     o	add "fork here" directive which allows to spawn multiple
@@ -17,6 +22,8 @@
     o	daemonize only *after* all servers have been bound such the
 	exit code can be used to detect if Rserve has actually
 	started successfully
+
+    o   add Rserve.eval() function to perfrom REPL-like evaluation
 
     o	add a new config option to close all stdio file descriptors
 	(stdin, stdout, stderr) on daemonization:

@@ -73,5 +73,8 @@ ulog <- function(...) invisible(.Call(Rserve_ulog, paste(..., collapse="\n", sep
 ocap <- function(fun, name=deparse(substitute(fun)))
   .Call(Rserve_oc_register, fun, name)
 
+Rserve.eval <- function(what, where=.GlobalEnv, last.value=FALSE, exp.value=FALSE)
+    .Call(Rserve_eval, what, where, last.value, exp.value)
+
 resolve.ocap <- function(ocap)
   .Call(Rserve_oc_resolve, ocap)
