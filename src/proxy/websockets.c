@@ -641,7 +641,10 @@ static int  WS_recv_data(args_t *arg, void *buf, size_t read_len) {
 	}
 	/* make sure we have at least one byte in the buffer */
 	if (arg->bp == 0) {
-		int n = WS_wire_recv(arg, arg->buf, arg->bl);
+		/* don't read past the current frame in case we're in a frame ... */
+		/* FIXME: it shouldn't matter but it appears that we don't handle that case correctly */
+		int max_sz = ((arg->flags & F_INFRAME) && arg->l1) ? arg->l1 : arg->bl;
+		int n = WS_wire_recv(arg, arg->buf, max_sz);
 		if (n < 1) return n;
 		arg->bp = n;
 #ifdef RSERV_DEBUG
