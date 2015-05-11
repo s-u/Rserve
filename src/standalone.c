@@ -210,6 +210,9 @@ int main(int argc, char **argv)
 			{"Rserve_oc_register", (DL_FUNC) &Rserve_oc_register, 2},
 			{"Rserve_oc_resolve", (DL_FUNC) &Rserve_oc_resolve, 1},
 			{"Rserve_ulog", (DL_FUNC) &Rserve_ulog, 1},
+			{"Rserve_fork_compute", (DL_FUNC) &Rserve_fork_compute, 1},
+			{"Rserve_kill_compute", (DL_FUNC) &Rserve_kill_compute, 1},
+			{"Rserve_forward_stdio", (DL_FUNC) &Rserve_forward_stdio, 0},
 			{"Rserve_eval", (DL_FUNC) &Rserve_eval, 4},
 			{NULL, NULL, 0}
 		};

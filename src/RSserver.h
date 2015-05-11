@@ -16,7 +16,7 @@
 typedef struct args args_t;
 
 typedef void (*work_fn_t)(void *par);
-typedef void (*send_fn_t)(args_t *arg, int rsp, rlen_t len, const void *buf);
+typedef int  (*send_fn_t)(args_t *arg, int rsp, rlen_t len, const void *buf);
 typedef int  (*buf_fn_t) (args_t *arg, void *buf, rlen_t len);
 typedef int  (*cbuf_fn_t) (args_t *arg, const void *buf, rlen_t len);
 typedef int  (*fork_fn_t) (args_t *arg);
