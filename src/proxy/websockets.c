@@ -641,10 +641,8 @@ static int  WS_recv_data(args_t *arg, void *buf, size_t read_len) {
 	}
 	/* make sure we have at least one byte in the buffer */
 	if (arg->bp == 0) {
-		/* don't read past the current frame in case we're in a frame ... */
-		/* FIXME: it shouldn't matter but it appears that we don't handle that case correctly */
-		int max_sz = ((arg->flags & F_INFRAME) && arg->l1) ? arg->l1 : arg->bl;
-		int n = WS_wire_recv(arg, arg->buf, max_sz);
+		/* read as much as we can with one request */
+		int n = WS_wire_recv(arg, arg->buf, arg->bl);
 		if (n < 1) return n;
 		arg->bp = n;
 #ifdef RSERV_DEBUG
@@ -664,6 +662,8 @@ static int  WS_recv_data(args_t *arg, void *buf, size_t read_len) {
 			SET_F_MASK(arg->flags, do_mask(buf, read_len, GET_MASK_ID(arg->flags), (char*)&arg->l2));
 		arg->bp -= read_len;
 		arg->l1 -= read_len;
+		if (arg->bp) /* if anything is left in the buffer, move it up */
+			memmove(arg->buf, arg->buf + read_len, arg->bp);
 		if (arg->l1 == 0) /* was that the entire frame? */
 			arg->flags ^= F_INFRAME;
 		return read_len;
@@ -735,7 +735,8 @@ static int  WS_recv_data(args_t *arg, void *buf, size_t read_len) {
 #endif
 		} else arg->flags &= ~ F_MASK;
 		
-		/* if the frame fits in the buffer (payload == len) and the read will read it all, we can deliver the whole frame */
+		/* if the frame fits in the buffer (payload == len since it has not been truncated) and
+		   read requested at least as much, we can deliver the whole frame */
 		if (payload == len && read_len >= payload) {
 #ifdef RSERV_DEBUG
 			fprintf(stderr, "INFO: WS_recv_data frame has %d bytes, requested %d, returning entire frame\n", (int) len, (int) read_len);
@@ -748,11 +749,12 @@ static int  WS_recv_data(args_t *arg, void *buf, size_t read_len) {
 			return len;
 		}
 		
-		/* left-over */
+		/* left-over - we will end up with an incompete frame - either we got an incomplete frame or
+		   less than the span of the frame was requested */
 #ifdef RSERV_DEBUG
 		fprintf(stderr, "INFO: WS_recv_data frame has %d bytes (of %ld frame), requested %d, returning partial frame\n", payload, len, (int) read_len);
 #endif
-		/* we can only read all we got */
+		/* we can only return all we got */
 		if (read_len > payload) read_len = payload;
 		memcpy(buf, arg->buf + need, read_len);
 		if (arg->bp > need + read_len) /* if there is any data beyond what we will deliver, we need to move it */
