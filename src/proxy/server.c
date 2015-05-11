@@ -9,6 +9,7 @@
 #endif
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 
 /* AF_LOCAL is the POSIX version of AF_UNIX - we need this e.g. for AIX */
 #ifndef AF_LOCAL
