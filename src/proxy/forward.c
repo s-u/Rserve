@@ -591,12 +591,14 @@ static void ws_connected(args_t *arg, char *protocol) {
 
 /* from rscript.c */
 int R_script_handler(http_request_t *req, http_result_t *res, const char *path);
+void R_script_socket(const char *s);
 
 static int die(const char *str) { fprintf(stderr,"\nError: %s\n\n", str); return 1; }
 
 int main(int ac, char **av) {
     int http_port = 8088, ws_port = -1, i = 0;
     const char *ulog_path = "ulog_socket";
+    const char *scr_path = "Rscript_socket";
 
     proxy = (proxy_t*) malloc(sizeof(proxy_t));
     memset(proxy, 0, sizeof(proxy_t));
@@ -610,8 +612,9 @@ int main(int ac, char **av) {
             case 'p': if (++i < ac) http_port = atoi(av[i]); else return die("missing HTTP port in -p <port>"); break;
             case 'w': if (++i < ac) ws_port = atoi(av[i]); else return die("missing WebSockets port in -w <port>"); break;
             case 'r': if (++i < ac) doc_root = av[i]; else return die("missing path in -r <doc-root>"); break;
+            case 'R': if (++i < ac) scr_path = av[i]; else return die("missing path in -R <Rscript-socket>"); break;
             case 'h': printf("\n\
- Usage: %s [-h] [-p <http-port>] [-w <ws-port>] [-s <QAP-socket>] [-r <doc-root>]\n\
+ Usage: %s [-h] [-p <http-port>] [-w <ws-port>] [-s <QAP-socket>] [-R <Rscript-socket>] [-r <doc-root>]\n\
 \n", av[0]);
                 return 0;
             default:
@@ -622,10 +625,11 @@ int main(int ac, char **av) {
     doc_root_len = strlen(doc_root);
     ulog_set_path(ulog_path);
     ulog("----------------");
+    R_script_socket(scr_path);
     add_content_handler(R_script_handler);
     if (http_port > 0) create_HTTP_server(http_port, HTTP_WS_UPGRADE, http_request, ws_connected);
     if (ws_port > 0) create_WS_server(ws_port, WS_PROT_QAP, ws_connected);
-    ulog("WS/QAP INFO: starting server loop (http=%d, ws=%d, qap='%s', doc_root='%s'", http_port, ws_port, proxy->qap_socket_path, doc_root);
+    ulog("WS/QAP INFO: starting server loop (http=%d, ws=%d, qap='%s', rscript='%s', doc_root='%s'", http_port, ws_port, proxy->qap_socket_path, scr_path, doc_root);
     serverLoop();
     return 0;
 }

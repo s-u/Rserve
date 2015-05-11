@@ -19,7 +19,12 @@
 #include <sys/time.h>
 #include <errno.h>
 
-static const char *scr_socket = "/data/rcloud/run/Rscripts";
+
+static char *scr_socket = "Rscript_socket";
+
+void R_script_socket(const char*s) {
+    scr_socket = strdup(s);
+}
 
 static int recvn(int s, char *buf, int len) {
     int i = 0;
