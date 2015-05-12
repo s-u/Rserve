@@ -49,6 +49,8 @@ int main(int argc, char **argv)
 		fprintf(stderr, "FATAL ERROR: This program was not correctly compiled - the endianess is wrong!\nUse -DSWAPEND when compiling on PPC or similar platforms.\n");
 		return -100;
     }
+
+	ulog_set_app_name("Rserve");
     
     loadConfig(CONFIG_FILE);
     

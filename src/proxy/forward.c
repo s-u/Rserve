@@ -600,6 +600,7 @@ int main(int ac, char **av) {
     const char *ulog_path = "ulog_socket";
     const char *scr_path = "Rscript_socket";
 
+    ulog_set_app_name("forward");
     proxy = (proxy_t*) malloc(sizeof(proxy_t));
     memset(proxy, 0, sizeof(proxy_t));
     proxy->qap_socket_path = "Rserve_socket";
