@@ -1,5 +1,6 @@
 #include "tls.h"
 #include "http.h"
+#include "ulog.h"
 #include "websockets.h" /* for connection upgrade */
 #include <string.h>
 #include <stdio.h>
@@ -260,6 +261,26 @@ static void free_res(http_result_t* res) {
 	if (res->headers) free(res->headers);
 }
 
+/* -- logging -- */
+
+static char wlbuf[256];
+
+static void web_log(http_request_t *req, http_result_t *res) {
+	const char *c = req->headers ? strstr(req->headers, "X-Real-IP:") : "";
+	if (c) {
+		const char *d;
+		c += 10;
+		while (*c == '\t' || *c == ' ') c++;
+		d = c;
+		while (*d && *d > ' ') d++;
+		if (d - c > 64) d = c + 64;
+		memcpy(wlbuf, c, d - c);
+		wlbuf[d - c] = 0;
+	} else /* FIXME: supply actual IP from the connection? */
+		*wlbuf = 0;
+	ulog("HTTP %d\t%s\t%d\t%ld\t%s\t%s", res->code ? res->code : 200, wlbuf, res->payload_type, (long) res->payload_len, req->url, res->err ? res->err : "");
+}
+
 /* -- from date.c -- */
 
 char  *posix2http(double ts); /* Note: returned buffer is static */
@@ -298,6 +319,7 @@ static void process_request(args_t *c)
 		req.headers = headers ? headers->buf : 0;
 		req.date = c->req_date;
 		c->aux->http_handler(&req, &res);
+		web_log(&req, &res);
 		if (headers) {
 			free(headers);
 			headers = 0;
