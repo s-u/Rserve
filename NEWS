@@ -1,8 +1,19 @@
  NEWS/Changelog for Rserve
 ---------------------------
 
-1.8-2	(under development)
-    o   fix bug in the WebSockets protocol implementation where frames
+1.8-3   (under development)
+    o	add support for the notion of a context object whcih can be
+	retrieved/set using Rserve.context() function. It is passed
+	as-is in OOB console callbacks as an extra argument.
+
+	Rserve.eval() can also safely set a context object for the
+	duration of the evaluation which guarantees that any
+	previous context is restored upon exit - both on error or
+	success.
+
+
+1.8-2
+    o	fix bug in the WebSockets protocol implementation where frames
 	over 64kB from the client may be parsed incorrectly.
 
 

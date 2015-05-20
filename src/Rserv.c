@@ -2718,6 +2718,9 @@ static void free_qap_runtime(qap_runtime_t *rt) {
 
 #ifdef R_INTERFACE_PTRS
 
+/* from utils.c */
+SEXP Rserve_get_context();
+
 /* -- console buffering -- */
 
 typedef struct {
@@ -2729,9 +2732,10 @@ typedef struct {
 con_buf_t con_out = { 0, "console.out" }, con_err = { 0, "console.err" };
 
 static void send_oob_str(const char *msg, const char *what, int len) {
-	SEXP s = PROTECT(allocVector(VECSXP, 2));
+	SEXP s = PROTECT(allocVector(VECSXP, 3));
 	SET_VECTOR_ELT(s, 0, mkString(msg));
 	SET_VECTOR_ELT(s, 1, ScalarString(Rf_mkCharLenCE(what, len, CE_UTF8)));
+	SET_VECTOR_ELT(s, 2, Rserve_get_context());
 	UNPROTECT(1);
 	send_oob_sexp(OOB_SEND, s);
 }
@@ -2774,9 +2778,10 @@ static int RS_ReadConsole(const char *prompt, unsigned char *buf, int len, int h
 
 	con_flush_output(&con_out);
 	con_flush_output(&con_err);
-	args = PROTECT(allocVector(VECSXP, 2));
+	args = PROTECT(allocVector(VECSXP, 3));
 	SET_VECTOR_ELT(args, 0, mkString("console.in"));
 	SET_VECTOR_ELT(args, 1, mkString(prompt));
+	SET_VECTOR_ELT(args, 2, Rserve_get_context());
 	res = Rserve_oobMsg_(args, ScalarInteger(0), 0);
 	UNPROTECT(1); /* args */
 	if (!res) {
@@ -2809,10 +2814,11 @@ static int RS_ReadConsole(const char *prompt, unsigned char *buf, int len, int h
 }
 
 static void RS_ResetConsole() {
-	SEXP s = PROTECT(allocVector(VECSXP, 1));
+	SEXP s = PROTECT(allocVector(VECSXP, 2));
 	con_flush_output(&con_out);
 	con_flush_output(&con_err);
 	SET_VECTOR_ELT(s, 0, mkString("console.reset"));
+	SET_VECTOR_ELT(s, 1, Rserve_get_context());
 	UNPROTECT(1);
 	send_oob_sexp(OOB_SEND, s);
 }
@@ -2833,9 +2839,10 @@ static void RS_WriteConsoleEx(const char *buf, int len, int oType) {
 }
 
 static void RS_ShowMessage(const char *buf) {
-	SEXP s = PROTECT(allocVector(VECSXP, 2));
+	SEXP s = PROTECT(allocVector(VECSXP, 3));
 	SET_VECTOR_ELT(s, 0, mkString("console.msg"));
 	SET_VECTOR_ELT(s, 1, ScalarString(Rf_mkCharCE(buf, CE_UTF8)));
+	SET_VECTOR_ELT(s, 2, Rserve_get_context());
 	UNPROTECT(1);
 	send_oob_sexp(OOB_SEND, s);
 }
