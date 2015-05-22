@@ -118,7 +118,7 @@ SEXP Rserve_eval(SEXP what, SEXP rho, SEXP retLast, SEXP retExp, SEXP ctxObj) {
             SET_VECTOR_ELT(res, 2, (e.exp == -1) ? what : VECTOR_ELT(what, e.exp));
         else
             SET_VECTOR_ELT(res, 2, ScalarInteger(e.exp < 0 ? NA_INTEGER : (e.exp + 1)));
-        SET_VECTOR_ELT(res, 3, e.ctx_obj);
+        SET_VECTOR_ELT(res, 3, e.ctx_obj ? e.ctx_obj : R_NilValue);
         setAttrib(res, R_ClassSymbol, mkString("Rserve-eval-error"));
         UNPROTECT(1);
         return res;
