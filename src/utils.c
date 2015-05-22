@@ -72,7 +72,6 @@ static void Rserve_eval_cleanup(void *arg) {
 }
 
 static void Rserve_eval_(void *arg) {
-    rs_eval_t *e = (rs_eval_t*) arg;
     R_ExecWithCleanup(Rserve_eval_do, arg, Rserve_eval_cleanup, arg);
 }
 
@@ -86,7 +85,7 @@ SEXP Rserve_get_context() {
 SEXP Rserve_set_context(SEXP sObj) {
     if (!sObj)
         sObj = R_NilValue;
-    if (RS_current_context == sObj) return;
+    if (RS_current_context == sObj) return sObj;
     if (RS_current_context != R_NilValue && RS_current_context_is_protected)
         R_ReleaseObject(RS_current_context);
     RS_current_context = sObj;
