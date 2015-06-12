@@ -50,11 +50,13 @@
 #   grateful for the helpful feedback of numerous users.
 #
 #   Updated for Autoconf 2.68 by Daniel Richard G.
+#   Updated to work around issues in RedHat by Simon Urbanek
 #
 # LICENSE
 #
 #   Copyright (c) 2008 Steven G. Johnson <stevenj@alum.mit.edu>
 #   Copyright (c) 2011 Daniel Richard G. <skunk@iSKUNK.ORG>
+#   Copyright (c) 2015 Simon Urbanek <simon.urbanek@R-project.org>
 #
 #   This program is free software: you can redistribute it and/or modify it
 #   under the terms of the GNU General Public License as published by the
@@ -218,10 +220,15 @@ for flag in $ax_pthread_flags; do
         # pthread_cleanup_push because it is one of the few pthread
         # functions on Solaris that doesn't have a non-functional libc stub.
         # We try pthread_create on general principles.
+        # NOTE: RedHat is broken and requires an explicit
+        # inclusion of pthread_atfork in the test otherwise it
+        # will appear to work without -pthread even though it doesn't.
         AC_LINK_IFELSE([AC_LANG_PROGRAM([#include <pthread.h>
                         static void routine(void *a) { a = 0; }
+                        static void atfork_null() { }
                         static void *start_routine(void *a) { return a; }],
                        [pthread_t th; pthread_attr_t attr;
+                        pthread_atfork(atfork_null, atfork_null, atfork_null);
                         pthread_create(&th, 0, start_routine, 0);
                         pthread_join(th, 0);
                         pthread_attr_init(&attr);
