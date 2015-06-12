@@ -323,7 +323,7 @@ static int allowIO = 1;  /* 1=allow I/O commands, 0=don't */
 static char *workdir = "/tmp/Rserv";
 static int   wd_mode = 0755, wdt_mode = 0755;
 static char *pwdfile = 0;
-static int   wipe_workdir = 0; /* if set acts as rm -rf otherwise jsut rmdir */
+static int   wipe_workdir = 0; /* if set acts as rm -rf otherwise just rmdir */
 
 static SOCKET csock = -1;
 
