@@ -23,7 +23,7 @@ extern Rboolean R_Visible;
    what can you do ... */
 
 typedef struct rs_eval {
-    SEXP what, rho, last, traceback;
+    SEXP what, rho, ctx_obj, last, traceback;
     int exp;
 } rs_eval_t;
 
@@ -72,15 +72,45 @@ static void Rserve_eval_cleanup(void *arg) {
 }
 
 static void Rserve_eval_(void *arg) {
-    rs_eval_t *e = (rs_eval_t*) arg;
     R_ExecWithCleanup(Rserve_eval_do, arg, Rserve_eval_cleanup, arg);
 }
 
-SEXP Rserve_eval(SEXP what, SEXP rho, SEXP retLast, SEXP retExp) {
+static SEXP RS_current_context;
+static int  RS_current_context_is_protected;
+
+SEXP Rserve_get_context() {
+    return RS_current_context ? RS_current_context : R_NilValue;
+}
+
+SEXP Rserve_set_context(SEXP sObj) {
+    if (!sObj)
+        sObj = R_NilValue;
+    if (RS_current_context == sObj) return sObj;
+    if (RS_current_context != R_NilValue && RS_current_context_is_protected)
+        R_ReleaseObject(RS_current_context);
+    RS_current_context = sObj;
+    RS_current_context_is_protected = 0;
+    if (RS_current_context != R_NilValue) {
+        R_PreserveObject(RS_current_context);
+        RS_current_context_is_protected = 1;
+    }
+    return RS_current_context;
+}
+
+SEXP Rserve_eval(SEXP what, SEXP rho, SEXP retLast, SEXP retExp, SEXP ctxObj) {
     int need_last = asInteger(retLast), exp_value = asInteger(retExp);
-    rs_eval_t e = { what, rho, 0, 0, 0 };
+    rs_eval_t e = { what, rho, 0, 0, 0, 0 };
+    SEXP saved_context = RS_current_context;
+    int  saved_context_is_protected = RS_current_context_is_protected;
+    if (ctxObj != R_NilValue) {
+        RS_current_context = ctxObj; /* this is transient so no protection */
+        RS_current_context_is_protected = 0;
+    }
+    e.ctx_obj = RS_current_context;
     if (!R_ToplevelExec(Rserve_eval_, &e)) {
-        SEXP res = PROTECT(mkNamed(VECSXP, (const char*[]) { "error", "traceback", "expression", "" }));
+        RS_current_context = saved_context;
+        RS_current_context_is_protected = saved_context_is_protected;
+        SEXP res = PROTECT(mkNamed(VECSXP, (const char*[]) { "error", "traceback", "expression", "context", "" }));
         SET_VECTOR_ELT(res, 1, e.traceback ? e.traceback : R_NilValue);
         const char *errmsg = R_curErrorBuf();
         SET_VECTOR_ELT(res, 0, errmsg ? mkString(errmsg) : R_NilValue);
@@ -88,10 +118,13 @@ SEXP Rserve_eval(SEXP what, SEXP rho, SEXP retLast, SEXP retExp) {
             SET_VECTOR_ELT(res, 2, (e.exp == -1) ? what : VECTOR_ELT(what, e.exp));
         else
             SET_VECTOR_ELT(res, 2, ScalarInteger(e.exp < 0 ? NA_INTEGER : (e.exp + 1)));
+        SET_VECTOR_ELT(res, 3, e.ctx_obj ? e.ctx_obj : R_NilValue);
         setAttrib(res, R_ClassSymbol, mkString("Rserve-eval-error"));
         UNPROTECT(1);
         return res;
     }
+    RS_current_context = saved_context;
+    RS_current_context_is_protected = saved_context_is_protected;
 
     if (need_last) {
         if (e.last) {

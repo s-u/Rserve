@@ -1,1 +1,2 @@
-export(Rserve, self.ctrlEval, self.ctrlSource, self.oobSend, self.oobMessage, run.Rserve, ocap, Rserve.eval, resolve.ocap, ulog)
+export(Rserve, self.ctrlEval, self.ctrlSource, self.oobSend, self.oobMessage, run.Rserve, ocap,
+       Rserve.eval, Rserve.context, resolve.ocap, ulog)

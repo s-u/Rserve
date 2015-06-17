@@ -11,7 +11,8 @@
   stack trace.
 }
 \usage{
-Rserve.eval(what, where = .GlobalEnv, last.value = FALSE, exp.value = FALSE)
+Rserve.eval(what, where = .GlobalEnv, last.value = FALSE, exp.value = FALSE,
+            context = NULL)
 }
 %- maybe also 'usage' for other objects documented here.
 \arguments{
@@ -23,6 +24,8 @@ Rserve.eval(what, where = .GlobalEnv, last.value = FALSE, exp.value = FALSE)
   \item{exp.value}{logical, it \code{TRUE} then an error object will
     include the actual expression that triggered the error, otherwise
     it will only store the index of the expression in \code{what}.}
+  \item{context}{optional object that will be used as the context
+    for the duration of the evaluation.}
 }
 \details{
   If \code{what} contains one or more expressions, they are evaluated
