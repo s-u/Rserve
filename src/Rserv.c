@@ -1,6 +1,6 @@
 /*
  *  Rserv : R-server that allows to use embedded R via TCP/IP
- *  Copyright (C) 2002-13 Simon Urbanek
+ *  Copyright (C) 2002-15 Simon Urbanek
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -351,7 +351,8 @@ static int close_all_io = 0; /* if enabled all I/O is re-directed to /dev/null
 								upon daemonization */
 
 static int oob_allowed = 0; /* this flag is set once handshake is done such that OOB messages are permitted */
-
+static int oob_context_prefix = 0; /* if set, context is prepended in OOB
+									  messages sent by Rserve itself */
 #ifdef DAEMON
 int daemonize = 1;
 #endif
@@ -1146,6 +1147,10 @@ static int setConfig(const char *c, const char *p) {
 	}
 	if (!strcmp(c, "forward.stdio")) {
 		forward_std = conf_is_true(p);
+		return 1;
+	}
+	if (!strcmp(c, "io.use.context")) {
+		oob_context_prefix = conf_is_true(p);
 		return 1;
 	}
 	if (!strcmp(c, "ulog")) {
@@ -2732,10 +2737,12 @@ typedef struct {
 con_buf_t con_out = { 0, "console.out" }, con_err = { 0, "console.err" };
 
 static void send_oob_str(const char *msg, const char *what, int len) {
-	SEXP s = PROTECT(allocVector(VECSXP, 3));
+	int has_ctx = oob_context_prefix ? 1 : 0;
+	SEXP s = PROTECT(allocVector(VECSXP, 2 + has_ctx));
 	SET_VECTOR_ELT(s, 0, mkString(msg));
-	SET_VECTOR_ELT(s, 1, ScalarString(Rf_mkCharLenCE(what, len, CE_UTF8)));
-	SET_VECTOR_ELT(s, 2, Rserve_get_context());
+	if (has_ctx)
+		SET_VECTOR_ELT(s, 1, Rserve_get_context());
+	SET_VECTOR_ELT(s, 1 + has_ctx, ScalarString(Rf_mkCharLenCE(what, len, CE_UTF8)));
 	UNPROTECT(1);
 	send_oob_sexp(OOB_SEND, s);
 }
@@ -2773,15 +2780,17 @@ static int RS_ReadConsole(const char *prompt, unsigned char *buf, int len, int h
 	SEXP args, res;
 	const char *str;
 	size_t slen;
+	int has_ctx = oob_context_prefix ? 1 : 0;
 	if (!read_console_enabled)
 		Rf_error("direct console input is disabled");
 
 	con_flush_output(&con_out);
 	con_flush_output(&con_err);
-	args = PROTECT(allocVector(VECSXP, 3));
+	args = PROTECT(allocVector(VECSXP, 2 + has_ctx));
 	SET_VECTOR_ELT(args, 0, mkString("console.in"));
-	SET_VECTOR_ELT(args, 1, mkString(prompt));
-	SET_VECTOR_ELT(args, 2, Rserve_get_context());
+	if (has_ctx)
+		SET_VECTOR_ELT(args, 1, Rserve_get_context());
+	SET_VECTOR_ELT(args, 1 + has_ctx, mkString(prompt));
 	res = Rserve_oobMsg_(args, ScalarInteger(0), 0);
 	UNPROTECT(1); /* args */
 	if (!res) {
@@ -2839,10 +2848,12 @@ static void RS_WriteConsoleEx(const char *buf, int len, int oType) {
 }
 
 static void RS_ShowMessage(const char *buf) {
-	SEXP s = PROTECT(allocVector(VECSXP, 3));
+	int has_ctx = oob_context_prefix ? 1 : 0;
+	SEXP s = PROTECT(allocVector(VECSXP, 2 + has_ctx));
 	SET_VECTOR_ELT(s, 0, mkString("console.msg"));
-	SET_VECTOR_ELT(s, 1, ScalarString(Rf_mkCharCE(buf, CE_UTF8)));
-	SET_VECTOR_ELT(s, 2, Rserve_get_context());
+	if (has_ctx)
+		SET_VECTOR_ELT(s, 1, Rserve_get_context());
+	SET_VECTOR_ELT(s, 1 + has_ctx, ScalarString(Rf_mkCharCE(buf, CE_UTF8)));
 	UNPROTECT(1);
 	send_oob_sexp(OOB_SEND, s);
 }
@@ -2942,7 +2953,7 @@ void Rserve_OCAP_connected(void *thp) {
 		PROTECT(oc);
 
 		/* enable I/O forwarding only *after* oc.init to make forking easier (no threads to deal with) */
-		if (forward_std && enable_oob)
+		if (forward_std && enable_oob) {
 			if (!(std_fw_fd = ioc_setup()))
 				ulog("WARNING: failed to setup stdio forwarding");
 #ifdef unix
@@ -2951,6 +2962,7 @@ void Rserve_OCAP_connected(void *thp) {
 			else
 				addInputHandler(R_InputHandlers, std_fw_fd, &std_fw_input_handler, 9);
 #endif
+		}
 
 		rs = QAP_getStorageSize(oc);
 #ifdef RSERV_DEBUG

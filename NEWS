@@ -2,9 +2,14 @@
 ---------------------------
 
 1.8-3   (under development)
-    o	add support for the notion of a context object whcih can be
-	retrieved/set using Rserve.context() function. It is passed
-	as-is in OOB console callbacks as an extra argument.
+    o	add support for the notion of a context object which can be
+	retrieved/set using Rserve.context() function. If
+
+	   io.use.context yes
+
+	configuration option is set then the context is passed
+	as-is in OOB console callbacks as the first argument after
+	the callback name.
 
 	Rserve.eval() can also safely set a context object for the
 	duration of the evaluation which guarantees that any
