@@ -113,10 +113,12 @@ int R_script_handler(http_request_t *req, http_result_t *res, const char *path) 
     const char *path_script = path, *path_info = 0;
     struct stat st;
 
-    /* we only serve .R scripts */
-    if (l < 2 || (strcmp(path + l - 2, ".R") && !strstr(path, ".R/"))) return 0;
+    if (!req || !req->url) return 0; /* this should never happen, but to avoid crashes... */
+    /* /library/ and /doc/ are special since they refer to R documentation */
+    if (strncmp(req->url, "/library/", 9) && strncmp(req->url, "/doc/", 5)) {
+        /* we only serve .R scripts */
+        if (l < 2 || (strcmp(path + l - 2, ".R") && !strstr(path, ".R/"))) return 0;
 
-    {
         size_t l = strlen(path);
         FILE *f;
 
@@ -145,7 +147,7 @@ int R_script_handler(http_request_t *req, http_result_t *res, const char *path) 
         }
         /* try once again - must be a regular file*/
         if (stat(path_script, &st) || ((st.st_mode & S_IFREG) == 0)) {
-            res->err = strdup("Path not found");
+            res->err = strdup("Path not found (R script)");
             res->code = 404;
             return 1;
         }
