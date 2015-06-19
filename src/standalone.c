@@ -15,6 +15,7 @@ SEXP Rserve_oc_resolve(SEXP what);
 
 /* from utils.c */
 SEXP Rserve_eval(SEXP what, SEXP rho);
+SEXP Rserve_set_context(SEXP what);
 
 static int ex(int res) {
 	RSsrv_done();
@@ -214,6 +215,8 @@ int main(int argc, char **argv)
 			{"Rserve_kill_compute", (DL_FUNC) &Rserve_kill_compute, 1},
 			{"Rserve_forward_stdio", (DL_FUNC) &Rserve_forward_stdio, 0},
 			{"Rserve_eval", (DL_FUNC) &Rserve_eval, 4},
+			{"Rserve_get_context", (DL_FUNC) &Rserve_get_context, 0},
+			{"Rserve_set_context", (DL_FUNC) &Rserve_set_context, 1},
 			{NULL, NULL, 0}
 		};
 		R_registerRoutines(R_getEmbeddingDllInfo(), 0, mainCallMethods, 0, 0);
