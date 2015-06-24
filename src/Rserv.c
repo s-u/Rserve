@@ -4203,7 +4203,7 @@ void Rserve_QAP1_connected(void *thp) {
 			}
 		}
 
-		if (ph.cmd==CMD_openFile||ph.cmd==CMD_createFile) {
+		if (ph.cmd==CMD_openFile||ph.cmd==CMD_createFile||ph.cmd==CMD_appendFile) {
 			process=1;
 			if (!allowIO) sendResp(a, SET_STAT(RESP_ERR,ERR_accessDenied));
 			else {
@@ -4213,9 +4213,9 @@ void Rserve_QAP1_connected(void *thp) {
 					c=(char*)(parP[0]);
 					if (cf) fclose(cf);
 #ifdef RSERV_DEBUG
-					printf(">>CMD_open/createFile(%s)\n",c);
+					printf(">>CMD_open/create/appendFile(%s)\n",c);
 #endif
-					cf=fopen(c,(ph.cmd==CMD_openFile)?"rb":"wb");
+					cf=fopen(c,(ph.cmd==CMD_appendFile)?"ab":((ph.cmd==CMD_openFile)?"rb":"wb"));
 					if (!cf)
 						sendResp(a, SET_STAT(RESP_ERR, ERR_IOerror));
 					else

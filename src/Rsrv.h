@@ -222,6 +222,7 @@ struct phdr {   /* always 16 bytes */
 				  it uses the size of its static buffer */
 #define CMD_writeFile    0x014 /* data : - */
 #define CMD_removeFile   0x015 /* fn : - */
+#define CMD_appendFile   0x016 /* fn : - */
 
 /* object manipulation */
 #define CMD_setSEXP      0x020 /* string(name), REXP : - */
