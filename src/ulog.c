@@ -62,7 +62,9 @@ static char hn[512];
 static char buf[4096];
 static char ts[64];
 static unsigned int buf_pos;
+#ifdef ULOG_MICROTIME
 static double time0, timeN;
+#endif
 static char *app_name = "unknown";
 
 static char *sstrdup(const char *s, const char *dflt) {
