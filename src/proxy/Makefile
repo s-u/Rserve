@@ -2,7 +2,7 @@
 ## for example, on OS X you might use
 ## make clean && make CC=clang 'CFLAGS=-Wall -Wno-deprecated-declarations -g' 'CPPFLAGS=-DFORKED -DRSERV_DEBUG' -j8
 
-all: forward test
+all: forward
 
 test: test.o http.o http_tools.o server.o tls.o websockets.o md5.o sha1.o base64.o date.o
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS) -lssl

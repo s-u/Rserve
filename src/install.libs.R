@@ -1,7 +1,7 @@
 libarch <- if (nzchar(R_ARCH)) paste("libs", R_ARCH, sep='') else "libs"
 dest <- file.path(R_PACKAGE_DIR, libarch)
 ## the last two on unix are for compatibility only
-files <- if (WINDOWS) c("Rserve.exe", "Rserve_d.exe") else c("Rserve","Rserve.dbg")
+files <- if (WINDOWS) c("Rserve.exe", "Rserve_d.exe", "forward.exe") else c("Rserve","Rserve.dbg","forward")
 files <- c(files, paste("Rserve",SHLIB_EXT,sep=''))
 ## all files are optional in case the package is built without the server
 files <- files[file.exists(files)]

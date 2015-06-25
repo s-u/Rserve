@@ -18,6 +18,10 @@ AC_ARG_WITH([client],
 	AS_HELP_STRING(--with-client,[compile additional C/C++ Rserve client (default is @<:@no@:>@). The client can be always compiled manually regardless of this setting.]),
 	[with_client=$withval], [with_client=no])
 
+AC_ARG_WITH([proxy],
+	AS_HELP_STRING(--with-proxy,[compile WebSockets/QAP proxy (default is @<:@yes@:>@).]),
+	[with_proxy=$withval], [with_proxy=yes])
+
 AC_ARG_ENABLE([ipv6],
 [AC_HELP_STRING([--enable-ipv6],
 		[enable the use of IPv6 protocol. @<:@no@:>@])],
@@ -66,6 +70,7 @@ fi
 
 AM_CONDITIONAL(WITH_SERVER, [test "x${with_server}" = xyes])
 AM_CONDITIONAL(WITH_CLIENT, [test "x${with_client}" = xyes])
+AM_CONDITIONAL(WITH_PROXY,  [test "x${with_proxy}" = xyes])
 
 CC=`${R_HOME}/bin/R CMD config CC`;
 CXX=`${R_HOME}/bin/R CMD config CXX`;
