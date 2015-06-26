@@ -230,6 +230,7 @@ else
    AC_MSG_RESULT([no])
    with_threads=no
 fi
+AC_SUBST(PTHREAD_CFLAGS)
 
 if test x"$with_threads" = xyes; then
    AC_DEFINE(WITH_THREADS, 1, [set if threads can be used])
