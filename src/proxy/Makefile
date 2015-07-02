@@ -4,9 +4,6 @@
 
 all: forward
 
-test: test.o http.o http_tools.o server.o tls.o websockets.o md5.o sha1.o base64.o date.o
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS) -lssl
-
 forward: forward.o http.o http_tools.o server.o tls.o websockets.o md5.o sha1.o base64.o date.o ulog.o chandler.o rscript.o
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS) -lssl
 
@@ -32,4 +29,4 @@ distclean: clean
 	rm -f md5.[ch] ulog.[ch] sha1.[ch] base64.c *~
 
 clean:
-	rm -f *.o test
+	rm -f *.o forward
