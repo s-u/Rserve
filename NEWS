@@ -16,6 +16,18 @@
 	previous context is restored upon exit - both on error or
 	success.
 
+    o	added WebSockets/QAP proxy and HTTP server. It is a
+	stand-alone program that can be used to separate the R process
+	from the network to enhance security. typical setup is for the
+	proxy to listen on an outside port and connect to Rserve on a
+	local (unix) socket which is restricted to the user running
+	the proxy.
+
+	It is enabled by default and installed into the package's libs
+	directory along with the Rserve binaries. It is, however, not
+	installed into $R_HOME/bin. The building of the proxy can be
+	disabled via --disable-proxy configure directive.
+
 
 1.8-2
     o	fix bug in the WebSockets protocol implementation where frames

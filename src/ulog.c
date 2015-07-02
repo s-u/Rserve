@@ -62,10 +62,24 @@ static char hn[512];
 static char buf[4096];
 static char ts[64];
 static unsigned int buf_pos;
+#ifdef ULOG_MICROTIME
 static double time0, timeN;
+#endif
+static char *app_name = "unknown";
+
+static char *sstrdup(const char *s, const char *dflt) {
+    char *c;
+    if (!s) return 0;
+    c = strdup(s);
+    return (char*) (c ? c : dflt);
+}
+
+void ulog_set_app_name(const char *name) {
+    app_name = sstrdup(name, "out-of-memory");
+}
 
 void ulog_set_path(const char *path) {
-    ulog_path = path ? strdup(path) : 0;
+    ulog_path = sstrdup(path, 0);
 }
 
 int ulog_enabled() {
@@ -129,8 +143,8 @@ void ulog_begin() {
        in textual form ... */
     /* This format is compatible with the syslog format (RFC5424)
        with hard-coded facility (3) and severity (6) */
-    snprintf(buf, sizeof(buf), "<30>1 %s %s Rserve %ld %d/%d - ", ts,
-	     hn, (long) getpid(), (int) getuid(), (int) getgid());
+    snprintf(buf, sizeof(buf), "<30>1 %s %s %s %ld %d/%d - ", ts,
+	     hn, app_name, (long) getpid(), (int) getuid(), (int) getgid());
     buf_pos = strlen(buf);
 }
 

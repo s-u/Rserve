@@ -1,0 +1,28 @@
+<html>
+<head>
+<title>HTTP/WebSockets test</title>
+<script type="text/javascript">
+window.onload = function(e) {
+  var el = document.getElementById("info");
+  var testWS = function (port) {
+    var socket = new WebSocket("ws://127.0.0.1:"+port+"/test-qap", "QAP1");
+    socket.onopen = function() { el.innerHTML += "<br>" + port + ": connected"; }
+    socket.onclose = function() { el.innerHTML += "<br>" + port + ": closed"; }
+    socket.onmessage = function(msg) {
+       el.innerHTML += "<br>" + port + ": message from " + msg.origin +": " + msg.data;
+       socket.close();
+    }
+    socket.onerror = function(msg){  
+      socket.close();
+      el.innerHTML += "<br>" + port + ": error from " + msg.origin;
+   }
+  };
+  testWS(8088);
+  testWS(8089);
+}
+</script>
+</head>
+<body>
+<div id=info>started</div>
+</body>
+</html>
