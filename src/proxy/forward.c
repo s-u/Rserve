@@ -12,6 +12,7 @@
 #include "http_tools.h"
 #include "websockets.h"
 #include "qap.h"
+#include "tls.h"
 #include "rserr.h"
 #include "ulog.h"
 #include "bsdcmpt.h"
@@ -596,7 +597,7 @@ void R_script_socket(const char *s);
 static int die(const char *str) { fprintf(stderr,"\nError: %s\n\n", str); return 1; }
 
 int main(int ac, char **av) {
-    int http_port = 8088, ws_port = -1, i = 0;
+    int http_port = 8088, ws_port = -1, i = 0, flags = 0;
     const char *ulog_path = "ulog_socket";
     const char *scr_path = "Rscript_socket";
 
@@ -614,8 +615,31 @@ int main(int ac, char **av) {
             case 'w': if (++i < ac) ws_port = atoi(av[i]); else return die("missing WebSockets port in -w <port>"); break;
             case 'r': if (++i < ac) doc_root = av[i]; else return die("missing path in -r <doc-root>"); break;
             case 'R': if (++i < ac) scr_path = av[i]; else return die("missing path in -R <Rscript-socket>"); break;
+	    case 'k': if (++i < ac) {
+		    tls_t *tls = shared_tls(0);
+		    if (!tls)
+			tls = shared_tls(new_tls());
+		    set_tls_pk(tls, av[i]);
+		    flags |= SRV_TLS;
+		} else return die("missing key path in -k <key-path>");
+		break;
+	    case 'C': if (++i < ac) {
+		    tls_t *tls = shared_tls(0);
+		    if (!tls)
+			tls = shared_tls(new_tls());
+		    set_tls_ca(tls, av[i], 0);
+		} else return die("missing CA-path path in -C <CA-path>");
+		break;
+	    case 'c': if (++i < ac) {
+		    tls_t *tls = shared_tls(0);
+		    if (!tls)
+			tls = shared_tls(new_tls());
+		    set_tls_cert(tls, av[i]);
+		} else return die("missing cert-path path in -C <cert-path>");
+		break;
             case 'h': printf("\n\
  Usage: %s [-h] [-p <http-port>] [-w <ws-port>] [-s <QAP-socket>] [-R <Rscript-socket>] [-r <doc-root>]\n\
+        [-k <TLS-key-path> [-c <TLS-cert-path>] [-C <TLS-CA-path>]]\n\
 \n", av[0]);
                 return 0;
             default:
@@ -628,8 +652,8 @@ int main(int ac, char **av) {
     ulog("----------------");
     R_script_socket(scr_path);
     add_content_handler(R_script_handler);
-    if (http_port > 0) create_HTTP_server(http_port, HTTP_WS_UPGRADE, http_request, ws_connected);
-    if (ws_port > 0) create_WS_server(ws_port, WS_PROT_QAP, ws_connected);
+    if (http_port > 0) create_HTTP_server(http_port, HTTP_WS_UPGRADE | flags, http_request, ws_connected);
+    if (ws_port > 0) create_WS_server(ws_port, WS_PROT_QAP | flags, ws_connected);
     ulog("WS/QAP INFO: starting server loop (http=%d, ws=%d, qap='%s', rscript='%s', doc_root='%s'", http_port, ws_port, proxy->qap_socket_path, scr_path, doc_root);
     serverLoop();
     return 0;
