@@ -497,12 +497,20 @@ static int std_fw_fd;
 SEXP ioc_read(int *type);
 int  ioc_setup();
 
+/* from utils.c */
+SEXP Rserve_get_context();
+
 static void handle_std_fw() {
-	SEXP q = PROTECT(allocVector(VECSXP, 2)), r;
+	int has_ctx = oob_context_prefix ? 1 : 0;
+	SEXP q = PROTECT(allocVector(VECSXP, 2 + has_ctx)), r;
 	int type = 0;
-	SET_VECTOR_ELT(q, 1, r = ioc_read(&type));
+	/* ulog("handle_std_fw: reading I/O"); */
+	SET_VECTOR_ELT(q, 1 + has_ctx, r = ioc_read(&type));
+	/* ulog("handle_std_fw: read %d bytes", LENGTH(r)); */
 	SET_VECTOR_ELT(q, 0, mkString(type ? "stderr" : "stdout"));
-	SET_VECTOR_ELT(q, 1, ScalarString(mkCharLenCE((const char*) RAW(r), LENGTH(r), CE_UTF8)));
+	if (has_ctx)
+		SET_VECTOR_ELT(q, 1, Rserve_get_context());
+	SET_VECTOR_ELT(q, 1 + has_ctx, ScalarString(mkCharLenCE((const char*) RAW(r), LENGTH(r), CE_UTF8)));
 	if (oob_allowed) /* this should be really always true */
 		send_oob_sexp(OOB_SEND, q);
 	UNPROTECT(1);
@@ -1936,6 +1944,7 @@ static int send_oob_sexp(int cmd, SEXP exp) {
 	if (!self_args) Rf_error("OOB commands can only be used from code evaluated inside an Rserve client instance");
 	if (!enable_oob) Rf_error("OOB command is disallowed by the current Rserve configuration - use 'oob enable' to allow its use");
 	PROTECT(exp);
+	/* ulog("send_oob_sexp, cmd=0x%x, len=%d", cmd, LENGTH(exp)); */
 	{
 		args_t *a = self_args;
 		server_t *srv = a->srv;
@@ -2723,9 +2732,6 @@ static void free_qap_runtime(qap_runtime_t *rt) {
 
 #ifdef R_INTERFACE_PTRS
 
-/* from utils.c */
-SEXP Rserve_get_context();
-
 /* -- console buffering -- */
 
 typedef struct {
@@ -2860,19 +2866,22 @@ static void RS_ShowMessage(const char *buf) {
 #endif
 
 SEXP Rserve_forward_stdio() {
+	ulog("Rserve_forward_stdio: requested");
 	if (!enable_oob)
 		Rf_error("I/O forwarding can only be used when OOB is enabled");
-	if (std_fw_fd)
+	if (std_fw_fd) {
+		ulog("Rserve_forward_stdio: already enabled");
 		return ScalarLogical(FALSE);
+	}
 	if (!(std_fw_fd = ioc_setup())) {
 		ulog("WARNING: failed to setup stdio forwarding in Rserve_forward_stdio()");
 		Rf_error("failed to setup stdio forwarding");
 	} 
+	ulog("Rserve_forward_stdio: enabled, fd=%d", std_fw_fd);
 #ifdef unix
 	/* also register an input handler, because calls like system/sleep will
 	   block the OCAP loop */
-	else
-		addInputHandler(R_InputHandlers, std_fw_fd, &std_fw_input_handler, 9);
+	addInputHandler(R_InputHandlers, std_fw_fd, &std_fw_input_handler, 9);
 #endif
 	return ScalarLogical(1);
 }
@@ -3224,23 +3233,35 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 #endif
 	while ((s = args->s) != -1) {
 		int which = 0;
-		if (compute_fd != -1) { /* two to listen to - check which is available */
+		if (compute_fd != -1 || std_fw_fd > 0) { /* more than one to listen to - check which is available */
 			struct timeval timv;
+			int max_fs = s;
 			fd_set readfds;
 			timv.tv_sec = 5;
 			timv.tv_usec = 0;
 			FD_ZERO(&readfds);
 			FD_SET(s, &readfds);
-			FD_SET(compute_fd, &readfds);
-			rn =  select(((s > compute_fd) ? s : compute_fd) + 1, &readfds, 0, 0, &timv);
+			if (compute_fd != -1) {
+				FD_SET(compute_fd, &readfds);
+				if (compute_fd > max_fs) max_fs = compute_fd;
+			}
+			if (std_fw_fd > 0) {
+				FD_SET(std_fw_fd, &readfds);
+				if (std_fw_fd > max_fs) max_fs = std_fw_fd;
+			}
+			rn =  select(max_fs + 1, &readfds, 0, 0, &timv);
 			if (rn == -1) {
 				if (errno == EINTR) continue; /* INTR is ok, retry */
 				ulog("NOTE: OCAP iteration, select error %d, aborting", (int) errno);
 				break; /* others are bad, get out */
 			}
 			if (FD_ISSET(s, &readfds)) which = 1;
-			else if (FD_ISSET(compute_fd, &readfds)) which = 2;
+			else if (compute_fd != -1 && FD_ISSET(compute_fd, &readfds)) which = 2;
+			else if (std_fw_fd > 0 && FD_ISSET(std_fw_fd, &readfds)) which = 3;
 		} else which = 1; /* only possibility */
+
+		if (which == 3) /* std-forwarding */
+			handle_std_fw();
 
 		if (which == 2) { /* proxy pass-through */
 			size_t plen = 0, i;
