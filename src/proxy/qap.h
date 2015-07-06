@@ -54,6 +54,7 @@ typedef struct phdr {   /* always 16 bytes */
 #define XT_LIST_TAG      21
 #define XT_LANG_NOTAG    22
 #define XT_LANG_TAG      23
+#define XT_ARRAY_INT     32
 #define XT_ARRAY_STR     34
 #define XT_RAW           37
 

@@ -3312,7 +3312,8 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 			memcpy(compute_iobuf, &ph, sizeof(ph));
 			iob_pos = sizeof(ph);
 			/* FIXME: currently RserveJS cannot handle QAP messages that span multiple
-			   WS messages (=multiple sends). We have to either fix RserveJS or buffer everything */
+			   WS messages (=multiple sends). We have to either fix RserveJS or buffer everything
+			   Note: most recent Rserve-js supports fragmented messages thanks to Gordon */
 			while (iob_pos || plen) {
 				if (plen) {
 					rn = recv(compute_fd, compute_iobuf + iob_pos, (plen > compute_iobuf_len - iob_pos) ? (compute_iobuf_len - iob_pos) : plen, 0);

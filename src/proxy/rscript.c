@@ -357,7 +357,7 @@ int R_script_handler(http_request_t *req, http_result_t *res, const char *path) 
                             
                             if ((peo = parse_par(&pi, cp, eoci)) || pi.type != DT_SEXP || pi.len < 4) {
                                 free(oci);
-                                ulog("ERROR: invalid payload (at DT, parse error %d, type = %, length = %d)",
+                                ulog("ERROR: invalid payload (at DT, parse error %d, type = %d, length = %d)",
                                      peo, pi.type, pi.len);
                                 res->err = strdup("invalid response payload from R");
                                 res->code = 500;
@@ -409,6 +409,11 @@ int R_script_handler(http_request_t *req, http_result_t *res, const char *path) 
                                                 (strl = string_par_len(&pi)) >= 0) {
                                                 res->headers = strdup(pi.payload);
                                                 ulog("INFO: headers: '%s'", res->headers);
+						cp = pi.next;
+						if (cp < eoci && !(peo = parse_par(&pi, cp, eoci)) &&
+						    pi.type == XT_ARRAY_INT && pi.len >= 4)
+						  ulog("INFO: HTTP code: %d",
+						       (res->code = *((const int*) pi.payload)));
                                             } /* headers */
                                         } /* content-type */
                                         free(oci);
