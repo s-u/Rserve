@@ -3237,6 +3237,20 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 			struct timeval timv;
 			int max_fs = s;
 			fd_set readfds;
+
+#ifdef FORKED
+			/* for some unknown reason if the compute process dies the pipe doesn't signal
+			   EOF and thus it is never detected - hence we use waitpid() to check whether
+			   the compute process is still alive */
+			if (compute_pid > 0) {
+				int stat = 0;
+				if (waitpid(compute_pid, &stat, WNOHANG) == compute_pid && (WIFEXITED(stat) || WIFSIGNALED(stat))) {
+					ulog("NOTE: compute process died, aborting compute connection");
+					compute_terminated();
+					continue;
+				}
+			}
+#endif
 			timv.tv_sec = 5;
 			timv.tv_usec = 0;
 			FD_ZERO(&readfds);

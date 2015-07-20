@@ -1,7 +1,14 @@
  NEWS/Changelog for Rserve
 ---------------------------
 
-1.8-3   (under development)
+1.8-4	(under development)
+    o	bugfix: when using compute separation on some Linux systems the
+	death of the compute process may remain undetected. Rserve
+	now actively detects if the compute process has terminated and
+	will signal accordingly.
+
+
+1.8-3
     o	add support for the notion of a context object which can be
 	retrieved/set using Rserve.context() function. If
 
