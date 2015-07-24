@@ -5,7 +5,8 @@
     o	bugfix: when using compute separation on some Linux systems the
 	death of the compute process may remain undetected. Rserve
 	now actively detects if the compute process has terminated and
-	will signal accordingly.
+	will signal accordingly. The same goes of a compute process
+	whose parent has died.
 
 
 1.8-3

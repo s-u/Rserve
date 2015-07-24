@@ -3029,6 +3029,7 @@ void Rserve_OCAP_connected(void *thp) {
 
 static int   compute_fd = -1;
 static pid_t compute_pid = 0;
+static pid_t compute_ppid = 0;
 static void *compute_iobuf;
 static int   compute_iobuf_len;
 
@@ -3126,6 +3127,7 @@ SEXP Rserve_fork_compute(SEXP sExp) {
             ulog("OCAP-ERROR: cannot allocate QAP runtime in fork compute");
             exit(1);
 		}
+		compute_ppid = getppid();
 		Rserve_oc_prefix = COMPUTE_OC_PREFIX; /* set a prefix for all child OCAPs */
 		compute_subprocess = 1;
         args->flags |= F_OUT_BIN; /* in OC everything is binary */
@@ -3147,6 +3149,7 @@ SEXP Rserve_fork_compute(SEXP sExp) {
 	}
 	/* parent - wait for the result */
 	compute_fd = fd[0];
+	compute_ppid = 0;
 	{
 		struct phdr ph;
 		unsigned int len32, hi32;
@@ -3232,48 +3235,58 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 	ulog("OCAP: iteration start args=%p, s=%d", args, s);
 #endif
 	while ((s = args->s) != -1) {
+		/* we are now always using select() just to make sure we don't get stuck
+		   and can check things like the status of the processes we care about */
 		int which = 0;
-		if (compute_fd != -1 || std_fw_fd > 0) { /* more than one to listen to - check which is available */
-			struct timeval timv;
-			int max_fs = s;
-			fd_set readfds;
+		struct timeval timv;
+		int max_fs = s;
+		fd_set readfds;
 
 #ifdef FORKED
-			/* for some unknown reason if the compute process dies the pipe doesn't signal
-			   EOF and thus it is never detected - hence we use waitpid() to check whether
-			   the compute process is still alive */
-			if (compute_pid > 0) {
-				int stat = 0;
-				if (waitpid(compute_pid, &stat, WNOHANG) == compute_pid && (WIFEXITED(stat) || WIFSIGNALED(stat))) {
-					ulog("NOTE: compute process died, aborting compute connection");
-					compute_terminated();
-					continue;
-				}
+		/* for some unknown reason if the compute process dies the pipe doesn't signal
+		   EOF and thus it is never detected - hence we use waitpid() to check whether
+		   the compute process is still alive */
+		if (compute_fd != -1 && compute_pid > 0) {
+			int stat = 0;
+			if (waitpid(compute_pid, &stat, WNOHANG) == compute_pid && (WIFEXITED(stat) || WIFSIGNALED(stat))) {
+				ulog("NOTE: compute process died, aborting compute connection");
+				compute_terminated();
+				continue;
 			}
+		}
+		/* check the same in the compute process checking for control to make sure 
+		   we don't have (idle) compute processes w/o control
+		   if our parent dies, the ppid will change (typically to 1=init) */
+		if (s != -1 && compute_ppid > 0 && getppid() != compute_ppid) {
+			ulog("NOTE: control process died, abandoned compute");
+			close(s);
+			args->s = -1;
+			return 0;
+		}
 #endif
-			timv.tv_sec = 5;
-			timv.tv_usec = 0;
-			FD_ZERO(&readfds);
-			FD_SET(s, &readfds);
-			if (compute_fd != -1) {
-				FD_SET(compute_fd, &readfds);
-				if (compute_fd > max_fs) max_fs = compute_fd;
-			}
-			if (std_fw_fd > 0) {
-				FD_SET(std_fw_fd, &readfds);
-				if (std_fw_fd > max_fs) max_fs = std_fw_fd;
-			}
-			rn =  select(max_fs + 1, &readfds, 0, 0, &timv);
-			if (rn == -1) {
-				if (errno == EINTR) continue; /* INTR is ok, retry */
-				ulog("NOTE: OCAP iteration, select error %d, aborting", (int) errno);
-				break; /* others are bad, get out */
-			}
-			if (FD_ISSET(s, &readfds)) which = 1;
-			else if (compute_fd != -1 && FD_ISSET(compute_fd, &readfds)) which = 2;
-			else if (std_fw_fd > 0 && FD_ISSET(std_fw_fd, &readfds)) which = 3;
-		} else which = 1; /* only possibility */
 
+		timv.tv_sec = 3;
+		timv.tv_usec = 0;
+		FD_ZERO(&readfds);
+		FD_SET(s, &readfds);
+		if (compute_fd != -1) {
+			FD_SET(compute_fd, &readfds);
+			if (compute_fd > max_fs) max_fs = compute_fd;
+		}
+		if (std_fw_fd > 0) {
+			FD_SET(std_fw_fd, &readfds);
+			if (std_fw_fd > max_fs) max_fs = std_fw_fd;
+		}
+		rn =  select(max_fs + 1, &readfds, 0, 0, &timv);
+		if (rn == -1) {
+			if (errno == EINTR) continue; /* INTR is ok, retry */
+			ulog("NOTE: OCAP iteration, select error %d, aborting", (int) errno);
+			break; /* others are bad, get out */
+		}
+		if (FD_ISSET(s, &readfds)) which = 1;
+		else if (compute_fd != -1 && FD_ISSET(compute_fd, &readfds)) which = 2;
+		else if (std_fw_fd > 0 && FD_ISSET(std_fw_fd, &readfds)) which = 3;
+		
 		if (which == 3) /* std-forwarding */
 			handle_std_fw();
 
