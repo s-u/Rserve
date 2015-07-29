@@ -19,7 +19,7 @@
  *  everyone modifying this software to contribute back any improvements and
  *  bugfixes to the project for the benefit all other users. Thank you.
  * 
- *  $Id$
+ *  $Id: Rconnection.cc 301 2011-01-07 16:32:45Z urbanek $
  */
 
 /* external defines:
@@ -79,6 +79,8 @@ static Rexp *new_parsed_Rexp(unsigned int *d, Rmessage *msg) {
 #endif
     if (type==XT_ARRAY_INT || type==XT_INT)
         return new Rinteger(d,msg);
+    if (type==XT_ARRAY_BOOL || type==XT_BOOL)
+        return new Rboolean(d,msg);
     if (type==XT_ARRAY_DOUBLE || type==XT_DOUBLE)
         return new Rdouble(d,msg);
     if (IS_LIST_TYPE_(type))
@@ -91,10 +93,12 @@ static Rexp *new_parsed_Rexp(unsigned int *d, Rmessage *msg) {
         return new Rsymbol(d,msg);
     if (type==XT_ARRAY_STR)
         return new Rstrings(d,msg);
+	if (type==XT_RAW)
+		return new Rraw(d,msg);
     return new Rexp(d,msg);
 }
 
-static Rexp *new_parsed_Rexp_from_Msg(Rmessage *msg) {
+Rexp *new_parsed_Rexp_from_Msg(Rmessage *msg) {
     int hl=1;
     unsigned int *hp=msg->par[0];
     Rsize_t plen=hp[0]>>8;
@@ -341,17 +345,27 @@ char *Rexp::parse(unsigned int *pos) { // plen is not used
     return data+len;
 }
 
-void Rexp::store(char *buf) {
+Rsize_t Rexp::storageSize() const {
+    Rsize_t total_len = len + (attr ? attr->storageSize() : 0);
+    return total_len + ((total_len>0x7fffff) ? 8 : 4);
+}
+
+void Rexp::store(char *buf) const {
     int hl=4;
     unsigned int *i = (unsigned int*)buf;
-    i[0]=SET_PAR(type, len);
+    Rsize_t total_len = len + (attr ? attr->storageSize() : 0);
+    i[0]=SET_PAR(type, total_len);
     i[0]=itop(i[0]);
-    if (len>0x7fffff) {
+    if (total_len>0x7fffff) {
         buf[0]|=XT_LARGE;
-        i[1]=itop(len>>24);
+        i[1]=itop(total_len>>24);
         hl+=4;
     }
-    memcpy(buf+hl, data, len);
+    if (attr) {
+	i[0] |= XT_HAS_ATTR;
+	attr->store(buf + hl);
+	memcpy(buf + hl + attr->storageSize(), data, len);
+    } else memcpy(buf+hl, data, len);
 }
 
 Rexp *Rexp::attribute(const char *name) {
@@ -389,6 +403,19 @@ void Rinteger::fix_content() {
 #endif
 }
 
+double R_ValueOfNA() { // binary definition, see R source code
+    double d;
+#ifdef SWAPEND
+    *((unsigned int*)(&d) + 0) = 0x7ff00000;
+    *((unsigned int*)(&d) + 1) = 1954;
+#else
+    *((unsigned int*)(&d) + 1) = 0x7ff00000;
+    *((unsigned int*)(&d) + 0) = 1954;
+#endif
+    return d;
+}
+const double NA_DOUBLE = R_ValueOfNA();
+
 void Rdouble::fix_content() {
     if (len<0 || !data) return;
 #ifdef SWAPEND
@@ -404,6 +431,40 @@ void Rsymbol::fix_content() {
 #ifdef DEBUG_CXX
     printf("SYM %p \"%s\"\n", this, name);
 #endif
+}
+
+Rlist::Rlist(const std::vector<Rexp*> &tags,
+	     const std::vector<Rexp*> &entries) : Rexp(XT_LIST_TAG) {
+    // Create Rlist, copying tags and entries from args
+    // Set length of data buffer
+			 Rsize_t len = 0;
+#undef min // apparently windows redefines this
+	std::vector<Rexp*>::size_type count = std::min(tags.size(),
+		entries.size());
+    for(std::vector<Rexp*>::size_type i = 0; i != count; i++)
+	len += tags[i]->storageSize() + entries[i]->storageSize();
+
+    // Create data buffer and copy rexps into it
+    if (len > 0) {
+#ifdef DEBUG_CXX
+	fprintf(stderr, "Rlist::Rlist %p: allocating %d bytes\n",
+		this, len);
+#endif
+	data = (char*)malloc(len);
+	Rsize_t curpos = 0;
+	for(std::vector<Rexp*>::size_type i = 0; i != count; i++) {
+	    entries[i]->store(data + curpos);
+	    curpos += entries[i]->storageSize();
+	    tags[i]->store(data + curpos);
+	    curpos += tags[i]->storageSize();
+	}
+    }
+	    
+    // Update class variables
+    this->data = data;
+    this->len = len;
+    this->tag = this->head = this->tail = 0;
+    fix_content();
 }
 
 Rlist::~Rlist() {
@@ -464,7 +525,7 @@ void Rlist::fix_content() {
 #endif
 	if (!t) break;
 	if (n)
-	  lt = lt->tail = new Rlist(type, h, t, t->next, msg);
+	    lt = lt->tail = new Rlist(type, h, t, t->next, 0);
 	else {
 	  lt->head = h;
 	  lt->tag = t;
@@ -525,6 +586,53 @@ int Rvector::indexOfString(const char *str) {
     return -1;
 }
 
+Rraw::Rraw(const std::vector<char> &v) : Rexp(XT_RAW) {
+	// Create new Rraw (raw data) Rexp from vector of characters
+	bytecount = v.size();
+	len = bytecount + 4;
+	next = data + len;
+	if (len == 0)
+		return;
+
+	data = (char*)malloc(len);
+	unsigned int swapped_bytecount = itop(bytecount);
+	memcpy(data, (char *)(&swapped_bytecount), sizeof(unsigned int));
+	memcpy(data + sizeof(unsigned int), &v.front(), v.size());
+}
+
+Rstrings::Rstrings(const std::vector<std::string> &v) : Rexp(XT_ARRAY_STR) {
+    // Create from C strings
+    // Set length of data buffer
+    Rsize_t len = 0;
+    for(std::vector<std::string>::const_iterator it = v.begin();
+		it != v.end(); ++it) {
+			len += it->length() + 1;
+	}
+    
+    // Create data buffer and copy strings into it
+	if (len > 0) {
+#ifdef DEBUG_CXX
+		fprintf(stderr, "Rstrings::Rstrings %p: allocating %d bytes\n",
+			this, len);
+#endif
+		data = (char*)malloc(len);
+
+		Rsize_t curpos = 0;
+		for(std::vector<std::string>::const_iterator it = v.begin();
+			it != v.end(); ++it) {
+				memcpy(data + curpos, it->data(), it->length());
+				curpos += it->length();
+				data[curpos++] = '\0';
+		}
+	}
+    
+	// Update class variables
+	this->next = (char*)data + len;
+	this->len = len;
+	this->data = data;
+	decode();
+}
+
 int Rstrings::indexOfString(const char *str) {
     unsigned int i = 0;
     while (i < nel) {
@@ -532,6 +640,41 @@ int Rstrings::indexOfString(const char *str) {
         i++;
     }
     return -1;
+}
+
+const char* NA_STRING = (char *)NaStringRepresentation;
+
+Rvector::Rvector(const std::vector<Rexp*> &v, Rexp *attr)
+    : Rexp(XT_VECTOR, 0, 0, attr) {
+    // Create an Rvector, copy objects completely from v
+    // Set length of data buffer
+    Rsize_t len = 0;
+    for(std::vector<Rexp*>::const_iterator it = v.begin(); it != v.end(); ++it)
+	len += (*it)->storageSize();
+
+    // Create data buffer and copy Rexps into it.  Also update this->cont.
+    if (len > 0) {
+#ifdef DEBUG_CXX
+	fprintf(stderr, "Rvector::Rvector %p: allocating %d bytes\n",
+		this, len);
+#endif
+	data = (char*)malloc(len);
+	this->cont = (Rexp **)malloc(v.size() * sizeof(Rexp *));
+
+	Rsize_t curpos = 0;
+	for(std::vector<Rexp*>::size_type i = 0; i != v.size(); i++) {
+	    v[i]->store(data + curpos);
+	    (this->cont)[i] = new_parsed_Rexp((unsigned int*)(data + curpos), 0);
+	    curpos += v[i]->storageSize();
+	}
+    }
+    
+    // Update non-cont class variables
+    this->next = (char*)data + len;
+    this->len = len;
+    this->data = data;
+    this->strs = 0;
+    this->count = v.size();
 }
 
 Rexp* Rvector::byName(const char *name) {

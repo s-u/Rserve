@@ -19,7 +19,7 @@
  *  everyone modifying this software to contribute back any improvements and
  *  bugfixes to the project for the benefit all other users. Thank you.
  *
- *  $Id$
+ *  $Id: Rconnection.h 292 2010-07-21 17:06:50Z urbanek $
  */
 
 /* external defines:
@@ -36,6 +36,8 @@
 #endif
 
 #include <iostream>
+#include <string>
+#include <vector>
 
 #include <stdio.h>
 #include "sisocks.h"
@@ -66,6 +68,7 @@ typedef unsigned int Rsize_t;
 #define A_crypt    0x002
 #define A_plain    0x004
 
+
 //===================================== Rmessage ---- QAP1 storage
 
 class Rmessage {
@@ -74,7 +77,7 @@ class Rmessage {
     char *data;
     Rsize_t len;
     int complete;
-    
+
     // the following is avaliable only for parsed messages (max 16 pars)
     int pars;
     unsigned int *par[16];
@@ -85,14 +88,14 @@ class Rmessage {
     Rmessage(int cmd, int i); // DT_INT data (1 entry)
     Rmessage(int cmd, const void *buf, int len, int raw_data=0); // raw data or DT_BYTESTREAM
     virtual ~Rmessage();
-        
+
     int command() { return complete?head.cmd:-1; }
     Rsize_t length() { return complete?head.len:-1; }
     int is_complete() { return complete; }
-    
+
     int read(int s);
     void parse();
-    int send(int s);    
+    int send(int s);
 };
 
 //===================================== Rexp --- basis for all SEXPs
@@ -115,30 +118,29 @@ public:
 
 protected:
     // the next two are only cached if requested, no direct access allowed
-    int attribs; 
+    int attribs;
     const char **attrnames;
-    
+
     Rexp *master; // if this is set then this Rexp allocated the memory for us, so we are not supposed to free anything; if this is set to "this" then the content is self-allocated, including any data
     int rcount;  // reference count - only for a master - it counts how many children still exist
-    
+
 public:
     Rexp(Rmessage *msg);
     Rexp(unsigned int *pos, Rmessage *msg=0);
     Rexp(int type, const char *data=0, int len=0, Rexp *attr=0);
-    
+
     virtual ~Rexp();
-    
+
     void set_master(Rexp *m);
     char *parse(unsigned int *pos);
 
-    virtual Rsize_t storageSize() { return len+((len>0x7fffff)?8:4); }
-    
-    virtual void store(char *buf);
+    virtual Rsize_t storageSize() const;
+    virtual void store(char *buf) const;
     Rexp *attribute(const char *name);
     const char **attributeNames();
-    
-    virtual Rsize_t length() { return len; }
-    
+
+    virtual Rsize_t length() const { return len; }
+
     friend std::ostream& operator<< (std::ostream& os, const Rexp& exp) {
         return ((Rexp&)exp).os_print(os);
     }
@@ -146,7 +148,7 @@ public:
     friend std::ostream& operator<< (std::ostream& os, const Rexp* exp) {
         return ((Rexp*)exp)->os_print(os);
     }
-    
+
     virtual std::ostream& os_print(std::ostream& os) {
         return os << "Rexp[type=" << type << ",len=" << len <<"]";
     }
@@ -158,19 +160,50 @@ class Rinteger : public Rexp {
 public:
     Rinteger(Rmessage *msg) : Rexp(msg) { fix_content(); }
     Rinteger(unsigned int *ipos, Rmessage *imsg) : Rexp(ipos, imsg) { fix_content(); }
-    Rinteger(int *array, int count) : Rexp(XT_ARRAY_INT, (char*)array, count*sizeof(int)) { fix_content(); }
-    
-    int *intArray() { return (int*) data; }
-    int intAt(int pos) { return (pos>=0 && (unsigned)pos<len/4)?((int*)data)[pos]:0; }
-    virtual Rsize_t length() { return len/4; }
+    Rinteger(int *array, int count, Rexp *attr=0)
+		: Rexp(XT_ARRAY_INT, (char*)array, count*sizeof(int), attr) { fix_content(); }
 
+    virtual Rsize_t length() const { return len/4; }
+	int *intArray() { return (int*) data; }
+    int intAt(int pos) const { return (pos>=0 && (unsigned)pos<len/4)?((int*)data)[pos]:0; }
+    
     virtual std::ostream& os_print (std::ostream& os) {
         return os << "Rinteger[" << (len/4) <<"]";
     }
-    
+
 private:
     void fix_content();
 };
+
+const int NA_INTEGER = -2147483648L;
+inline bool ISNA(int i) { return i == NA_INTEGER; }
+
+//===================================== Rboolean --- XT_ARRAY_Boolean
+
+class Rboolean : public Rexp {
+public:
+    Rboolean(Rmessage *msg) : Rexp(msg) {}
+    Rboolean(unsigned int *ipos, Rmessage *imsg) : Rexp(ipos, imsg) {}
+    Rboolean(unsigned char *array, int count, Rexp *attr=0)
+		: Rexp(XT_ARRAY_INT, (char*)array, count*sizeof(unsigned char), attr) {}
+
+    virtual Rsize_t length() const { return ptoi(*((unsigned int *)data)); }
+	unsigned char *charArray() { return (unsigned char*) data; }
+    unsigned char boolAt(int pos) const {
+		return (pos>=0 && (unsigned)pos < length())
+			? ((unsigned char*)data)[pos + sizeof(unsigned int)]
+		    : 0;
+	}
+
+    virtual std::ostream& os_print (std::ostream& os) {
+        return os << "Rboolean[" << len <<"]";
+    }
+};
+ 
+// See qap_encode.c in the Rserve source for boolean encoding
+inline bool ISTRUE(unsigned char i) { return i == 1; }
+inline bool ISFALSE(unsigned char i) { return i == 0; }
+inline bool ISNA(unsigned char i) { return !ISTRUE(i) && !ISFALSE(i); }
 
 //===================================== Rdouble --- XT_DOUBLE/XT_ARRAY_DOUBLE
 
@@ -179,38 +212,53 @@ public:
     Rdouble(Rmessage *msg) : Rexp(msg) { fix_content(); }
     Rdouble(unsigned int *ipos, Rmessage *imsg) : Rexp(ipos, imsg) { fix_content(); }
     Rdouble(double *array, int count) : Rexp(XT_ARRAY_DOUBLE, (char*)array, count*sizeof(double)) { fix_content(); }
-    
+
     double *doubleArray() { return (double*) data; }
-    double doubleAt(int pos) { return (pos>=0 && (unsigned)pos<len/8)?((double*)data)[pos]:0; }
-    virtual Rsize_t length() { return len/8; }
+    double doubleAt(int pos) const { return (pos>=0 && (unsigned)pos<len/8)?((double*)data)[pos]:0; }
+    virtual Rsize_t length() const { return len/8; }
 
     virtual std::ostream& os_print (std::ostream& os) {
         return os << "Rdouble[" << (len/8) <<"]";
     }
-    
+
 private:
     void fix_content();
 };
+
+extern const double NA_DOUBLE;
+
+inline bool ISNA(double x) {
+    // x != x should be true exactly when x isnan
+#ifdef SWAPEND
+	return x != x && *((unsigned int*)(&x) + 1) == 1954;
+#else
+	return x != x && *((unsigned int*)(&x) + 0) == 1954;
+#endif
+}
+
 
 //===================================== Rsymbol --- XT_SYM
 
 class Rsymbol : public Rexp {
 protected:
     const char *name;
-    
+
 public:
     Rsymbol(Rmessage *msg) : Rexp(msg)
     { name=""; fix_content(); }
-    
+
     Rsymbol(unsigned int *ipos, Rmessage *imsg) : Rexp(ipos, imsg)
     { name=""; fix_content(); }
-    
+
+    explicit Rsymbol(const std::string &s) : Rexp(XT_SYMNAME)
+    { data = strdup(s.c_str()); len = s.length() + 1; fix_content(); }
+
     const char *symbolName() { return name; }
-    
+
     virtual std::ostream& os_print (std::ostream& os) {
         return os << "Rsymbol[" << symbolName() <<"]";
     }
-    
+
 private:
     void fix_content();
 };
@@ -224,16 +272,17 @@ class Rstrings : public Rexp {
     char **cont;
     unsigned int nel;
 public:
-   Rstrings(Rmessage *msg) : Rexp(msg) { decode(); }
-   Rstrings(unsigned int *ipos, Rmessage *imsg) : Rexp(ipos, imsg) { decode(); }
+    Rstrings(Rmessage *msg) : Rexp(msg) { decode(); }
+    Rstrings(unsigned int *ipos, Rmessage *imsg) : Rexp(ipos, imsg) { decode(); }
     /*Rstring(const char *str) : Rexp(XT_STR, str, strlen(str)+1) {}*/
-    
-    char **strings() { return cont; }
-    char *stringAt(unsigned int i) { return (i < 0 || i >= nel) ? 0 : cont[i]; }
-    char *string() { return stringAt(0); }
-    virtual Rsize_t length() { return nel; }
+    explicit Rstrings(const std::vector<std::string> &v);
 
-    unsigned int count() { return nel; }
+    char **strings() { return cont; }
+    char *stringAt(unsigned int i) { return (i<0||i>=nel)?0:cont[i]; }
+    const char *stringAt(unsigned int i) const
+    { return (i<0||i>=nel)?0:cont[i]; }
+    char *string() { return stringAt(0); }
+    unsigned int count() const { return nel; }
     int indexOfString(const char *str);
 
     virtual std::ostream& os_print (std::ostream& os) {
@@ -252,11 +301,17 @@ public:
 	  cont[i] = strdup(c);
 	  while (*c) c++;
 	  c++; i++;
-	}	
+	}
       } else
 	cont = 0;
     }
 };
+
+extern const char* NA_STRING;
+// True if s represents an NA value in R
+inline bool ISNA(const char *s) {
+    return strcmp(s, (char *)NaStringRepresentation) == 0;
+}
 
 //===================================== Rstring --- XT_STR
 
@@ -265,7 +320,7 @@ public:
     Rstring(Rmessage *msg) : Rexp(msg) {}
     Rstring(unsigned int *ipos, Rmessage *imsg) : Rexp(ipos, imsg) {}
     Rstring(const char *str) : Rexp(XT_STR, str, strlen(str)+1) {}
-    
+
     char *string() { return (char*) data; }
 
     virtual std::ostream& os_print (std::ostream& os) {
@@ -284,7 +339,7 @@ public:
 
     Rlist(Rmessage *msg) : Rexp(msg)
     { head=tag=0; tail=0; fix_content(); }
-    
+
     Rlist(unsigned int *ipos, Rmessage *imsg) : Rexp(ipos, imsg)
     { head=tag=0; tail=0; fix_content(); }
 
@@ -294,8 +349,11 @@ public:
        but they are packed in one content list instead */
     Rlist(int type, Rexp *head, Rexp *tag, char *next, Rmessage *imsg) : Rexp(type, 0, 0, 0) { this->head = head; this->tag = tag; tail = 0; this->next = next; this->msg = imsg; master = 0; }
 
+    explicit Rlist(const std::vector<Rexp*> &tags,
+		   const std::vector<Rexp*> &entries);
+
     virtual ~Rlist();
-    
+
     Rexp *entryByTagName(const char *tagName)  {
       if (tag && (tag->type==XT_SYM || tag->type==XT_SYMNAME) && !strcmp(((Rsymbol*)tag)->symbolName(),tagName)) return head;
         if (tail) return tail->entryByTagName(tagName);
@@ -310,7 +368,7 @@ public:
         if (tail) os << ",tail=" << *tail;
         return os << "]";
     }
-    
+
 private:
     void fix_content();
 };
@@ -327,26 +385,24 @@ protected:
 public:
     Rvector(Rmessage *msg) : Rexp(msg)
     { cont=0; count=0; strs=0; fix_content(); }
-    
+
     Rvector(unsigned int *ipos, Rmessage *imsg) : Rexp(ipos, imsg)
     { cont=0; count=0; strs=0; fix_content(); }
-  
+
+    explicit Rvector(const std::vector<Rexp*> &v, Rexp *attr=0);
     virtual ~Rvector();
-    
+
     char **strings();
     int indexOf(Rexp *exp);
     int indexOfString(const char *str);
-    virtual Rsize_t length() { return (Rsize_t) count; }
+    unsigned int length() const { return count; }
+    Rexp *expAt(unsigned int i) { return (i<0||i>=count)?0:cont[i]; }
 
     char *stringAt(int i) {
-        if (i < 0 || i >= count || !cont[i] || cont[i]->type != XT_STR) return 0;
+        if (i<0 || i>count || !cont[i] || cont[i]->type!=XT_STR) return 0;
         return ((Rstring*)cont[i])->string();
     }
 
-    Rexp *elementAt(int i) {
-	return (i < 0 || i >= count || !cont[i]) ? 0 : cont[i];
-    }
-    
     Rexp* byName(const char *name);
 
     virtual std::ostream& os_print (std::ostream& os) {
@@ -364,6 +420,20 @@ private:
     void fix_content();
 };
 
+//===================================== Rraw --- XT_RAW (bytestream)
+
+class Rraw : public Rexp {
+public:
+	Rraw(Rmessage *msg) : Rexp(msg) { fix_content(); }
+	Rraw(unsigned int *ipos, Rmessage *imsg) : Rexp(ipos, imsg) { fix_content(); }
+    explicit Rraw(const std::vector<char> &v);
+
+	char *get_bytes() const { return data + sizeof(unsigned int); } // return contained data
+	unsigned int bytecount;
+private:
+	void fix_content() { bytecount = ptoi(*((unsigned int *)data)); }
+};
+
 //===================================== Rconnection ---- Rserve interface class
 
 class Rconnection;
@@ -373,18 +443,18 @@ protected:
     char *host_;
     int port_;
     char key_[32];
-    
+
 public:
     Rsession(const char *host, int port, const char key[32]) {
 	host_ = host ? strdup(host) : 0;
 	port_ = port;
 	memcpy(key_, key, 32);
     }
-    
+
     ~Rsession() {
 	if (host_) free(host_);
     }
-    
+
     const char *host() { return host_; }
     int port() { return port_; }
     const char *key() { return key_; }
@@ -405,19 +475,19 @@ public:
         port - either TCP port or -1 if unix sockets should be used */
     Rconnection(const char *host="127.0.0.1", int port=default_Rsrv_port);
     Rconnection(Rsession *session);
-    
+
     virtual ~Rconnection();
-    
+
     int connect();
     int disconnect();
-    
+
     /**--- low-level functions (should not be used directly) --- */
-    
+
     int request(Rmessage *msg, int cmd, int len=0, void *par=0);
     int request(Rmessage *targetMsg, Rmessage *contents);
-    
+
     /** --- high-level functions --- */
-    
+
     int assign(const char *symbol, Rexp *exp);
     int voidEval(const char *cmd);
     Rexp *eval(const char *cmd, int *status=0, int opt=0);
@@ -436,7 +506,7 @@ public:
     Rsession *detachedEval(const char *cmd, int *status = 0);
     Rsession *detach(int *status = 0);
     // sessions are resumed using resume() method of the Rsession object
-    
+
 #ifdef CMD_ctrl
     /* server control functions (need Rserve 0.6-0 or higher) */
     int serverEval(const char *cmd);
@@ -444,5 +514,9 @@ public:
     int serverShutdown();
 #endif
 };
+
+//===================================== Excelsi-R: a couple functions made un-static
+
+Rexp *new_parsed_Rexp_from_Msg(Rmessage *msg);
 
 #endif
