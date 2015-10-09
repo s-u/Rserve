@@ -40,6 +40,7 @@
    -10 - out of memory
    -11 - operation is unsupported (e.g. unix login while crypt is not linked)
    -12 - eval didn't return a SEXP (possibly the server is too old/buggy or crashed)
+   -13 - message requires 64-bit sizes but this binary is linked as 32-bit
  */
 #include "Rconnection.h"
 
@@ -169,22 +170,21 @@ int Rmessage::read(int s) {
         closesocket(s); s=-1;
         return (n==0)?-7:-8;
     }
-    Rsize_t i=len=head.len=ptoi(head.len);        
-    head.cmd=ptoi(head.cmd);
-    head.dof=ptoi(head.dof);
-    head.res=ptoi(head.res);
-    if (head.dof>0) { // skip past DOF if present
-            char sb[256];
-        int k=head.dof;
-        while (k>0) {
-            n=recv(s,(char*)sb,(k>256)?256:k,0);
-            if (n<1) {
-                closesocket(s); s=-1;
-                return -8; // malformed packet
-            }
-            k-=n;
-        }
+    Rsize_t i = len = (unsigned int) (head.len = ptoi(head.len));
+    head.cmd = ptoi(head.cmd);
+    head.msg_id = ptoi(head.msg_id);
+    head.res = ptoi(head.res);
+#ifdef __LP64__
+    if (head.res) { /* process high bits of the length */
+	unsigned int len_lo = (unsigned int) head.len, len_hi = (unsigned int) head.res;
+	len = (Rsize_t) (((unsigned long) len_lo) | (((unsigned long) len_hi) << 32));
+	i = len;
     }
+#else
+    if (head.res)
+	return -13; // 64-bit packet, but only 32-bit long is supported
+#endif
+
     if (i>0) {
         data=(char*) malloc(i);
         if (!data) {
@@ -222,7 +222,7 @@ void Rmessage::parse() {
             len|=((Rsize_t)p2)<<24;
         }
 #ifdef DEBUG_CXX
-        printf("  par %d: %d length %d\n", pars, p1&0x3f, len);
+        printf("  par %d: %d length %ld\n", pars, p1&0x3f, (long) len);
 #endif
         par[pars++]=(unsigned int*)c;
         c+=hs;
@@ -235,7 +235,7 @@ int Rmessage::send(int s) {
     int failed=0;
     head.cmd=itop(head.cmd);
     head.len=itop(head.len);
-    head.dof=itop(head.dof);
+    head.msg_id=itop(head.msg_id);
     head.res=itop(head.res);
     if (::send(s,(char*)&head,sizeof(head),0)!=sizeof(head))
         failed=-1;
@@ -243,7 +243,7 @@ int Rmessage::send(int s) {
         failed=-1;
     head.cmd=ptoi(head.cmd);
     head.len=ptoi(head.len);
-    head.dof=ptoi(head.dof);
+    head.msg_id=ptoi(head.msg_id);
     head.res=ptoi(head.res);
     return failed;
 }
@@ -272,13 +272,13 @@ Rexp::Rexp(unsigned int *pos, Rmessage *msg) {
     next=parse(pos);
 }
 
-Rexp::Rexp(int type, const char *data, int len, Rexp *attr) {
+Rexp::Rexp(int type, const char *data, Rsize_t len, Rexp *attr) {
     this->attr=attr; master=this; rcount=0; attribs=0;
     this->type=type;
     this->msg=0;
     if (len>0) {
 #ifdef DEBUG_CXX
-        fprintf(stderr, "Rexp::Rexp %p: allocating %d bytes\n", this, len);
+      fprintf(stderr, "Rexp::Rexp %p: allocating %lu bytes\n", this, (unsigned long) len);
 #endif
         this->data=(char*) malloc(len);
         memcpy(this->data, data, len);

@@ -41,7 +41,11 @@
 #include "sisocks.h"
 #include "Rsrv.h"
 
-typedef unsigned int Rsize_t;
+#ifdef __LP64__
+typedef long Rsize_t;
+#else
+typedef int Rsize_t;
+#endif
 
 //=== Rconnection error codes
 
@@ -124,7 +128,7 @@ protected:
 public:
     Rexp(Rmessage *msg);
     Rexp(unsigned int *pos, Rmessage *msg=0);
-    Rexp(int type, const char *data=0, int len=0, Rexp *attr=0);
+    Rexp(int type, const char *data=0, Rsize_t len=0, Rexp *attr=0);
     
     virtual ~Rexp();
     
@@ -229,7 +233,7 @@ public:
     /*Rstring(const char *str) : Rexp(XT_STR, str, strlen(str)+1) {}*/
     
     char **strings() { return cont; }
-    char *stringAt(unsigned int i) { return (i < 0 || i >= nel) ? 0 : cont[i]; }
+    char *stringAt(unsigned int i) { return (i >= nel) ? 0 : cont[i]; }
     char *string() { return stringAt(0); }
     virtual Rsize_t length() { return nel; }
 
