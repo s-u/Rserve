@@ -40,6 +40,7 @@
    -10 - out of memory
    -11 - operation is unsupported (e.g. unix login while crypt is not linked)
    -12 - eval didn't return a SEXP (possibly the server is too old/buggy or crashed)
+   -13 - message requires 64-bit sizes but this binary is linked as 32-bit
  */
 #include "Rconnection.h"
 
@@ -175,10 +176,13 @@ int Rmessage::read(int s) {
     head.res = ptoi(head.res);
 #ifdef __LP64__
     if (head.res) { /* process high bits of the length */
-      unsigned int len_lo = (unsigned int) head.len;
-      len |= ((Rsize_t)ph.res) << 32;
-      i = len;
+	unsigned int len_lo = (unsigned int) head.len, len_hi = (unsigned int) head.res;
+	len = (Rsize_t) (((unsigned long) len_lo) | (((unsigned long) len_hi) << 32));
+	i = len;
     }
+#else
+    if (head.res)
+	return -13; // 64-bit packet, but only 32-bit long is supported
 #endif
 
     if (i>0) {
