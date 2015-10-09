@@ -41,7 +41,11 @@
 #include "sisocks.h"
 #include "Rsrv.h"
 
+#ifdef __LP64__
+typedef unsigned long Rsize_t;
+#else
 typedef unsigned int Rsize_t;
+#endif
 
 //=== Rconnection error codes
 
