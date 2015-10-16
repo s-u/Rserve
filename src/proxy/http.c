@@ -471,7 +471,7 @@ static void http_input_iteration(args_t *c) {
     if (!c) return;
 	
     DBG(printf("input handler for worker %p (sock=%d, part=%d, method=%d, line_pos=%d)\n", (void*) c, (int)c->s, (int)c->part, (int)c->method, (int)c->line_pos));
-	
+	ulog("HTTPDEBUG: input handler for worker %p (sock=%d, part=%d, method=%d, line_pos=%d)", (void*) c, (int)c->s, (int)c->part, (int)c->method, (int)c->line_pos);
     /* FIXME: there is one edge case that is not caught on unix: if
      * recv reads two or more full requests into the line buffer then
      * this function exits after the first one, but input handlers may
@@ -486,6 +486,7 @@ static void http_input_iteration(args_t *c) {
 		char *s = c->line_buf;
 		n = srv->recv(c, c->line_buf + c->line_pos, LINE_BUF_SIZE - c->line_pos - 1);
 		DBG(printf("[recv n=%d, line_pos=%d, part=%d]\n", n, c->line_pos, (int)c->part));
+		ulog("HTTPDEBUG: [recv n=%d, line_pos=%d, part=%d]", n, c->line_pos, (int)c->part);
 		if (n < 0) { /* error, scrape this worker */
 			http_close(c);
 			return;
@@ -503,6 +504,7 @@ static void http_input_iteration(args_t *c) {
 			if (s[0] == '\n' || (s[0] == '\r' && s[1] == '\n')) { /* single, empty line - end of headers */
 				/* --- check request validity --- */
 				DBG(printf(" end of request, moving to body\n"));
+				ulog("HTTPDEBUG: end of request, moving to body");
 				if (!(c->attr & HTTP_1_0) && !(c->attr & HOST_HEADER)) { /* HTTP/1.1 mandates Host: header */
 					send_http_response(c, " 400 Bad Request (Host: missing)\r\nConnection: close\r\n\r\n");
 					http_close(c);
@@ -581,6 +583,7 @@ static void http_input_iteration(args_t *c) {
 					if (*s == '\r') *(s++) = 0;
 					if (*s == '\n') *(s++) = 0;
 					DBG(printf("complete line: {%s}\n", bol));
+					ulog("HTTPDEBUG: complete line: {%s}", bol);
 					if (c->part == PART_REQUEST) {
 						/* --- process request line --- */
 						unsigned int rll = strlen(bol); /* request line length */
@@ -620,6 +623,7 @@ static void http_input_iteration(args_t *c) {
 						c->url = strdup(url);
 						c->part = PART_HEADER;
 						DBG(printf("parsed request, method=%d, URL='%s'\n", (int)c->method, c->url));
+						ulog("HTTPDEBUG: parsed request, method=%d, URL='%s'", (int)c->method, c->url);
 					} else if (c->part == PART_HEADER) {
 						/* --- process headers --- */
 						char *k = bol;
@@ -696,6 +700,7 @@ static void http_input_iteration(args_t *c) {
 								c->ws_version = strdup(k);
 							}
 							DBG(fprintf(stderr, " [attr = %x]\n", c->attr));
+							ulog("HTTPDEBUG: [attr = %x]", c->attr);
 						}
 					}
 				}
@@ -710,8 +715,10 @@ static void http_input_iteration(args_t *c) {
     if (c->part == PART_BODY && c->body) { /* BODY  - this branch always returns */
 		if (c->body_pos < c->content_length) { /* need to receive more ? */
 			DBG(printf("BODY: body_pos=%d, content_length=%ld\n", c->body_pos, c->content_length));
+			ulog("HTTPDEBUG: BODY: body_pos=%d, content_length=%ld", c->body_pos, c->content_length);
 			n = srv->recv(c, c->body + c->body_pos, c->content_length - c->body_pos);
 			DBG(printf("      [recv n=%d - had %u of %lu]\n", n, c->body_pos, c->content_length));
+			ulog("HTTPDEBUG:      [recv n=%d - had %u of %lu]", n, c->body_pos, c->content_length);
 			c->line_pos = 0;
 			if (n < 0) { /* error, scrap this worker */
 				http_close(c);
@@ -786,7 +793,9 @@ static void http_input_iteration(args_t *c) {
 				return;
 			}
 		}
+		ulog("HTTPDEBUG: got headers, need body");
 		n = srv->recv(c, c->line_buf + c->line_pos, LINE_BUF_SIZE - c->line_pos - 1);
+		ulog("HTTPDEBUG:      [recv n=%d - had %u, buffer %lu]", n, c->line_pos, LINE_BUF_SIZE);
 		if (n < 0) { /* error, scrap this worker */
 			http_close(c);
 			return;
@@ -818,6 +827,8 @@ static void HTTP_connected(void *parg) {
 		return;
 	}
 
+	ulog("HTTPDEBUG: connected");
+
 	arg->aux = (struct aux_pass*) arg->srv->aux;
 
 	if ((arg->srv->flags & SRV_TLS) && shared_tls(0))
@@ -825,6 +836,8 @@ static void HTTP_connected(void *parg) {
 
 	while (arg->s != -1)
 		http_input_iteration(arg);
+
+	ulog("HTTPDEBUG: exiting");
 
 	free_args(arg);
 }
