@@ -383,8 +383,13 @@ static void process_request(args_t *c)
 				send_response(c, buf, strlen(buf));
 			}
 				
-			if (res.headers)
-				send_response(c, res.headers, strlen(res.headers));
+			if (res.headers) {
+				int hlen = strlen(res.headers);
+				send_response(c, res.headers, hlen);
+				/* the headers have to be terminated - do so if need be */
+				if (hlen && res.headers[hlen - 1] != '\n')
+					send_response(c, "\r\n", 2);
+			}
 			if (res.payload_type == PAYLOAD_FILE || res.payload_type == PAYLOAD_TEMPFILE) {
 				const char *fn = res.payload;
 				if (fn) {
