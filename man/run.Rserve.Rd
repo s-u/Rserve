@@ -13,7 +13,7 @@
   interfere with the prepation of \code{Rserve}.
 }
 \usage{
-run.Rserve(..., config.file = "/etc/Rserve.conf")
+run.Rserve(..., config.file = "/etc/Rserv.conf")
 }
 %- maybe also 'usage' for other objects documented here.
 \arguments{
