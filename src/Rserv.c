@@ -3104,8 +3104,11 @@ SEXP Rserve_fork_compute(SEXP sExp) {
 	fpid = fork();
 	ulog_reset();
 	ulog("Rserve_fork_compute: fork() = %d", (int) fpid);
-	if (fpid == -1)
+	if (fpid == -1) {
+		close(fd[0]);
+		close(fd[1]);
 		Rf_error("unable to fork computing process");
+	}
 	compute_pid = fpid;
 	if (fpid == 0) { /* child = compute process */
 		closesocket(self_args->s);
@@ -3118,6 +3121,7 @@ SEXP Rserve_fork_compute(SEXP sExp) {
 		srv->send      = server_send;
 		srv->ss        = -1;
 
+		close(fd[0]);
 		args->s = fd[1];
 		args->ucix = UCIX++;
 		args->ss = -1;
@@ -3149,6 +3153,7 @@ SEXP Rserve_fork_compute(SEXP sExp) {
 	}
 	/* parent - wait for the result */
 	compute_fd = fd[0];
+	close(fd[1]);
 	compute_ppid = 0;
 	{
 		struct phdr ph;
