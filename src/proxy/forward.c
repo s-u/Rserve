@@ -45,11 +45,11 @@ static const char *infer_content_type(const char *fn) {
     const char *ext = fn ? strrchr(fn, '.') : 0;
     if (!ext) return 0;
     ext++;
-    if (!strcmp(ext, "svg")) return "Content-Type: image/svg+xml\r\n";
-    if (!strcmp(ext, "js"))  return "Content-Type: application/javascript\r\n";
-    if (!strcmp(ext, "css")) return "Content-Type: text/css\r\n";
-    if (!strcmp(ext, "png")) return "Content-Type: image/png\r\n";
-    if (!strcmp(ext, "jpeg") || !strcmp(ext, "jpg")) return "Content-Type: image/jpeg\r\n";
+    if (!strcmp(ext, "svg")) return "image/svg+xml";
+    if (!strcmp(ext, "js"))  return "application/javascript";
+    if (!strcmp(ext, "css")) return "text/css";
+    if (!strcmp(ext, "png")) return "image/png";
+    if (!strcmp(ext, "jpeg") || !strcmp(ext, "jpg")) return "image/jpeg";
     return 0;
 }
 
@@ -138,12 +138,12 @@ static void http_request(http_request_t *req, http_result_t *res) {
     fclose(f);
     /* append Last-Modified: based on the served file and set no-cache */
     ts = (double) time(0);
-    snprintf(buf, sizeof(buf), "Last-Modified: %s\r\nCache-control: no-cache\r\n%s%s",
+    snprintf(buf, sizeof(buf), "Last-Modified: %s\r\nCache-control: no-cache\r\n%s",
 	     posix2http((MTIME(st) > ts) ? ts : MTIME(st)),
-             c_type ? c_type : "",
 	     append_headers ? append_headers : ""
         );
     res->headers = strdup(buf);
+    if (c_type) res->content_type = strdup(c_type);
 }
 
 struct args {
