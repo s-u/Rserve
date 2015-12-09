@@ -138,7 +138,7 @@ static void http_request(http_request_t *req, http_result_t *res) {
     fclose(f);
     /* append Last-Modified: based on the served file and set no-cache */
     ts = (double) time(0);
-    snprintf(buf, sizeof(buf), "Last-Modified: %s\r\nCache-control: no-cache\r\n%s",
+    snprintf(buf, sizeof(buf), "Last-Modified: %s\r\nCache-Control: no-cache\r\n%s",
 	     posix2http((MTIME(st) > ts) ? ts : MTIME(st)),
 	     append_headers ? append_headers : ""
         );

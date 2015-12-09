@@ -35,7 +35,7 @@
 #define CONNECTION_CLOSE  0x0001 /* Connection: close response behavior is requested */
 #define HOST_HEADER       0x0002 /* headers contained Host: header (required for HTTP/1.1) */
 #define HTTP_1_0          0x0004 /* the client requested HTTP/1.0 */
-#define CONTENT_LENGTH    0x0008 /* Content-length: was specified in the headers */
+#define CONTENT_LENGTH    0x0008 /* Content-Length: was specified in the headers */
 #define THREAD_OWNED      0x0010 /* the worker is owned by a thread and cannot removed */
 #define THREAD_DISPOSE    0x0020 /* the thread should dispose of the worker */
 #define CONTENT_TYPE      0x0040 /* message has a specific content type set */
@@ -340,14 +340,14 @@ static void process_request(args_t *c)
 		   or NULL (if present, else default is "text/html")
 		   
 		   headers: must be a character vector - the elements will
-		   have CRLF appended and neither Content-type nor
-		   Content-length may be used
+		   have CRLF appended and neither Content-Type nor
+		   Content-Length may be used
 		   
 		   status code: must be an integer if present (default is 200)
 		*/
 		
 		if (res.err) {
-			send_http_response(c, " 500 Evaluation error\r\nConnection: close\r\nContent-type: text/plain\r\n\r\n");
+			send_http_response(c, " 500 Evaluation error\r\nConnection: close\r\nContent-Type: text/plain\r\n\r\n");
 			DBG(fprintf(stderr, "respond with 500 and content: %s\n", s));
 			if (c->method != METHOD_HEAD)
 				send_response(c, res.err, strlen(res.err));
@@ -361,13 +361,13 @@ static void process_request(args_t *c)
 			char buf[64];
 			const char *ct = res.content_type ? res.content_type : "text/html";
 			if (code == 200) {
-				send_http_response(c, " 200 OK\r\nContent-type: ");
+				send_http_response(c, " 200 OK\r\nContent-Type: ");
 				send_response(c, ct, strlen(ct));
 			} else if (code == 304) { /* not modified - don't need content type */
 				sprintf(buf, "%s 304 Not Modified", HTTP_SIG(c));
 				send_response(c, buf, strlen(buf));
 			} else {
-				sprintf(buf, "%s %d Code %d\r\nContent-type: ", HTTP_SIG(c), code, code);
+				sprintf(buf, "%s %d Code %d\r\nContent-Type: ", HTTP_SIG(c), code, code);
 				send_response(c, buf, strlen(buf));
 				send_response(c, ct, strlen(ct));
 			}
@@ -397,14 +397,14 @@ static void process_request(args_t *c)
 					FILE *f = fopen(fn, "rb");
 					long fsz = 0;
 					if (!f) {
-						send_response(c, "Content-length: 0\r\n\r\n", 23);
+						send_response(c, "Content-Length: 0\r\n\r\n", 23);
 						fin_request(c);
 						return;
 					}
 					fseek(f, 0, SEEK_END);
 					fsz = ftell(f);
 					fseek(f, 0, SEEK_SET);
-					sprintf(buf, "Content-length: %ld\r\n\r\n", fsz);
+					sprintf(buf, "Content-Length: %ld\r\n\r\n", fsz);
 					send_response(c, buf, strlen(buf));
 					if (c->method != METHOD_HEAD) {
 						fbuf = (char*) malloc(32768);
@@ -437,7 +437,7 @@ static void process_request(args_t *c)
 					fin_request(c);
 					return;
 				}
-				sprintf(buf, "Content-length: 0\r\n\r\n");
+				sprintf(buf, "Content-Length: 0\r\n\r\n");
 				send_response(c, buf, strlen(buf));
 				free_res(&res);
 				fin_request(c);
@@ -446,7 +446,7 @@ static void process_request(args_t *c)
 				if (res.code == 304) /* 304 may NOT send any body and thus no content-length */
 					send_response(c, "\r\n", 2);
 				else {
-					sprintf(buf, "Content-length: %lu\r\n\r\n", (unsigned long) res.payload_len);
+					sprintf(buf, "Content-Length: %lu\r\n\r\n", (unsigned long) res.payload_len);
 					send_response(c, buf, strlen(buf));
 					if (c->method != METHOD_HEAD)
 						send_response(c, res.payload, res.payload_len);
@@ -457,7 +457,7 @@ static void process_request(args_t *c)
 			}
 		}
     }
-    send_http_response(c, " 500 Invalid response from handler.\r\nConnection: close\r\nContent-type: text/plain\r\n\r\nServer error: invalid response from handler.\r\n");
+    send_http_response(c, " 500 Invalid response from handler.\r\nConnection: close\r\nContent-Type: text/plain\r\n\r\nServer error: invalid response from handler.\r\n");
     c->attr |= CONNECTION_CLOSE; /* force close */
 }
 
