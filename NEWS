@@ -1,6 +1,9 @@
  NEWS/Changelog for Rserve
 ---------------------------
 
+1.8-5	(under development)
+
+
 1.8-4
     o	bugfix: when using compute separation on some Linux systems the
 	death of the compute process may remain undetected. Rserve
