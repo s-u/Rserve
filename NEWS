@@ -1,12 +1,18 @@
  NEWS/Changelog for Rserve
 ---------------------------
 
-1.8-4	(under development)
+1.8-4
     o	bugfix: when using compute separation on some Linux systems the
 	death of the compute process may remain undetected. Rserve
 	now actively detects if the compute process has terminated and
 	will signal accordingly. The same goes of a compute process
 	whose parent has died.
+
+    o	bugfix: make sure headers are correctly terminated when using
+	forward proxy and R scripts.
+
+    o	bugfix: static files served by the proxy had duplicate (and
+	possibly conflicting) content-type headers.
 
 
 1.8-3
