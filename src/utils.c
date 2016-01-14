@@ -25,7 +25,11 @@ extern Rboolean R_Visible;
 typedef struct rs_eval {
     SEXP what, rho, ctx_obj, last, traceback;
     int exp;
+    int top_level; /* should top-level handlers be called? */
 } rs_eval_t;
+
+/* although exposed and useful, it is not officially in the API - very odd .. */
+void Rf_callToplevelHandlers(SEXP expr, SEXP value, Rboolean succeeded, Rboolean visible);
 
 static SEXP Rserve_eval_do(void *arg) {
     rs_eval_t *e = (rs_eval_t*) arg;
@@ -41,8 +45,12 @@ static SEXP Rserve_eval_do(void *arg) {
                 R_PreserveObject(x);
                 e->last = x;
             }
+	    PROTECT(x);
             if (R_Visible)
                 PrintValue(x);
+	    if (e->top_level)
+		Rf_callToplevelHandlers(VECTOR_ELT(what, i), x, TRUE, R_Visible);
+	    UNPROTECT(1);
         }
     } else {
         e->exp = -1;
@@ -97,9 +105,9 @@ SEXP Rserve_set_context(SEXP sObj) {
     return RS_current_context;
 }
 
-SEXP Rserve_eval(SEXP what, SEXP rho, SEXP retLast, SEXP retExp, SEXP ctxObj) {
-    int need_last = asInteger(retLast), exp_value = asInteger(retExp);
-    rs_eval_t e = { what, rho, 0, 0, 0, 0 };
+SEXP Rserve_eval(SEXP what, SEXP rho, SEXP retLast, SEXP retExp, SEXP ctxObj, SEXP sTopLevel) {
+    int need_last = asInteger(retLast), exp_value = asInteger(retExp), top_level = asInteger(sTopLevel);
+    rs_eval_t e = { what, rho, 0, 0, 0, 0, top_level };
     SEXP saved_context = RS_current_context;
     int  saved_context_is_protected = RS_current_context_is_protected;
     if (ctxObj != R_NilValue) {

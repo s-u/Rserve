@@ -73,8 +73,8 @@ ulog <- function(...) invisible(.Call(Rserve_ulog, paste(..., collapse="\n", sep
 ocap <- function(fun, name=deparse(substitute(fun)))
   .Call(Rserve_oc_register, fun, name)
 
-Rserve.eval <- function(what, where=.GlobalEnv, last.value=FALSE, exp.value=FALSE, context=NULL)
-    .Call(Rserve_eval, what, where, last.value, exp.value, context)
+Rserve.eval <- function(what, where=.GlobalEnv, last.value=FALSE, exp.value=FALSE, context=NULL, top.level=FALSE)
+    .Call(Rserve_eval, what, where, last.value, exp.value, context, top.level)
 
 Rserve.context <- function(what)
     if (missing(what)) .Call(Rserve_get_context) else .Call(Rserve_set_context, what)

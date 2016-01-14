@@ -12,7 +12,7 @@
 }
 \usage{
 Rserve.eval(what, where = .GlobalEnv, last.value = FALSE, exp.value = FALSE,
-            context = NULL)
+            context = NULL, top.level = FALSE)
 }
 %- maybe also 'usage' for other objects documented here.
 \arguments{
@@ -26,6 +26,8 @@ Rserve.eval(what, where = .GlobalEnv, last.value = FALSE, exp.value = FALSE,
     it will only store the index of the expression in \code{what}.}
   \item{context}{optional object that will be used as the context
     for the duration of the evaluation.}
+  \item{top.level}{should this evaluation be considered top-level as
+    to trigger top-level callbacks after execution?}
 }
 \details{
   If \code{what} contains one or more expressions, they are evaluated
