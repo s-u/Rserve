@@ -242,6 +242,7 @@ int R_script_handler(http_request_t *req, http_result_t *res, const char *path) 
                         char *outp, *oc;
                         qap_hdr_t *oh;
                         unsigned int *oi;
+			int add_large = 0;
 
                         if (req->url) l += strlen(req->url);
                         if (req->query) l += strlen(req->query);
@@ -249,17 +250,11 @@ int R_script_handler(http_request_t *req, http_result_t *res, const char *path) 
                         if (req->body_len) l += req->body_len;
                         l += 3; /* 3 separating \0s */
                         
-                        /* FIXME: support large packets */
-                        if (l > 0xffff80) {
-                            free(oci);  
-                            ulog("ERROR: large packages are curretnly unsupported (needed to store %lu bytes)", l);
-                            res->err = strdup("sorry, large packets are currently unsupported");
-                            res->code = 500;
-                            close(s);
-                            return 1;
-                        }
-
                         tpl = l + ocl + 36; /* DT_SEXP; XT_LANG_NOTAG; OCAP; XT_RAW; raw-len + 16-byte hdr */
+			if (l > 0xfff800) {
+			    add_large = XT_LARGE;
+			    tpl += 12; /* DT_SEXP | XT_LARGE + XT_LANG_NOTAG | XT_LARGE + XT_RAW | XT_LARGE */
+			}
                         tpl = (tpl + 3) & (~3); /* align */
                         ulog("l = %lu, tpl = %lu", l, tpl);
                         outp = (char*) malloc(tpl);
@@ -277,14 +272,24 @@ int R_script_handler(http_request_t *req, http_result_t *res, const char *path) 
                         oh->res = 0;
                         oh->msg_id = hdr.msg_id;
                         tpl -= sizeof(qap_hdr_t) + 4; /* hdr - DT_SXP header */
-                        *(oi++) = itop(SET_PAR(DT_SEXP, tpl));
+                        *(oi++) = itop(SET_PAR(DT_SEXP | add_large, tpl));
                         tpl -= 4;
-                        *(oi++) = itop(SET_PAR(XT_LANG_NOTAG, tpl));
+			if (add_large) {
+			    *(oi++) = itop(tpl >> 24);
+			    tpl -= 4;
+			}
+                        *(oi++) = itop(SET_PAR(XT_LANG_NOTAG | add_large, tpl));
                         tpl -= 4;
+			if (add_large) {
+			    *(oi++) = itop(tpl >> 24);
+			    tpl -= 4;
+			}
                         memcpy(oi, hp, ocl + 4);
                         tpl -= ocl + 4;
                         oi += (ocl + 4) / 4; /* Note: we don't check alignment */
-                        *(oi++) = itop(SET_PAR(XT_RAW, (l + 7) & 0xfffffffc));
+                        *(oi++) = itop(SET_PAR(XT_RAW | add_large, (l + 7) & 0xfffffffc));
+			if (add_large)
+			    *(oi++) = itop((l + 7) >> 24);
                         *(oi++) = itop(l);
                         oc = (char*) oi;
                         ulog("l will be stored at %ld", (long int) (oc - outp));
