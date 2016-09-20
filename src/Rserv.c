@@ -3270,8 +3270,8 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 		}
 #endif
 
-		timv.tv_sec = 3;
-		timv.tv_usec = 0;
+		timv.tv_sec = 0;
+		timv.tv_usec = 200000;
 		FD_ZERO(&readfds);
 		FD_SET(s, &readfds);
 		if (compute_fd != -1) {
@@ -3292,6 +3292,16 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 		else if (compute_fd != -1 && FD_ISSET(compute_fd, &readfds)) which = 2;
 		else if (std_fw_fd > 0 && FD_ISSET(std_fw_fd, &readfds)) which = 3;
 		
+		if (which == 0) {
+			SEXP var = findVarInFrame(R_GlobalEnv, install(".ocap.idle"));
+			if (Rf_isFunction(var)) { /* idle callback */
+				SEXP l = PROTECT(lang1(var));
+				int errf = 0;
+				R_tryEval(l, R_GlobalEnv, &errf);
+				UNPROTECT(1);
+			}
+		}
+
 		if (which == 3) /* std-forwarding */
 			handle_std_fw();
 
