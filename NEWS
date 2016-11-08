@@ -2,6 +2,15 @@
 ---------------------------
 
 1.8-5	(under development)
+    o	add support for callback in OCAP idle mode. If the function
+	.ocap.idle() exists in the global environment and the
+	configuration option
+
+	  use.idle.callback yes
+
+	is set then that function is called inside each OCAP iteration
+	after a timeout of 200ms (i.e., if R is idle in the OCAP loop
+	with no input from any side for at least 200ms).
 
 
 1.8-4

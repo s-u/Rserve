@@ -1016,6 +1016,8 @@ static int default_uid = 0, default_gid = 0;
 static int random_uid = 0, random_gid = 0;
 static int random_uid_low = 32768, random_uid_high = 65530;
 
+static int use_idle_callback = 0;
+
 #ifdef HAVE_RSA
 static int rsa_load_key(const char *buf);
 #endif
@@ -1249,6 +1251,10 @@ static int setConfig(const char *c, const char *p) {
 	}
 	if (!strcmp(c, "ipv6")) {
 		use_ipv6 = conf_is_true(p);
+		return 1;
+	}
+	if (!strcmp(c, "use.idle.callback")) {
+		use_idle_callback = conf_is_true(p);
 		return 1;
 	}
 	if (!strcmp(c, "http.upgrade.websockets")) {
@@ -3270,8 +3276,8 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 		}
 #endif
 
-		timv.tv_sec = 3;
-		timv.tv_usec = 0;
+		timv.tv_sec = 0;
+		timv.tv_usec = 200000;
 		FD_ZERO(&readfds);
 		FD_SET(s, &readfds);
 		if (compute_fd != -1) {
@@ -3292,6 +3298,16 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 		else if (compute_fd != -1 && FD_ISSET(compute_fd, &readfds)) which = 2;
 		else if (std_fw_fd > 0 && FD_ISSET(std_fw_fd, &readfds)) which = 3;
 		
+		if (use_idle_callback && which == 0) {
+			SEXP var = findVarInFrame(R_GlobalEnv, install(".ocap.idle"));
+			if (Rf_isFunction(var)) { /* idle callback */
+				SEXP l = PROTECT(lang1(var));
+				int errf = 0;
+				R_tryEval(l, R_GlobalEnv, &errf);
+				UNPROTECT(1);
+			}
+		}
+
 		if (which == 3) /* std-forwarding */
 			handle_std_fw();
 
