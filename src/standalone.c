@@ -157,7 +157,7 @@ int main(int argc, char **argv)
 					   CONFIG_FILE, workdir, port, localSocketName ? localSocketName : "[none, TCP/IP used]",
 					   authReq ? "yes" : "no", usePlain ? "allowed" : "not allowed", pwdfile ? pwdfile : "[none]",
 					   allowIO ? "yes" : "no", localonly ? "no" : "yes",
-					   child_control ? "yes" : "no", Rsrv_interactive ? "yes" : "no", maxInBuf / 1024L);
+					   "no", Rsrv_interactive ? "yes" : "no", maxInBuf / 1024L);
 				return 0;	       
 			}
 			if (!strcmp(argv[i] + 2, "version")) {

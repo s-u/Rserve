@@ -263,11 +263,6 @@ void sha1hash(const char *buf, int len, unsigned char hash[20]);
 #define RS_ParseVector(A,B,C) R_ParseVector(A,B,C,R_NilValue)
 #endif
 
-/* child control commands */
-#define CCTL_EVAL     1 /* data: string */
-#define CCTL_SOURCE   2 /* data: string */
-#define CCTL_SHUTDOWN 3 /* - */
-
 /* general RSMSG error commands */
 #define RSMSG_ERR             0x800  /* is RSMSG error */
 
@@ -329,16 +324,7 @@ static SOCKET csock = -1;
 
 static pid_t parentPID = -1;
 
-#include "rsio.h"
-
-static rsmsg_addr_t server_addr;
-static rsmsg_addr_t child_addr;
-
 int is_child = 0;       /* 0 for parent (master), 1 for children */
-rsio_t *parent_io;      /* pipe to the master process or NULL if not available */
-int can_control = 0;    /* control commands will be rejected unless this flag is set */
-int child_control = 0;  /* enable/disable the ability of children to send commands to the master process */
-int self_control = 0;   /* enable/disable the ability to use control commands from within the R process */
 static int tag_argv = 0;/* tag the ARGV with client/server IDs */
 static char *pidfile = 0;/* if set by configuration generate pid file */
 static int use_msg_id;   /* enable/disable the use of msg-ids in message frames */
@@ -682,31 +668,16 @@ cetype_t string_encoding = CE_NATIVE;  /* default is native */
 #endif
 
 static SEXP Rserve_ctrlCMD(int command, SEXP what) {
-	long cmd[2] = { 0, 0 };
-	const char *str;
-	if (!self_control) Rf_error("R control is not premitted in this instance of Rserve");
-	if (!parent_io) Rf_error("Connection to the parent process has been lost.");
-	if (TYPEOF(what) != STRSXP || LENGTH(what) != 1) Rf_error("Invalid parameter, must be a single string.");
-	str = CHAR(STRING_ELT(what, 0)); /* FIXME: should we do some re-coding? This is not ripe for CHAR_FE since the target is our own instance and not the client ... */
-	cmd[0] = command;
-	cmd[1] = strlen(str) + 1;
-	if (rsio_write(parent_io, str, strlen(str) + 1, command, -1)) {
-#ifdef RSERV_DEBUG
-		printf(" - Rserve_ctrlCMD send to parent pipe (cmd=%ld, len=%ld) failed, closing parent pipe\n", cmd[0], cmd[1]);
-#endif
-		rsio_free(parent_io);
-		parent_io = 0;
-		Rf_error("Error writing to parent pipe");
-	}
+	Rf_error("R control is not supported in this instance of Rserve");
 	return ScalarLogical(1);
 }
 
 SEXP Rserve_ctrlEval(SEXP what) {
-	return Rserve_ctrlCMD(CCTL_EVAL, what);
+	return Rserve_ctrlCMD(-1, what);
 }
 
 SEXP Rserve_ctrlSource(SEXP what) {
-	return Rserve_ctrlCMD(CCTL_SOURCE, what);
+	return Rserve_ctrlCMD(-1, what);
 }	
 
 /* this is the representation of NAs in strings. We chose 0xff since that should never occur in UTF-8 strings. If 0xff occurs in the beginning of a string anyway, it will be doubled to avoid misrepresentation. */
@@ -1068,8 +1039,6 @@ static void RSsrv_init() {
 			fclose(f);
 		} else RSEprintf("WARNING: cannot write into pid file '%s'\n", pidfile);
 	}
-
-	generate_addr(&server_addr);
 }
 
 static void RSsrv_done() {
@@ -1463,8 +1432,8 @@ static int setConfig(const char *c, const char *p) {
 		return 1;
 	}
 	if (!strcmp(c, "control") && conf_is_true(p)) {
-		child_control = 1;
-		return 1;
+		RSEprintf("WARNING: control commands are NOT supported since Rserve 1.8");
+		return -1;
 	}
 	if (!strcmp(c, "shutdown")) {
 		disable_shutdown = !conf_is_true(p);
@@ -1541,8 +1510,8 @@ static int setConfig(const char *c, const char *p) {
 		return 1;
 	}
 	if (!strcmp(c, "r-control") || !strcmp(c, "r.control")) {
-		self_control = conf_is_true(p);
-		return 1;
+		RSEprintf("WARNING: control commands are NOT supported since Rserve 1.8");
+		return -1;
 	}
 	if (!strcmp(c, "cachepwd")) {
 		cache_pwd = (*p == 'i') ? 2 : conf_is_true(p);
@@ -1879,8 +1848,6 @@ SOCKET resume_session() {
 #endif
 typedef struct child_process {
 	pid_t pid;
-	rsio_t *io;
-	rsmsg_addr_t addr;
 	struct child_process *prev, *next;
 } child_process_t;
 
@@ -2193,39 +2160,12 @@ int Rserve_prepare_child(args_t *args) {
 	if (is_child) return 0; /* this is a no-op if we are already a child
 							   FIXME: thould this be an error ? */
 
-	parent_io = 0;
-
-	/* we use the input pipe only if child control is enabled. disabled pipe means no registration */
-	if (child_control || self_control)
-		parent_io = rsio_new();
-
-	generate_addr(&child_addr);
-
     if ((lastChild = RS_fork(args)) != 0) { /* parent/master part */
 		int forkErrno = errno; //grab errno close to source before it can be changed by other failures
 		/* close the connection socket - the child has it already */
 		closesocket(args->s);
-		if (lastChild == -1) {
+		if (lastChild == -1)
 			RSEprintf("WARNING: fork() failed in Rserve_prepare_child(): %s\n",strerror(forkErrno));
-			if (parent_io) {
-				rsio_free(parent_io);
-				parent_io = 0;
-			}
-		}
-		if (parent_io) { /* if we have a valid pipe register the child */
-			child_process_t *cp = (child_process_t*) malloc(sizeof(child_process_t));
-			rsio_set_parent(parent_io);
-#ifdef RSERV_DEBUG
-			printf("child %d was spawned, registering input pipe\n", (int)lastChild);
-#endif
-			cp->io = parent_io;
-			cp->addr = child_addr;
-			cp->pid = lastChild;
-			cp->next = children;
-			if (children) children->prev = cp;
-			cp->prev = 0;
-			children = cp;
-		}
 		return lastChild;
     }
 
@@ -2235,8 +2175,6 @@ int Rserve_prepare_child(args_t *args) {
 	if (main_argv && tag_argv && strlen(main_argv[0]) >= 8)
 		strcpy(main_argv[0] + strlen(main_argv[0]) - 8, "/RsrvCHx");
 	is_child = 1;
-	if (parent_io) /* if we have a vaild pipe to the parent set it up */
-		rsio_set_child(parent_io);
 
 	srandom(rseed);
     
@@ -2472,7 +2410,6 @@ static int auth_user(const char *usr, const char *pwd, const char *salt) {
 				} /* if fgets */
 			pwd_close(pwf);
 			if (authed) {
-				can_control = ctrl_flag;
 #ifdef unix
 				if (auto_uid && !u_uid && !default_uid) {
 					authed = 0;
@@ -2677,12 +2614,6 @@ void Rserve_cleanup() {
 	}
 #endif
 
-	/* this is probably superfluous ... just make sure no one
-	   tries to use parent_io after Rserve_cleanup() */
-	if (parent_io) {
-		rsio_free(parent_io);
-		parent_io = 0;
-	}
 	ulog("INFO: closing session");
 }
 
@@ -3020,12 +2951,6 @@ void Rserve_OCAP_connected(void *thp) {
 	/* everything is binary from now on */
 	args->flags |= F_OUT_BIN;
 	
-#if 0 /* do we care? */
-	can_control = 0;
-	if (!authReq && !pwdfile) /* control is allowed by default only if authentication is not required and passwd is not present. In all other cases it will be set during authentication. */
-		can_control = 1;
-#endif
-
 	while (OCAP_iteration(rt, 0)) {}
 	
 	/* FIXME: for compute_fd should we defer the cleanup to the compute process? */
@@ -3826,10 +3751,6 @@ void Rserve_QAP1_connected(void *thp) {
 	/* everything is binary from now on */
 	a->flags |= F_OUT_BIN;
 	
-	can_control = 0;
-	if (!authReq && !pwdfile) /* control is allowed by default only if authentication is not required and passwd is not present. In all other cases it will be set during authentication. */
-		can_control = 1;
-
     while((rn = srv->recv(a, (char*)&ph, sizeof(ph))) == sizeof(ph)) {
 		SEXP eval_result = 0;
 		size_t plen = 0;
@@ -4205,35 +4126,7 @@ void Rserve_QAP1_connected(void *thp) {
 
 		if (ph.cmd == CMD_ctrlEval || ph.cmd == CMD_ctrlSource || ph.cmd == CMD_ctrlShutdown) {
 			process = 1;
-#ifdef RSERV_DEBUG
-			printf("control command: %s [can control: %s, pipe: %p]\n", (ph.cmd == CMD_ctrlEval) ? "eval" : ((ph.cmd == CMD_ctrlSource) ? "source" : "shutdown"), can_control ? "yes" : "no", parent_io);
-#endif
-			if (!can_control) /* no right to do this */
-				sendResp(a, SET_STAT(RESP_ERR, ERR_accessDenied));
-			else {
-				/* source and eval require a parameter */
-				if ((ph.cmd == CMD_ctrlEval || ph.cmd == CMD_ctrlSource) && (pars < 1 || parT[0] != DT_STRING))
-					sendResp(a, SET_STAT(RESP_ERR, ERR_inv_par));
-				else {
-					if (!parent_io)
-						sendResp(a, SET_STAT(RESP_ERR, ERR_ctrl_closed));
-					else {
-						long cmd[2] = { 0, 0 };
-						if (ph.cmd == CMD_ctrlEval) { cmd[0] = CCTL_EVAL; cmd[1] = strlen(parP[0]) + 1; }
-						else if (ph.cmd == CMD_ctrlSource) { cmd[0] = CCTL_SOURCE; cmd[1] = strlen(parP[0]) + 1; }
-						else cmd[0] = CCTL_SHUTDOWN;
-						if (rsio_write(parent_io, parP[0], cmd[1], cmd[0], -1)) {
-#ifdef RSERV_DEBUG
-							printf(" - send to parent pipe (cmd=%ld, len=%ld) failed, closing parent pipe\n", cmd[0], cmd[1]);
-#endif
-							rsio_free(parent_io);
-							parent_io = 0;
-							sendResp(a, SET_STAT(RESP_ERR, ERR_ctrl_closed));
-						} else
-							sendResp(a, RESP_OK);
-					}
-				}
-			}
+			sendResp(a, SET_STAT(RESP_ERR, ERR_unsupportedCmd));
 		}
 
 		if (ph.cmd == CMD_setEncoding) { /* set string encoding */
@@ -4860,20 +4753,6 @@ void serverLoop() {
 					FD_SET(ss, &readfds);
 				}
 		
-		if (children) {
-			child_process_t *cp = children;
-			while (cp) {
-				if (cp->io) {
-					int fd = rsio_select_fd(cp->io);
-					if (fd != -1) {
-						FD_SET(fd, &readfds);
-						if (fd > maxfd) maxfd = fd;
-					}
-				}
-				cp = cp->next;
-			}
-		}
-
 		selRet = select(maxfd + 1, &readfds, 0, 0, &timv);
 
 		if (selRet > 0) {
@@ -4958,92 +4837,6 @@ void serverLoop() {
                         R_tryEval(lang1(fsym), R_GlobalEnv, &evalErr);
 				}
 			} /* end loop over servers */
-
-			if (children) { /* one of the children signalled */
-				child_process_t *cp = children;
-				while (cp) {
-					if (cp->io && FD_ISSET(rsio_select_fd(cp->io), &readfds)) {
-						rsmsg_t *msg;
-						int msg_stat = rsio_read_status(cp->io);
-						if (msg_stat < 0) { /* error, assume corruption and remove the child */
-							child_process_t *ncp = cp->next;
-#ifdef RSERV_DEBUG
-							printf("pipe to child %d closed, removing child\n", (int) cp->pid);
-#endif
-							rsio_free(cp->io);
-							cp->io = 0;
-							/* remove the child from the list */
-							if (cp->prev) cp->prev->next = ncp; else children = ncp;
-							if (ncp) ncp->prev = cp->prev;
-							free(cp);
-							cp = ncp;
-						} else if (msg_stat == 1 && (msg = rsio_read_msg(cp->io))) { /* we got a valid message */
-							rsmsg_addr_t *src = 0, *dst = 0;
-							rsmsglen_t msg_pos = 0;
-							msg->data[msg->len] = 0; /* rsio guarantees extra sentinel byte */
-							if ((msg->cmd & RSMSG_HAS_SRC) && msg->len >= RSMSG_ADDR_LEN) { /* has source address */
-								src = (rsmsg_addr_t*) (msg->data);
-								msg_pos += RSMSG_ADDR_LEN;
-							}
-							if ((msg->cmd & RSMSG_HAS_DST) && (msg->len - msg_pos) >= RSMSG_ADDR_LEN) { /* has destination address */
-								dst = (rsmsg_addr_t*) (msg->data + RSMSG_ADDR_LEN);
-								msg_pos += RSMSG_ADDR_LEN;
-							}
-							/* is this message addressed to us ? */
-							if (!dst || !memcmp(&server_addr, dst, RSMSG_ADDR_LEN)) {
-								if (msg->cmd == CCTL_EVAL) {
-#ifdef RSERV_DEBUG
-									printf(" - control calling voidEval(\"%s\")\n", msg->data + msg_pos);
-#endif
-									voidEval((const char*) (msg->data + msg_pos));
-								} else if (msg->cmd == CCTL_SOURCE) {
-									int evalRes = 0;
-									SEXP exp;
-									SEXP sfn = PROTECT(allocVector(STRSXP, 1));
-									SET_STRING_ELT(sfn, 0, mkRChar((const char*) (msg->data + msg_pos)));
-									exp = LCONS(install("source"), CONS(sfn, R_NilValue));
-#ifdef RSERV_DEBUG
-									printf(" - control calling source(\"%s\")\n", msg->data + msg_pos);
-#endif
-									R_tryEval(exp, R_GlobalEnv, &evalRes);
-#ifdef RSERV_DEBUG
-									printf(" - result: %d\n", evalRes);
-#endif
-									UNPROTECT(1);								
-								} else if (msg->cmd == CCTL_SHUTDOWN) {
-#ifdef RSERV_DEBUG
-									printf(" - shutdown via control, setting active to 0\n");
-#endif
-									active = 0;
-								}
-							} else { /* let's see if we can route it */
-								child_process_t *cdst = children;
-								rsmsg_addr_t saddr[2];
-								saddr[0] = server_addr;
-								saddr[1] = *dst;
-								while (cdst) {
-									if (!memcmp(&(cdst->addr), dst, RSMSG_ADDR_LEN)) {
-										if (!cdst->io) {
-											rsio_write(cp->io, saddr, RSMSG_ADDR_LEN * 2, RSMSG_ERR_NO_IO | RSMSG_HAS_DST | RSMSG_HAS_SRC, -1);
-										} else {
-											if (rsio_write_msg(cdst->io, msg) != 0)
-												rsio_write(cp->io, saddr, RSMSG_ADDR_LEN * 2, RSMSG_ERR_IO_FAILED | RSMSG_HAS_DST | RSMSG_HAS_SRC, -1);
-										}
-										break;
-									}
-									cdst = cdst->next;
-								}
-								if (!cdst) /* address not found */
-									rsio_write(cp->io, saddr, RSMSG_ADDR_LEN * 2, RSMSG_ERR_NOT_FOUND | RSMSG_HAS_DST | RSMSG_HAS_SRC, -1);
-							}
-							rsmsg_free(msg);
-							cp = cp->next;	
-						} else /* the last case is 0 where some data was processed but not an entire message */
-							cp = cp->next;
-					} else
-						cp = cp->next;
-				} /* loop over children */
-			} /* end if (children) */
 		} /* end if (selRet > 0) */
 #endif
     } /* end while(active) */
