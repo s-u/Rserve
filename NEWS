@@ -1,6 +1,13 @@
  NEWS/Changelog for Rserve
 ---------------------------
 
+NOTE: Rserve 1.8 series has many new features, but it has also removed
+      support for control commands. If you absolutely need them,
+      please use Rserve 1.7 series and notify me so I can assess
+      whether they may be resurrected for the 1.9 series. If you don't
+      know what it means, just ignore this note.
+
+
 1.8-5	(under development)
     o	add support for callback in OCAP idle mode. If the function
 	.ocap.idle() exists in the global environment and the
@@ -11,6 +18,9 @@
 	is set then that function is called inside each OCAP iteration
 	after a timeout of 200ms (i.e., if R is idle in the OCAP loop
 	with no input from any side for at least 200ms).
+
+    o	control commands are now officially disabled since they never
+	worked reliably in the 1.8 series after the the rsio re-write.
 
 
 1.8-4
