@@ -3150,6 +3150,30 @@ SEXP Rserve_fork_compute(SEXP sExp) {
 	return R_NilValue;
 }
 
+typedef struct ocap_handler {
+	int fd;
+	SEXP sCallback;
+	SEXP sData;
+	struct ocap_handler *next;
+} ocap_handler_t;
+
+ocap_handler_t *ocap_handlers;
+
+SEXP add_oi_handler(SEXP sFD, SEXP sCallback, SEXP sData) {
+	ocap_handler_t *h = (ocap_handler_t*) malloc(sizeof(ocap_handler_t));
+	if (!h) Rf_error("out of memory while allocating handler structure");
+	h->fd = asInteger(sFD);
+	R_PreserveObject(h->sCallback = sCallback);
+	R_PreserveObject(h->sData = sData);
+	h->next = 0;
+	if (ocap_handlers) {
+		ocap_handler_t *c = ocap_handlers;
+		while (c->next) c = c->next;
+		c->next = h;
+	} else
+		ocap_handlers = h;
+}
+
 /* 1 = iteration successful - OCAP called
    2 = iteration successful - OOB pending (only signalled if oob_hdr is non-null)
    0 = iteration failed - assume conenction has been closed */
@@ -3213,6 +3237,14 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 			FD_SET(std_fw_fd, &readfds);
 			if (std_fw_fd > max_fs) max_fs = std_fw_fd;
 		}
+		if (ocap_handlers) {
+			ocap_handler_t *h = ocap_handlers;
+			while (h) {
+				if (h->fd > max_fs) max_fs = h->fd;
+				if (h->fd >= 0) FD_SET(h->fd, &readfds);
+				h = h->next;
+			}
+		}
 		rn =  select(max_fs + 1, &readfds, 0, 0, &timv);
 		if (rn == -1) {
 			if (errno == EINTR) continue; /* INTR is ok, retry */
@@ -3222,6 +3254,18 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 		if (FD_ISSET(s, &readfds)) which = 1;
 		else if (compute_fd != -1 && FD_ISSET(compute_fd, &readfds)) which = 2;
 		else if (std_fw_fd > 0 && FD_ISSET(std_fw_fd, &readfds)) which = 3;
+		else if (ocap_handlers) {
+			ocap_handler_t *h = ocap_handlers;
+			while (h) {
+				if (h->fd >= 0 && FD_ISSET(h->fd, &readfds)) {
+					SEXP cb_exp = PROTECT(lang2(h->sCallback, h->sData));
+					int errflg = 0;
+					R_tryEval(cb_exp, R_GlobalEnv, &errflg);
+					UNPROTECT(1);
+				}
+				h = h->next;
+			}
+		}
 		
 		if (use_idle_callback && which == 0) {
 			SEXP var = findVarInFrame(R_GlobalEnv, install(".ocap.idle"));
