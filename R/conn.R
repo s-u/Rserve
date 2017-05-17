@@ -36,8 +36,9 @@ Rserve <- function(debug=FALSE, port, args=NULL, quote=(length(args) > 1), wait,
   invisible(system(cmd, wait=wait, ...))
 }
 
-run.Rserve <- function(..., config.file="/etc/Rserve.conf") {
+run.Rserve <- function(..., config.file="/etc/Rserv.conf") {
   if (is.null(run_Rserve)) stop("Runnig inside an embedded Rserve instance - starting Rserve recursively is not supported")
+  if(identical(unname(config.file), "/etc/Rserve.conf")) config.file = "/etc/Rserv.conf"
   .Call(run_Rserve, as.character(config.file), sapply(list(...), as.character))
 }
 
