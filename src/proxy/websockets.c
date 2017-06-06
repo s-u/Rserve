@@ -3,6 +3,7 @@
 #include "sha1.h"
 #include "tls.h"
 #include "qap.h"
+#include "ulog.h"
 #ifdef RSERV_DEBUG
 #include "rsdebug.h"
 #endif
@@ -488,8 +489,15 @@ void WS_set_binary(args_t *arg, int flag) {
 		arg->flags &= ~F_OUT_BIN;
 }
 
-/* we use send_data only to send the ID string so we don't bother supporting frames bigger than the buffer */
+static int  WS_send_data_(args_t *arg, const void *buf, size_t len, int opcode);
+
 static int  WS_send_data(args_t *arg, const void *buf, size_t len) {
+	int opcode = ((arg->flags & F_OUT_BIN) ? 1 : 0) + ((arg->ver < 4) ? 4 : 1); /* 2/1 for ver4+, 5/4 for ver0 */
+	return WS_send_data_(arg, buf, len, opcode);
+}
+
+/* we use send_data only to send the ID string so we don't bother supporting frames bigger than the buffer */
+static int  WS_send_data_(args_t *arg, const void *buf, size_t len, int opcode) {
 	unsigned char *sbuf = (unsigned char*) arg->sbuf;
 	if (arg->ver == 0) {
 		if (len < arg->sl - 2) {
@@ -513,7 +521,7 @@ static int  WS_send_data(args_t *arg, const void *buf, size_t len) {
 	} else {
 		unsigned long total = len;
 		int pl = 0;
-		sbuf[pl++] =  ((arg->flags & F_OUT_BIN) ? 1 : 0) + ((arg->ver < 4) ? 0x04 : 0x81); /* text, 4+ has inverted FIN bit */
+		sbuf[pl++] =  (opcode & 0x7f) | ((arg->ver < 4) ? 0 : 0x80); /* 4+ has inverted FIN bit */
 		if (len < 126) /* short length */
 			sbuf[pl++] = len;
 		else if (len < 65536) { /* 16-bit */
@@ -562,7 +570,49 @@ static int  WS_send_data(args_t *arg, const void *buf, size_t len) {
 	return 0;
 }
 
+#define FRT_CLOSE  8
+#define FRT_PING   9
+#define FRT_PONG   10
+
+static int  WS_recv_data_(args_t *arg, void *buf, size_t read_len);
+
+/* one extra indirection - we are handing WebSockets control frames internally
+   so the application doesn't have to deal with them as they are WS-specific */
 static int  WS_recv_data(args_t *arg, void *buf, size_t read_len) {
+	int n = 0;
+	while (1) {
+		n = WS_recv_data_(arg, buf, read_len);
+		/* catch control frames - those shouldn't go to the application */
+		if (GET_F_FT(arg->flags) > 7) {
+#ifdef RSERV_DEBUG
+			fprintf(stderr, "WS_recv_data: control frame 0x%02x (%d bytes), catching\n", GET_F_FT(arg->flags), n);
+#endif
+			switch (GET_F_FT(arg->flags)) {
+			case FRT_PING:
+				if (WS_send_data_(arg, buf, n, FRT_PONG) < 0)
+					return -1;
+				break;
+			case FRT_PONG:
+				/* simply ignore PONGs */
+				break;
+			case FRT_CLOSE:
+				if (n > 1)
+					ulog("INFO: WS CLOSE frame received, code = %u", 
+						 (((unsigned int) ((unsigned char*)buf)[0]) << 8) |
+						 ((unsigned int) ((unsigned char*)buf)[1]));
+				else
+					ulog("INFO: WS CLOSE frame received");
+				/* respond with CLOSE */
+				WS_send_data_(arg, buf, 0, FRT_CLOSE);
+				return 0;
+				break;
+			}
+		} else break;
+	}
+	return n;
+}
+
+static int  WS_recv_data_(args_t *arg, void *buf, size_t read_len) {
 #ifdef RSERV_DEBUG
 	fprintf(stderr, "WS_recv_data for %d (bp = %d)\n", (int) read_len, arg->bp);
 #endif
