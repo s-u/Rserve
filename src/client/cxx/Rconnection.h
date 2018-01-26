@@ -225,11 +225,14 @@ private:
 //       XT_STR has been deprecated.
 // FIXME: it should be a subclass of Rvector!
 class Rstrings : public Rexp {
-    char **cont;
+    char **cont = NULL;
     unsigned int nel;
 public:
-   Rstrings(Rmessage *msg) : Rexp(msg) { decode(); }
-   Rstrings(unsigned int *ipos, Rmessage *imsg) : Rexp(ipos, imsg) { decode(); }
+	Rstrings(Rmessage *msg) : Rexp(msg) { cont = NULL; decode(); }
+	Rstrings(unsigned int *ipos, Rmessage *imsg) : Rexp(ipos, imsg) { cont = NULL; decode(); }
+	~Rstrings(){
+		cleanup();
+	}
     /*Rstring(const char *str) : Rexp(XT_STR, str, strlen(str)+1) {}*/
     
     char **strings() { return cont; }
@@ -243,23 +246,39 @@ public:
     virtual std::ostream& os_print (std::ostream& os) {
         return os << "char*[" << nel <<"]\"" << string() <<"\"..";
     }
+	
+	void cleanup() {
+		unsigned int i = 0;
+		if(cont){
+			while(i<nel){
+				if(cont[i]){
+					free(cont[i]);
+					cont[i] = NULL;
+				}
+				i++;
+			}
+			free(cont);
+			cont = NULL;
+		}
+	}
  private:
-    void decode() {
-      char *c = (char*) data;
-      unsigned int i = 0;
-      nel = 0;
-      while (i < len) { if (!c[i]) nel++; i++; }
-      if (nel) {
-	i = 0;
-	cont = (char**) malloc(sizeof(char*)*nel);
-	while (i < nel) {
-	  cont[i] = strdup(c);
-	  while (*c) c++;
-	  c++; i++;
-	}	
-      } else
-	cont = 0;
-    }
+	void decode() {
+		cleanup();
+		char *c = (char*) data;
+		unsigned int i = 0;
+		nel = 0;
+		while (i < len) { if (!c[i]) nel++; i++; }
+		if (nel) {
+			i = 0;
+			cont = (char**) malloc(sizeof(char*)*nel);
+			while (i < nel) {
+				cont[i] = strdup(c);
+				while (*c) c++;
+				c++; i++;
+			}
+		} else
+			cont = 0;
+	}
 };
 
 //===================================== Rstring --- XT_STR
