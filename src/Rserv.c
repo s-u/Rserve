@@ -3012,6 +3012,22 @@ extern char Rserve_oc_prefix;
 
 #define COMPUTE_OC_PREFIX '@'
 
+#ifdef FORKED
+extern int R_ignore_SIGPIPE; // see src/main/main.c::handlePipe in R
+int server_recv(args_t *arg, void *buf, rlen_t len) {
+	R_ignore_SIGPIPE = 1;
+	int result = recv(arg->s, buf, len, 0);
+	R_ignore_SIGPIPE = 0;
+	return result;
+}
+
+int server_send(args_t *arg, const void *buf, rlen_t len) {
+        R_ignore_SIGPIPE = 1;
+	int result = send(arg->s, buf, len, 0);
+        R_ignore_SIGPIPE = 0;
+	return result;
+}
+#else
 int server_recv(args_t *arg, void *buf, rlen_t len) {
 	return recv(arg->s, buf, len, 0);
 }
@@ -3019,6 +3035,7 @@ int server_recv(args_t *arg, void *buf, rlen_t len) {
 int server_send(args_t *arg, const void *buf, rlen_t len) {
 	return send(arg->s, buf, len, 0);
 }
+#endif
 
 SEXP Rserve_kill_compute(SEXP sSig) {
 	int sig = asInteger(sSig);
