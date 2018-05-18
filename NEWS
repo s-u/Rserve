@@ -12,6 +12,8 @@ NOTE: Rserve 1.8 series has many new features, but it has also removed
     o	proxy: handle WebSockets control frames (PING/PONG/CLOSE)
 	proper.
 
+    o	support large vectors in QAP encoding/decoding
+
 
 1.8-5
     o	add support for callback in OCAP idle mode. If the function

@@ -33,7 +33,7 @@ static const unsigned char NaStringRepresentation[2] = { 255, 0 };
 
 rlen_t getStorageSize(SEXP x) {
     int t = TYPEOF(x);
-    rlen_t tl = LENGTH(x); /* although LENGTH can only be 32-bit use rlen_t to avoid downcasting */
+    rlen_t tl = XLENGTH(x); /* although LENGTH can only be 32-bit use rlen_t to avoid downcasting */
     rlen_t len = 4;
     
 #if defined RSERV_DEBUG && ! (defined DEBUG_NO_STORAGE)
@@ -186,12 +186,12 @@ unsigned int* storeSEXP(unsigned int* buf, SEXP x, rlen_t storage_size) {
 		buf++;
 		attrFixup;
 #ifdef NATIVE_COPY
-		memcpy(buf, REAL(x), sizeof(double) * LENGTH(x));
-		buf += LENGTH(x) * sizeof(double) / sizeof(*buf);
+		memcpy(buf, REAL(x), sizeof(double) * XLENGTH(x));
+		buf += XLENGTH(x) * sizeof(double) / sizeof(*buf);
 #else
 		{
 		    R_len_t i = 0;
-		    while(i < LENGTH(x)) {
+		    while(i < XLENGTH(x)) {
 			fixdcpy(buf, REAL(x) + i);
 			buf += 2; /* sizeof(double)=2*sizeof(int) */
 			i++;
@@ -206,12 +206,12 @@ unsigned int* storeSEXP(unsigned int* buf, SEXP x, rlen_t storage_size) {
 		buf++;
 		attrFixup;
 #ifdef NATIVE_COPY
-		memcpy(buf, COMPLEX(x), LENGTH(x) * sizeof(*COMPLEX(x)));
-		buf += LENGTH(x) * sizeof(*COMPLEX(x)) / sizeof(*buf);
+		memcpy(buf, COMPLEX(x), XLENGTH(x) * sizeof(*COMPLEX(x)));
+		buf += XLENGTH(x) * sizeof(*COMPLEX(x)) / sizeof(*buf);
 #else
 		{
 		    R_len_t i = 0;
-		    while(i < LENGTH(x)) {
+		    while(i < XLENGTH(x)) {
 			fixdcpy(buf, &(COMPLEX(x)[i].r));
 			buf += 2; /* sizeof(double)=2*sizeof(int) */
 			fixdcpy(buf, &(COMPLEX(x)[i].i));
