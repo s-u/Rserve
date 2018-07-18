@@ -1,0 +1,41 @@
+language: r
+r:
+  - release
+os:
+  - linux
+  - osx
+branches:
+  only:
+    master
+    
+addons:
+  apt:
+    packages:
+      - libssh2-1-dev
+      
+before_install:
+  - echo "$TRAVIS_OS_NAME"
+  - echo "$TRAVIS_R_VERSION_STRING"
+  - echo $PKG_TARBALL
+  - if [ "$TRAVIS_OS_NAME" = "osx" ]; then sudo chown -R $(whoami) /usr/local ; brew install libgit2; fi
+  
+after_success:
+  - if [[ "$TRAVIS_R_VERSION_STRING" == "release" && ("$TRAVIS_OS_NAME" == "linux") ]]; then Rscript -e 'covr::codecov()'; fi
+  
+before_deploy:
+  - if [ "$TRAVIS_R_VERSION_STRING" == "release" ]; then git tag "$TRAVIS_OS_NAME" --force; fi
+  - if [[ "$TRAVIS_R_VERSION_STRING" == "release" && ("$TRAVIS_OS_NAME" == "osx") ]]; then R CMD INSTALL --build $PKG_TARBALL; fi
+
+deploy:
+  provider: releases
+  name: "$TRAVIS_OS_NAME"
+  api_key:
+    secure: "GAD1xvd6MajE8AasywvMuDApe73z0wDBsRwZ/V1QQgf4oyrbM17P63HuHd3gxVEwKXP3TqTaYKHqlOnPWsgm//FqIkj0Ai6TBVrxCOWrSkN5yxyNV3A49JfwUtpN/7hPK4K8jR04jKU/XqSMA6Qm5q6ykp314BhNTPkhhjUNark="
+  file_glob: true
+  file: Rserve*.t*gz
+  skip_cleanup: true
+  overwrite: true
+  on:
+    branch: master
+    except: windows
+condition: "$TRAVIS_R_VERSION_STRING = release"
