@@ -46,4 +46,4 @@ deploy:
   on:
     branch: master
     except: windows
-condition: "$TRAVIS_R_VERSION_STRING = release"
+    condition: "$TRAVIS_R_VERSION_STRING = release"
