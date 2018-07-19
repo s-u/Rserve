@@ -18,6 +18,7 @@ before_script:
   - sh mkdist
   - cd ..; mv Rserve Rserve_src; tar zxvf Rserve_*.tar.gz
   - echo `ls -la`
+  - cd Rserve
 
 before_install:
   - echo "$TRAVIS_OS_NAME"
