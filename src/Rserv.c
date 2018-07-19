@@ -322,7 +322,9 @@ static int   wipe_workdir = 0; /* if set acts as rm -rf otherwise just rmdir */
 
 static SOCKET csock = -1;
 
+#ifdef unix
 static pid_t parentPID = -1;
+#endif
 
 int is_child = 0;       /* 0 for parent (master), 1 for children */
 static int tag_argv = 0;/* tag the ARGV with client/server IDs */
@@ -467,7 +469,7 @@ static int last_idle_time;
 /* FIXME: self.* commands can be loaded either from Rserve.so or from stand-alone binary.
    This will cause a mess since some things are private and some are not - we have to sort that out.
    In the meantime a quick hack is to make the relevant config (here enable_oob) global */
-int enable_oob = 0;
+static int enable_oob = 0;
 args_t *self_args;
 /* object to send with the idle call; it could be used for notification etc. */
  SEXP idle_object;
