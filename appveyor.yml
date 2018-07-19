@@ -10,13 +10,16 @@ install:
   - ps: Bootstrap
 
 # Adapt as necessary starting from here
+platform: x64
+environment:
+  R_ARCH: x64
 environment:
     global:
         CYG_ROOT: C:\cygwin64
         CYG_MIRROR: http://cygwin.mirror.constant.com
         CYG_CACHE: C:\cygwin64\var\cache\setup
         CYG_BASH: C:\cygwin64\bin\bash
-        
+  
 branches:
   only:
     - master
