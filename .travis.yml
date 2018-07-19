@@ -1,6 +1,7 @@
 language: r
 r:
   - release
+warnings_are_errors: false
 os:
   - linux
   - osx
