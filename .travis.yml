@@ -12,7 +12,13 @@ addons:
   apt:
     packages:
       - libssh2-1-dev
-      
+
+before_script:
+  - echo `ls -la`
+  - sh mkdist
+  - cd ..; mv Rserve Rserve_src; tar zxvf Rserve_*.tar.gz
+  - echo `ls -la`
+
 before_install:
   - echo "$TRAVIS_OS_NAME"
   - echo "$TRAVIS_R_VERSION_STRING"
