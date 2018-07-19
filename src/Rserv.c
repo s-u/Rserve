@@ -341,6 +341,21 @@ static int close_all_io = 0; /* if enabled all I/O is re-directed to /dev/null
 static int oob_allowed = 0; /* this flag is set once handshake is done such that OOB messages are permitted */
 static int oob_context_prefix = 0; /* if set, context is prepended in OOB
 									  messages sent by Rserve itself */
+
+/* FIXME: self.* commands can be loaded either from Rserve.so or from stand-alone binary.
+   This will cause a mess since some things are private and some are not - we have to sort that out.
+   In the meantime a quick hack is to make the relevant config (here enable_oob) global */
+static int enable_oob = 0; //move to lines 350
+static args_t *self_args;
+/* object to send with the idle call; it could be used for notification etc. */
+ SEXP idle_object;
+
+static int compute_subprocess = 0;
+
+/* stdout/err re-direction feeder FD (or 0 if not used) */
+static int std_fw_fd;
+
+
 #ifdef DAEMON
 int daemonize = 1;
 #endif
@@ -466,20 +481,7 @@ int cio_send(int s, const void *buffer, int length, int flags) {
 
 static int last_idle_time;
 
-/* FIXME: self.* commands can be loaded either from Rserve.so or from stand-alone binary.
-   This will cause a mess since some things are private and some are not - we have to sort that out.
-   In the meantime a quick hack is to make the relevant config (here enable_oob) global */
-static int enable_oob = 0;
-args_t *self_args;
-/* object to send with the idle call; it could be used for notification etc. */
- SEXP idle_object;
-
-int compute_subprocess = 0;
-
 static int send_oob_sexp(int cmd, SEXP exp);
-
-/* stdout/err re-direction feeder FD (or 0 if not used) */
-static int std_fw_fd;
 
 /* from ioc.c */
 SEXP ioc_read(int *type);
