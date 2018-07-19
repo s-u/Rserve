@@ -27,8 +27,8 @@ else
   rm -rf autom4te* aclocal*
 fi
 
-echo "Removing CVS/SVN and backup stuff ..."
-find . -name CVS -o -name \*~ -o -name .svn -o -name .git\*|xargs rm -rf
+# echo "Removing CVS/SVN and backup stuff ..."
+# find . -name CVS -o -name \*~ -o -name .svn -o -name .git\*|xargs rm -rf
 
 # copy header files so they are available to the client
 cp src/Rsrv.h src/include/sisocks.h src/client/cxx/
