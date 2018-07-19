@@ -21,6 +21,13 @@ build_script:
   - ps: $env:VERSION_RELEASE="$(date +%Y%m%d-%H%M)"
   - echo %VERSION_RELEASE%
 
+before_build:
+  - echo `ls -la`
+  - sh mkdist
+  - cd ..; mv Rserve Rserve_src; tar zxvf Rserve_*.tar.gz
+  - echo `ls -la`
+  - cd Rserve
+
 test_script:
   - travis-tool.sh run_tests
 
