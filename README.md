@@ -7,7 +7,7 @@ This repository is a fork of regular Rserve sources (available at https://github
 
 It contains automated deployement form Travis & Appveyor, to build binary Rserve packages for Windows, Linux, OSX in R stable release:
 
-    * Windows: https://github.com/yannrichet/Rserve/releases/download/windows/Rserve_1.8-6.zip
-    * Linux: https://github.com/yannrichet/Rserve/releases/download/linux/Rserve_1.8-6.tar.gz
-    * OSX: https://github.com/yannrichet/Rserve/releases/download/osx/Rserve_1.8-6.tgz
+  * Windows: https://github.com/yannrichet/Rserve/releases/download/windows/Rserve_1.8-6.zip
+  * Linux: https://github.com/yannrichet/Rserve/releases/download/linux/Rserve_1.8-6.tar.gz
+  * OSX: https://github.com/yannrichet/Rserve/releases/download/osx/Rserve_1.8-6.tgz
 
