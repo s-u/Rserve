@@ -388,7 +388,6 @@ void stop_server_loop() {
 #include "rsdebug.h"
 #include "rserr.h"
 
-#ifdef unix
 #ifdef HAVE_SYS_TYPES_H
 #include <sys/types.h>
 #endif
