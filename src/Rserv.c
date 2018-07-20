@@ -4979,8 +4979,6 @@ SEXP run_Rserve(SEXP cfgFile, SEXP cfgPars) {
 
 #endif
 
-#endif
-
 /*--- The following makes the indenting behavior of emacs compatible
       with Xcode's 4/4 setting ---*/
 /* Local Variables: */
