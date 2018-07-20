@@ -395,8 +395,8 @@ void stop_server_loop() {
 #include <unistd.h>
 #ifdef unix
 #include <grp.h>
-#endif
 #include <pwd.h>
+#endif
 
 static char tmpdir_buf[1024];
 
