@@ -30,8 +30,8 @@ static int  WS_send_resp(args_t *arg, int rsp, rlen_t len, const void *buf);
 static int  WS_send_data(args_t *arg, const void *buf, rlen_t len);
 
 /* those will eventually be in the API but for now ... */
-int cio_send(int s, const void *buffer, int length, int flags);
-int cio_recv(int s, void *buffer, int length, int flags);
+static int cio_send(int s, const void *buffer, int length, int flags);
+static int cio_recv(int s, void *buffer, int length, int flags);
 
 static int WS_wire_send(args_t *arg, const void *buf, rlen_t len) {
 	return (arg->tls_arg) ? arg->tls_arg->srv->send(arg->tls_arg, buf, len) : cio_send(arg->s, buf, len, 0);
