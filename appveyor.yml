@@ -47,22 +47,23 @@ on_failure:
 
 artifacts:
   - path: '*.Rcheck\**\*.log'
-    name: Logs
+    name: log
 
   - path: '*.Rcheck\**\*.out'
-    name: Logs
+    name: log
 
   - path: '*.Rcheck\**\*.fail'
-    name: Logs
+    name: log
 
   - path: '*.Rcheck\**\*.Rout'
-    name: Logs
+    name: log
 
   - path: '\*_*.tar.gz'
-    name: Bits
+    name: src
 
   - path: '\*_*.zip'
-    name: Bits
+    name: bin
+    type: zip
 
 before_deploy:
      - git tag %VERSION_RELEASE%
