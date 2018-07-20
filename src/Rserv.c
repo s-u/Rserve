@@ -3031,6 +3031,7 @@ SEXP Rserve_kill_compute(SEXP sSig) {
 	return ScalarLogical(kill(compute_pid, sig) == 0);
 }
 
+#ifdef unix
 SEXP Rserve_fork_compute(SEXP sExp) {
 	int fd[2];
 	pid_t fpid;
@@ -3153,7 +3154,8 @@ SEXP Rserve_fork_compute(SEXP sExp) {
 	/* unreachable */
 	return R_NilValue;
 }
-
+#endif
+	
 /* 1 = iteration successful - OCAP called
    2 = iteration successful - OOB pending (only signalled if oob_hdr is non-null)
    0 = iteration failed - assume conenction has been closed */
