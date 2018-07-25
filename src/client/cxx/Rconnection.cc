@@ -49,6 +49,9 @@
 #ifdef unix
 #include <sys/un.h>
 #include <unistd.h>
+#ifdef HAVE_CRYPT_H
+#include <crypt.h>
+#endif
 #else
 #define AF_LOCAL -1
 #endif
