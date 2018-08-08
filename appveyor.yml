@@ -22,7 +22,7 @@ environment:
       CYG_MIRROR: http://cygwin.mirror.constant.com
       CYG_CACHE: C:\cygwin64\var\cache\setup
       CYG_BASH: C:\cygwin64\bin\bash
-  RSERVE: rserve-1-7-wc3jp
+  RSERVE: rserve
 #  APPVEYOR_RDP_PASSWORD: Rserve_1-7
 
 branches:
