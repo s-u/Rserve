@@ -5,6 +5,8 @@ warnings_are_errors: false
 os:
   - linux
   - osx
+env:
+  - RSERVE=Rserve
 branches:
   only:
     master
@@ -16,17 +18,12 @@ addons:
 
 before_script:
   - echo `ls -la`
-  - cd ..; mv Rserve* Rserve; cd Rserve
+  - cd ..; mv Rserve* Rserve; cd Rserve; sh mkdist -i
   - echo `ls -la`
-  - sh mkdist -i
-  - cd ..; mv Rserve Rserve-src; tar zxvf Rserve_*.tar.gz
+  - cd ..; mv Rserve Rserve-src; tar zxvf Rserve_*.tar.gz; cd Rserve
   - echo `ls -la`
-  - cd Rserve
 
 before_install:
-  - echo "$TRAVIS_OS_NAME"
-  - echo "$TRAVIS_R_VERSION_STRING"
-  - echo $PKG_TARBALL
   - if [ "$TRAVIS_OS_NAME" = "osx" ]; then sudo chown -R $(whoami) /usr/local ; brew install libgit2; fi
   
 after_success:
@@ -40,7 +37,7 @@ deploy:
   provider: releases
   name: "$TRAVIS_OS_NAME"
   api_key:
-    secure: "RerLjYsUdfSRvCzUNFZCjIftJ9P7xr+aJE8IWCyMIND9P7MyE2M3vII1sAiwRg2WG92bs5MO/UJ+0XooK1gWHyLl+z1CNvhZvD+fdLrQOkjEL62MSoaFZxHqsAZYHF++HvSVj32LrKy2lIYLWwWGPjR8fXW8S6G9pDfLCm2d+JUPgMIXKa/HuJauoSzLF68QCXHfnYeaJC444nZU7AutnvqIWkr62DAJr8fQSsUYl9fpOtdJHDsyedPHbpBHYKeaWd/yantmEPFiE66mBYXBgjqhBAGRbb3OZEFxqplQlc6l0DPxaxJj+XTL2WSrDrjgjzYLd/0cngfu/UwMwzMmkH0+xU8/5/i5Ay3LmcRCgwugKnscQZA1eni7v/tgnNkF1QDpvj1P1Lbn+x0F5CFztzAR0Zdzn95HZDhT2mOUVa0ip228f0DBEFu4Q6i1hxVpIUJJGEvt080ooeUBIyUtU7SfhsGC0ee7QpbhbJjt5OipQosOsZotKMhKOqlaobDAzTvmbhUmoGoW15PVuhRHbLDizeDE9iFtPtWG8tEldJPpJpdxTo+EwIjiZkK0+tEbWti2BVpJNMf4CBCUGtv1qu2gcCJUz7krEKh4G0AInVwHx975sjgKwHpefJEnEH0IguHH8BQB7CGhB3tpgNhj6j9M2lLibD6qXJ/gkwpv9Mg="
+    secure: "lxbU0MSoVH7cduiL/fw6kZHT5Y/dsZE+RvbPohOPNKgh7NrvR+ztf10Y96uDcrDp14GS1pyrUqZjKYA21m2X4ntPzCZcoTl3yw6/BgGD9U7Mbv7/j85c5qnGXHjHN0gFXkOjj9CKjjauHIB7DvRHbWZD4M9eLyHlrwSD0PUxQkYa6O4rQsUEuICKNFdGcvbybHyzG7TG3/L7EiXpdMw9SPpQtIvF2AdhNu5ldsgqBCtGNx/3jPVV5/TIEuORXmHB+xcBPftK0Yz90yueYdLwFkGD8gQWswqdq7HR1oEel8bAvYCNDLxeOBRHHkk8MnlP1SkLQCjLKqdBC+JhwbindP6Bkg9FU8tfLshn0vtZq1ctitEFQ+Fjsocryc+1dotLd/t6QquBalZytlcLIU5Om163hZsANdTcjLTl/QWZFnsD0pgpYDbCmKMgNrgpe3yZhLWW+EUi0nAikdvLzwKcqi4KnGiV2HmxM1xT7NkCzA8IxKFgrKYG2F7SOANsg3YmG8dsVVXn2gt3tGfE3oBcLlRTbIf6wgvU4hrFOzUTARp+c9b3BP9IKI0qNEszgI4gD6A3fqefGysk4d/NiEyQujWxhwdAtI+JfjynX7h1iXv0X4fZfwwH5E33Oi0e7CfsmkkmHA+CQVZvVNh3QxdjScKaiRUO9Y/r4qDtJOToZJs="
   file_glob: true
   file: Rserve*.t*gz
   skip_cleanup: true
@@ -48,4 +45,3 @@ deploy:
   on:
     branch: master
     except: windows
-    condition: "$TRAVIS_R_VERSION_STRING = release"
