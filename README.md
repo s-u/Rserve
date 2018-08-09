@@ -5,7 +5,7 @@ Windows [![AppVeyor Build Status](https://ci.appveyor.com/api/projects/status/gi
 
 This repository is a fork of regular Rserve sources (available at https://github.com/s-u/Rserve).
 
-It contains automated deployement form Travis & Appveyor, to build binary Rserve packages for Windows, Linux, OSX in R stable release:
+Not yet working, but It will contain automated deployement from Travis & Appveyor, to build binary Rserve packages for Windows, Linux, OSX in R stable release:
 
   * Windows: https://github.com/yannrichet/Rserve/releases/download/windows/Rserve_1.8-6.zip
   * Linux: https://github.com/yannrichet/Rserve/releases/download/linux/Rserve_1.8-6.tar.gz
