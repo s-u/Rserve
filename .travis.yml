@@ -12,6 +12,9 @@ os:
   - osx
 env:
   - RSERVE=Rserve
+  - global:
+      secure: GN2F2jjzQlWngNYVMqMBA8FcxHPo9VKX+cnDZY+YzArrwrIwcARfmlndcSDMHmz+UcwXmEotOYXA8kkEM4F2HkWTS2+nIviyoP8RybAyMCeNmBYrLT2y89inFELf7D2CRkVrtKmSU1QEmZOyICbWpxpMEZVSWQI7n1osAVHmgG8UgQJ1UjJitTWKq8oSi3OF2XFGyGJXhQk5+gG/s6vCQqTMn5ggTjCRwkm17XDeJYc1uKzFFjuDg79sWILKkhM6ZglAFq2ZxrYosfGPV9pzysP+K8FZmiKD0jWWe8EnqP63BJR73fiyhv24l8BjQK6T5HBfzwWNKwp7ZhbeYpUX3NQGWxOvRO9XfiMirAZ1v8z01+voXVjoPNe7A2nDte5BGUz7Ur2X/6l5n+VX87ifjybThAkjx/fTL0qlPu9SJOf6YiOinXRh8OR5RVygUVuiY0WGo5U2kHjta/339wdznw5gVo4uwiKgQgJRmLMZdBW0nROL13QCtVzPZDp3h/ItPiB9N/54hzyY6gbSW6vXtcSr+pppWhuj9+TKcn65BPT6I5roHkLQSbk9Ns70yH0hfet+iS6pA8asa2XQpgSpj7g8adkeXUnNb9GYVm/KjR1MSLGR8vtTaX7viQOF4Vy3COHi223juOcg4vZx/uPNdqI3YF6mUOTjadI8ghwED5w=
+
 branches:
   only:
     master
@@ -23,6 +26,7 @@ addons:
 
 before_install:
   - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then sudo chown -R $(whoami) /usr/local ; brew install libgit2; fi
+  
 before_script:
   - echo `ls -la`
   - cd ..; mv Rserve* Rserve; cd Rserve; sh mkdist -i
@@ -34,19 +38,17 @@ after_script:
   - ps ax | grep Rserve
   - cd tests; bash test-RserveBugJava.sh || travis_terminate 1;
   - ps ax | grep Rserve
-  
-after_success:
-  - if [[ "$TRAVIS_R_VERSION_STRING" == "release" && ("$TRAVIS_OS_NAME" == "linux") ]]; then Rscript -e 'covr::codecov()'; fi
-  
+    
 before_deploy:
-  - if [[ "$TRAVIS_R_VERSION_STRING" == "release" ]]; then git tag "$TRAVIS_OS_NAME" --force; fi
-  - if [[ "$TRAVIS_R_VERSION_STRING" == "release" && ("$TRAVIS_OS_NAME" == "osx") ]]; then R CMD INSTALL --build $PKG_TARBALL; fi
+  - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then R CMD INSTALL --build $PKG_TARBALL; fi
+  - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then   git remote rm origin;  git remote add origin https://yannrichet:${GH_TOKEN}@github.com/DiceKrigingClub/DiceKriging.git;  git push --delete origin `git tag | grep -E 'osx-linux'`;   git tag -d `git tag | grep -E 'osx-linux'`;  git tag "osx-linux_R"$(TRAVIS_R_VERSION_STRING) --force; fi
+
 
 deploy:
   provider: releases
-  name: "$TRAVIS_OS_NAME"
+  name: "osx-linux_R"$(TRAVIS_R_VERSION_STRING)
   api_key:
-    secure: "lxbU0MSoVH7cduiL/fw6kZHT5Y/dsZE+RvbPohOPNKgh7NrvR+ztf10Y96uDcrDp14GS1pyrUqZjKYA21m2X4ntPzCZcoTl3yw6/BgGD9U7Mbv7/j85c5qnGXHjHN0gFXkOjj9CKjjauHIB7DvRHbWZD4M9eLyHlrwSD0PUxQkYa6O4rQsUEuICKNFdGcvbybHyzG7TG3/L7EiXpdMw9SPpQtIvF2AdhNu5ldsgqBCtGNx/3jPVV5/TIEuORXmHB+xcBPftK0Yz90yueYdLwFkGD8gQWswqdq7HR1oEel8bAvYCNDLxeOBRHHkk8MnlP1SkLQCjLKqdBC+JhwbindP6Bkg9FU8tfLshn0vtZq1ctitEFQ+Fjsocryc+1dotLd/t6QquBalZytlcLIU5Om163hZsANdTcjLTl/QWZFnsD0pgpYDbCmKMgNrgpe3yZhLWW+EUi0nAikdvLzwKcqi4KnGiV2HmxM1xT7NkCzA8IxKFgrKYG2F7SOANsg3YmG8dsVVXn2gt3tGfE3oBcLlRTbIf6wgvU4hrFOzUTARp+c9b3BP9IKI0qNEszgI4gD6A3fqefGysk4d/NiEyQujWxhwdAtI+JfjynX7h1iXv0X4fZfwwH5E33Oi0e7CfsmkkmHA+CQVZvVNh3QxdjScKaiRUO9Y/r4qDtJOToZJs="
+    secure: GJ5Wi3DJm74SgmHbJTEvyLYZx3So9Nb5YlOAxIGsVGkqGNHaUJ92l5mPu/r5VHzunNSWYjX6/Qt7nv0fTNsQEuEPJgwMAyPCtRaw1YYXMewkyxwpemWFaJZaYvNmpcrY2tv+zONuC/m9fgY84mre27VU+CaNfP7ks8okczmBU3wDsAdI6EATGSYKFZX40FgOjK4FNN+nHpNxNTAuriLVW8k60EqHTkGecinllMb7rv43BGqg0wWEkGFzOOVtvBBLwQ7B+EOGh4O/gdsM1AL3bVj+GgN2eNX9nk1OMT49oyoNymvybb+4K7Oi9kT0DWEzGZoJbIMYB4Yn2wSgZdhZSh4A2uyv+HWDUuY9WtlbKGrqIMbKCKyvFm00PrM81nN+BZiyyuYvkgbHa5nT6FryFka1jkASXdSV1HdhuiCjEwSyOvLydkuR8srFL/miyAWZjSmW28PWUlb99MHW5HerHkxb4Iy2O018++ircDV1NJsdJbDorcOx1K5eq4kUyif9i5vWSN+Dsw/iJsI/Bb4uQaQBaP9XQyNgWoS6qARCE+j0XjncfGuhwI9PXuSYyC3bFN3G9k5FuYaiB4y+TeTyKzntxrejppepPmeA+FRm52Cu6LcTa3fPFgbqv8A/c39JZMklE6pwYsZM61nTuH62xLGNNCNvIRk7m4h4TSr71gY=
   file_glob: true
   file: Rserve*.t*gz
   skip_cleanup: true
@@ -54,3 +56,14 @@ deploy:
   on:
     branch: master
     except: windows
+     
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    

@@ -8,7 +8,7 @@ init:
         Import-Module '..\appveyor-tool.ps1'
 install:
   - ps: choco install -y miktex
-  - cmd:  refreshenv
+  - cmd: refreshenv
   - ps: Bootstrap
 
 # Adapt as necessary starting from here
@@ -23,6 +23,16 @@ environment:
       CYG_CACHE: C:\cygwin64\var\cache\setup
       CYG_BASH: C:\cygwin64\bin\bash
   RSERVE: rserve
+  matrix:
+  - R_VERSION: devel
+    R_ARCH: x64
+    GCC_PATH: mingw_64
+  - R_VERSION: release
+    R_ARCH: x64
+  - R_VERSION: oldrel
+    RTOOLS_VERSION: 33
+    CRAN: http://cran.rstudio.com
+
 #  APPVEYOR_RDP_PASSWORD: Rserve_1-8
 
 branches:
@@ -77,11 +87,11 @@ artifacts:
     type: zip
 
 before_deploy:
-     - git tag %VERSION_RELEASE%
+     - git tag windows_R%R_VERSION%
 
 deploy:
   provider: GitHub
-  release: windows
+  release: windows_R$(R_VERSION)
   auth_token:
     secure:  DAGNQm9WOY/5YmstALy9O3oJ8UE9b0BRjHZtcy977Tp1pOTv5soBrnK2B6DQVetL
   artifact: bin
