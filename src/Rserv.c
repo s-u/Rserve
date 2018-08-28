@@ -322,9 +322,7 @@ static int   wipe_workdir = 0; /* if set acts as rm -rf otherwise just rmdir */
 
 static SOCKET csock = -1;
 
-#ifdef unix
 static pid_t parentPID = -1;
-#endif
 
 int is_child = 0;       /* 0 for parent (master), 1 for children */
 static int tag_argv = 0;/* tag the ARGV with client/server IDs */
@@ -341,21 +339,6 @@ static int close_all_io = 0; /* if enabled all I/O is re-directed to /dev/null
 static int oob_allowed = 0; /* this flag is set once handshake is done such that OOB messages are permitted */
 static int oob_context_prefix = 0; /* if set, context is prepended in OOB
 									  messages sent by Rserve itself */
-
-/* FIXME: self.* commands can be loaded either from Rserve.so or from stand-alone binary.
-   This will cause a mess since some things are private and some are not - we have to sort that out.
-   In the meantime a quick hack is to make the relevant config (here enable_oob) global */
-static int enable_oob = 0; //move to lines 350
-static args_t *self_args;
-/* object to send with the idle call; it could be used for notification etc. */
- SEXP idle_object;
-
-static int compute_subprocess = 0;
-
-/* stdout/err re-direction feeder FD (or 0 if not used) */
-static int std_fw_fd;
-
-
 #ifdef DAEMON
 int daemonize = 1;
 #endif
@@ -388,15 +371,13 @@ void stop_server_loop() {
 #include "rsdebug.h"
 #include "rserr.h"
 
+#ifdef unix
 #ifdef HAVE_SYS_TYPES_H
 #include <sys/types.h>
 #endif
-
 #include <unistd.h>
-#ifdef unix
 #include <grp.h>
 #include <pwd.h>
-#endif
 
 static char tmpdir_buf[1024];
 
@@ -483,7 +464,20 @@ int cio_send(int s, const void *buffer, int length, int flags) {
 
 static int last_idle_time;
 
+/* FIXME: self.* commands can be loaded either from Rserve.so or from stand-alone binary.
+   This will cause a mess since some things are private and some are not - we have to sort that out.
+   In the meantime a quick hack is to make the relevant config (here enable_oob) global */
+int enable_oob = 0;
+args_t *self_args;
+/* object to send with the idle call; it could be used for notification etc. */
+ SEXP idle_object;
+
+int compute_subprocess = 0;
+
 static int send_oob_sexp(int cmd, SEXP exp);
+
+/* stdout/err re-direction feeder FD (or 0 if not used) */
+static int std_fw_fd;
 
 /* from ioc.c */
 SEXP ioc_read(int *type);
@@ -3033,7 +3027,6 @@ SEXP Rserve_kill_compute(SEXP sSig) {
 	return ScalarLogical(kill(compute_pid, sig) == 0);
 }
 
-#ifdef unix
 SEXP Rserve_fork_compute(SEXP sExp) {
 	int fd[2];
 	pid_t fpid;
@@ -3156,8 +3149,7 @@ SEXP Rserve_fork_compute(SEXP sExp) {
 	/* unreachable */
 	return R_NilValue;
 }
-#endif
-	
+
 /* 1 = iteration successful - OCAP called
    2 = iteration successful - OOB pending (only signalled if oob_hdr is non-null)
    0 = iteration failed - assume conenction has been closed */
@@ -4976,6 +4968,8 @@ SEXP run_Rserve(SEXP cfgFile, SEXP cfgPars) {
 
 	return ScalarLogical(TRUE);
 }
+
+#endif
 
 #endif
 

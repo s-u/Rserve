@@ -23,7 +23,7 @@ environment:
       CYG_CACHE: C:\cygwin64\var\cache\setup
       CYG_BASH: C:\cygwin64\bin\bash
   RSERVE: rserve
-#  APPVEYOR_RDP_PASSWORD: Rserve_1-7
+#  APPVEYOR_RDP_PASSWORD: Rserve_1-8
 
 branches:
   only:
@@ -43,10 +43,16 @@ build_script:
   - echo %VERSION_RELEASE%
 
 test_script:
+#  - ps: iex ((new-object net.webclient).DownloadString('https://raw.githubusercontent.com/appveyor/ci/master/scripts/enable-rdp.ps1'))
+  - Rscript -e "install.packages('RSclient', repos='https://cran.rstudio.com', INSTALL_opts='', type='both'); q(save='no')"
   - travis-tool.sh run_tests
+  - cd %APPVEYOR_BUILD_FOLDER%
+  - cd tests
+  - tasklist /FI "IMAGENAME eq Rserve.exe"
+  - test-RserveBugJava.bat
+  - tasklist /FI "IMAGENAME eq Rserve.exe"
 
 on_failure:
-#  - ps: iex ((new-object net.webclient).DownloadString('https://raw.githubusercontent.com/appveyor/ci/master/scripts/enable-rdp.ps1'))
   - 7z a failure.zip *.Rcheck\*
   - appveyor PushArtifact failure.zip
 

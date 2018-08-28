@@ -1,0 +1,17 @@
+library("RSclient")
+co = RS.connect()
+
+RS.eval(co,{NaN})
+RS.eval(co,{TRUE})
+RS.eval(co,{0.123})
+RS.eval(co,{pi})
+RS.eval(co,{ 0.123})
+RS.eval(co,{ (0.123)+pi})
+RS.eval(co,{ rnorm(10)})
+RS.eval(co,{array(0.0,c(4,3))})
+RS.eval(co,{ cbind(rnorm(10),rnorm(10))})
+RS.eval(co,{list(aa=rnorm(10),bb=rnorm(10))})
+RS.eval(co,{ 'abcd'})
+RS.eval(co,{ c('abcd','sdfds')})
+
+RS.close(co)
