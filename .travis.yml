@@ -1,6 +1,11 @@
 language: r
 r:
+  - oldrel
   - release
+  - devel
+r_packages:
+  - RSclient
+  - covr
 warnings_are_errors: false
 os:
   - linux
@@ -16,6 +21,8 @@ addons:
     packages:
       - libssh2-1-dev
 
+before_install:
+  - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then sudo chown -R $(whoami) /usr/local ; brew install libgit2; fi
 before_script:
   - echo `ls -la`
   - cd ..; mv Rserve* Rserve; cd Rserve; sh mkdist -i
@@ -23,14 +30,16 @@ before_script:
   - cd ..; mv Rserve Rserve-src; tar zxvf Rserve_*.tar.gz; cd Rserve
   - echo `ls -la`
 
-before_install:
-  - if [ "$TRAVIS_OS_NAME" = "osx" ]; then sudo chown -R $(whoami) /usr/local ; brew install libgit2; fi
+after_script:
+  - ps ax | grep Rserve
+  - cd tests; bash test-RserveBugJava.sh || travis_terminate 1;
+  - ps ax | grep Rserve
   
 after_success:
   - if [[ "$TRAVIS_R_VERSION_STRING" == "release" && ("$TRAVIS_OS_NAME" == "linux") ]]; then Rscript -e 'covr::codecov()'; fi
   
 before_deploy:
-  - if [ "$TRAVIS_R_VERSION_STRING" == "release" ]; then git tag "$TRAVIS_OS_NAME" --force; fi
+  - if [[ "$TRAVIS_R_VERSION_STRING" == "release" ]]; then git tag "$TRAVIS_OS_NAME" --force; fi
   - if [[ "$TRAVIS_R_VERSION_STRING" == "release" && ("$TRAVIS_OS_NAME" == "osx") ]]; then R CMD INSTALL --build $PKG_TARBALL; fi
 
 deploy:
