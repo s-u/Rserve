@@ -12,8 +12,6 @@ os:
   - osx
 env:
   - RSERVE=Rserve
-  global:
-      secure: GN2F2jjzQlWngNYVMqMBA8FcxHPo9VKX+cnDZY+YzArrwrIwcARfmlndcSDMHmz+UcwXmEotOYXA8kkEM4F2HkWTS2+nIviyoP8RybAyMCeNmBYrLT2y89inFELf7D2CRkVrtKmSU1QEmZOyICbWpxpMEZVSWQI7n1osAVHmgG8UgQJ1UjJitTWKq8oSi3OF2XFGyGJXhQk5+gG/s6vCQqTMn5ggTjCRwkm17XDeJYc1uKzFFjuDg79sWILKkhM6ZglAFq2ZxrYosfGPV9pzysP+K8FZmiKD0jWWe8EnqP63BJR73fiyhv24l8BjQK6T5HBfzwWNKwp7ZhbeYpUX3NQGWxOvRO9XfiMirAZ1v8z01+voXVjoPNe7A2nDte5BGUz7Ur2X/6l5n+VX87ifjybThAkjx/fTL0qlPu9SJOf6YiOinXRh8OR5RVygUVuiY0WGo5U2kHjta/339wdznw5gVo4uwiKgQgJRmLMZdBW0nROL13QCtVzPZDp3h/ItPiB9N/54hzyY6gbSW6vXtcSr+pppWhuj9+TKcn65BPT6I5roHkLQSbk9Ns70yH0hfet+iS6pA8asa2XQpgSpj7g8adkeXUnNb9GYVm/KjR1MSLGR8vtTaX7viQOF4Vy3COHi223juOcg4vZx/uPNdqI3YF6mUOTjadI8ghwED5w=
 
 branches:
   only:
@@ -57,13 +55,7 @@ deploy:
     branch: master
     except: windows
      
-    
-    
-    
-    
-    
-    
-    
-    
-    
+env:
+  global:
+    secure: GN2F2jjzQlWngNYVMqMBA8FcxHPo9VKX+cnDZY+YzArrwrIwcARfmlndcSDMHmz+UcwXmEotOYXA8kkEM4F2HkWTS2+nIviyoP8RybAyMCeNmBYrLT2y89inFELf7D2CRkVrtKmSU1QEmZOyICbWpxpMEZVSWQI7n1osAVHmgG8UgQJ1UjJitTWKq8oSi3OF2XFGyGJXhQk5+gG/s6vCQqTMn5ggTjCRwkm17XDeJYc1uKzFFjuDg79sWILKkhM6ZglAFq2ZxrYosfGPV9pzysP+K8FZmiKD0jWWe8EnqP63BJR73fiyhv24l8BjQK6T5HBfzwWNKwp7ZhbeYpUX3NQGWxOvRO9XfiMirAZ1v8z01+voXVjoPNe7A2nDte5BGUz7Ur2X/6l5n+VX87ifjybThAkjx/fTL0qlPu9SJOf6YiOinXRh8OR5RVygUVuiY0WGo5U2kHjta/339wdznw5gVo4uwiKgQgJRmLMZdBW0nROL13QCtVzPZDp3h/ItPiB9N/54hzyY6gbSW6vXtcSr+pppWhuj9+TKcn65BPT6I5roHkLQSbk9Ns70yH0hfet+iS6pA8asa2XQpgSpj7g8adkeXUnNb9GYVm/KjR1MSLGR8vtTaX7viQOF4Vy3COHi223juOcg4vZx/uPNdqI3YF6mUOTjadI8ghwED5w=
     
