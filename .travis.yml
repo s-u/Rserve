@@ -39,12 +39,12 @@ after_script:
     
 before_deploy:
   - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then R CMD INSTALL --build $PKG_TARBALL; fi
-  - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then   git remote rm origin;  git remote add origin https://yannrichet:${GH_TOKEN}@github.com/DiceKrigingClub/DiceKriging.git;  git push --delete origin `git tag | grep -E 'osx-linux'`;   git tag -d `git tag | grep -E 'osx-linux'`;  git tag "osx-linux_R"$(TRAVIS_R_VERSION_STRING) --force; fi
+  - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then   git remote rm origin;  git remote add origin https://yannrichet:${GH_TOKEN}@github.com/DiceKrigingClub/DiceKriging.git;  git push --delete origin `git tag | grep -E 'osx-linux'`;   git tag -d `git tag | grep -E 'osx-linux'`;  git tag "osx-linux_R"$TRAVIS_R_VERSION_STRING --force; fi
 
 
 deploy:
   provider: releases
-  name: "osx-linux_R"$(TRAVIS_R_VERSION_STRING)
+  name: "osx-linux_R"$TRAVIS_R_VERSION_STRING
   api_key:
     secure: GJ5Wi3DJm74SgmHbJTEvyLYZx3So9Nb5YlOAxIGsVGkqGNHaUJ92l5mPu/r5VHzunNSWYjX6/Qt7nv0fTNsQEuEPJgwMAyPCtRaw1YYXMewkyxwpemWFaJZaYvNmpcrY2tv+zONuC/m9fgY84mre27VU+CaNfP7ks8okczmBU3wDsAdI6EATGSYKFZX40FgOjK4FNN+nHpNxNTAuriLVW8k60EqHTkGecinllMb7rv43BGqg0wWEkGFzOOVtvBBLwQ7B+EOGh4O/gdsM1AL3bVj+GgN2eNX9nk1OMT49oyoNymvybb+4K7Oi9kT0DWEzGZoJbIMYB4Yn2wSgZdhZSh4A2uyv+HWDUuY9WtlbKGrqIMbKCKyvFm00PrM81nN+BZiyyuYvkgbHa5nT6FryFka1jkASXdSV1HdhuiCjEwSyOvLydkuR8srFL/miyAWZjSmW28PWUlb99MHW5HerHkxb4Iy2O018++ircDV1NJsdJbDorcOx1K5eq4kUyif9i5vWSN+Dsw/iJsI/Bb4uQaQBaP9XQyNgWoS6qARCE+j0XjncfGuhwI9PXuSYyC3bFN3G9k5FuYaiB4y+TeTyKzntxrejppepPmeA+FRm52Cu6LcTa3fPFgbqv8A/c39JZMklE6pwYsZM61nTuH62xLGNNCNvIRk7m4h4TSr71gY=
   file_glob: true
