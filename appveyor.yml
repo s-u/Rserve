@@ -1,0 +1,106 @@
+# DO NOT CHANGE the "init" and "install" sections below
+
+# Download script file from GitHub
+init:
+  ps: |
+        $ErrorActionPreference = "Stop"
+        Invoke-WebRequest http://raw.github.com/krlmlr/r-appveyor/master/scripts/appveyor-tool.ps1 -OutFile "..\appveyor-tool.ps1"
+        Import-Module '..\appveyor-tool.ps1'
+install:
+  - ps: choco install -y miktex
+  - cmd: refreshenv
+  - ps: Bootstrap
+
+# Adapt as necessary starting from here
+platform: x64
+environment:
+  R_ARCH: x64
+  R_INSTALL_ARGS: --merge-multiarch
+  R_CHECK_ARGS: --force-multiarch
+  global:
+      CYG_ROOT: C:\cygwin64
+      CYG_MIRROR: http://cygwin.mirror.constant.com
+      CYG_CACHE: C:\cygwin64\var\cache\setup
+      CYG_BASH: C:\cygwin64\bin\bash
+  RSERVE: rserve
+  matrix:
+  - R_VERSION: devel
+    R_ARCH: x64
+    GCC_PATH: mingw_64
+  - R_VERSION: release
+    R_ARCH: x64
+  - R_VERSION: oldrel
+    RTOOLS_VERSION: 33
+    CRAN: http://cran.rstudio.com
+
+#  APPVEYOR_RDP_PASSWORD: Rserve_1-8
+
+branches:
+  only:
+    - master
+skip_tags: true
+
+before_build:
+  - '%CYG_BASH% -lc "cd $APPVEYOR_BUILD_FOLDER/.. && echo `ls`"'
+  - '%CYG_BASH% -lc "cd $APPVEYOR_BUILD_FOLDER/.. && cd rserve; sh mkdist -i"'
+  - '%CYG_BASH% -lc "cd $APPVEYOR_BUILD_FOLDER/.. && echo `ls`"'
+  - '%CYG_BASH% -lc "cd $APPVEYOR_BUILD_FOLDER/.. ; tar zxvf Rserve_*.tar.gz; mv Rserve_*.tar.gz src_Rserve_tar.gz"'
+  - '%CYG_BASH% -lc "cd $APPVEYOR_BUILD_FOLDER/.. && echo `ls`"'
+
+build_script:
+  - travis-tool.sh install_deps
+  - ps: $env:VERSION_RELEASE="$(date +%Y%m%d-%H%M)"
+  - echo %VERSION_RELEASE%
+
+test_script:
+#  - ps: iex ((new-object net.webclient).DownloadString('https://raw.githubusercontent.com/appveyor/ci/master/scripts/enable-rdp.ps1'))
+  - Rscript -e "install.packages('RSclient', repos='https://cran.rstudio.com', INSTALL_opts='', type='both'); q(save='no')"
+  - travis-tool.sh run_tests
+  - cd %APPVEYOR_BUILD_FOLDER%
+  - cd tests
+  - tasklist /FI "IMAGENAME eq Rserve.exe"
+  - test-RserveBugJava.bat
+  - tasklist /FI "IMAGENAME eq Rserve.exe"
+
+on_failure:
+  - 7z a failure.zip *.Rcheck\*
+  - appveyor PushArtifact failure.zip
+
+artifacts:
+  - path: '*.Rcheck\**\*.log'
+    name: log
+
+  - path: '*.Rcheck\**\*.out'
+    name: log
+
+  - path: '*.Rcheck\**\*.fail'
+    name: log
+
+  - path: '*.Rcheck\**\*.Rout'
+    name: log
+
+  - path: '*_*.tar.gz'
+    name: src
+
+  - path: '*_*.zip'
+    name: bin
+    type: zip
+
+before_deploy:
+     - git tag windows_R%R_VERSION%
+
+deploy:
+  provider: GitHub
+  release: windows_R$(R_VERSION)
+  auth_token:
+    secure:  DAGNQm9WOY/5YmstALy9O3oJ8UE9b0BRjHZtcy977Tp1pOTv5soBrnK2B6DQVetL
+  artifact: bin
+  draft: false
+  prerelease: false
+  force_update: true
+  on:
+    branch:
+      master
+      
+#on_finish:
+#  - ps: $blockRdp = $true; iex ((new-object net.webclient).DownloadString('https://raw.githubusercontent.com/appveyor/ci/master/scripts/enable-rdp.ps1'))

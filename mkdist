@@ -1,16 +1,19 @@
 #!/bin/sh
 
+echo $RSERVE
+
 SWD=`pwd`
+
 echo "Removing previous dist ..."
 rm -rf /tmp/Rserve.tmp
 echo "Copying package base ..."
 mkdir /tmp/Rserve.tmp
-cp -r ../Rserve /tmp/Rserve.tmp
+cp -r ../$RSERVE /tmp/Rserve.tmp
 
 #touch /tmp/Rserve/src/dummy.so
-rm -f /tmp/Rserve.tmp/Rserve/mkdist
+rm -f /tmp/Rserve.tmp/$RSERVE/mkdist
 
-cd /tmp/Rserve.tmp/Rserve
+cd /tmp/Rserve.tmp/$RSERVE
 # mkdir inst
 if [ -e configure ]; then
   echo "Note: configure exists, no attempt to reconfigure will be made."
@@ -27,8 +30,8 @@ else
   rm -rf autom4te* aclocal*
 fi
 
-echo "Removing CVS/SVN and backup stuff ..."
-find . -name CVS -o -name \*~ -o -name .svn -o -name .git\*|xargs rm -rf
+#echo "Removing CVS/SVN and backup stuff ..."
+#find . -name CVS -o -name \*~ -o -name .svn -o -name .git\*|xargs rm -rf
 
 # copy header files so they are available to the client
 cp src/Rsrv.h src/include/sisocks.h src/client/cxx/
@@ -41,7 +44,7 @@ if [ -e src/client/cxx/configure.ac ]; then
 	autoheader
 	autoconf
 	rm -rf autom4te* aclocal*
-	cd /tmp/Rserve.tmp/Rserve
+	cd /tmp/Rserve.tmp/$RSERVE
     fi
 fi
 
@@ -74,7 +77,7 @@ echo "Creating package ..."
 cd ..
 # do NOT use build - it screws up symbolic links
 #R CMD build --force Rserve
-tar fcz Rserve_${VER}.tar.gz Rserve
+tar fcz Rserve_${VER}.tar.gz $RSERVE*
 cd ${SWD}
 cp /tmp/Rserve.tmp/Rserve_${VER}.tar.gz ..
 rm -rf /tmp/Rserve.tmp
