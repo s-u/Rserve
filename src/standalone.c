@@ -17,6 +17,10 @@ SEXP Rserve_oc_resolve(SEXP what);
 SEXP Rserve_eval(SEXP what, SEXP rho);
 SEXP Rserve_set_context(SEXP what);
 
+/* from Rserv.c */		
+￼ SEXP Rserve_get_context();		
+￼ SEXP Rserve_kill_compute();
+
 static int ex(int res) {
 	RSsrv_done();
 	return res;
