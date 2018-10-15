@@ -166,6 +166,7 @@ typedef int socklen_t;
 #define srandom() srand()
 #define CAN_TCP_NODELAY
 #define _WINSOCKAPI_
+#include <winsock2.h>
 #include <windows.h>
 #include <winbase.h>
 #include <io.h>
@@ -192,13 +193,15 @@ typedef int socklen_t;
 #  include <time.h>
 # endif
 #endif
-#include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/signal.h>
 #include <unistd.h>
 #include <sys/un.h> /* needed for unix sockets */
+#else
+#include <time.h>
 #endif
+#include <sys/stat.h>
 #ifdef FORKED
 #include <sys/wait.h>
 #include <signal.h>
@@ -279,6 +282,10 @@ typedef union { char c[16]; int i[4]; } rsmsg_addr_t;
 #define RSMSG_ADDR_LEN (sizeof(rsmsg_addr_t))
 
 #define MAX_CTRL_DATA (1024*1024) /* max. length of data for control commands - larger data will be ignored */
+
+#ifdef WIN32
+#define pid_t int
+#endif
 
 #include "RSserver.h"
 #include "websockets.h"
@@ -378,6 +385,7 @@ void stop_server_loop() {
 #include <unistd.h>
 #include <grp.h>
 #include <pwd.h>
+#endif
 
 static char tmpdir_buf[1024];
 
@@ -385,6 +393,10 @@ static char tmpdir_buf[1024];
 
 #ifdef unix
 char wdname[512];
+
+#define mkdir_(A,B) mkdir(A,B)
+#else
+#define mkdir_(A,B) mkdir(A) /* no chmod on Windows */
 #endif
 
 #if !defined(S_IFDIR) && defined(__S_IFDIR)
@@ -443,13 +455,15 @@ static void prepare_set_user(int uid, int gid) {
 		}
 	}
 	snprintf(tmpdir_buf, sizeof(tmpdir_buf), "%s.%d.%d", tmp, uid, gid);
-	if (mkdir(tmpdir_buf, 0700)) {} /* it is ok to fail if it exists already */
+	if (mkdir_(tmpdir_buf, 0700)) {} /* it is ok to fail if it exists already */
 	/* gid can be 0 to denote no gid change -- but we will be using
 	   0700 anyway so the actual gid is not really relevant */
+#ifdef unix
 	if (chown(tmpdir_buf, uid, gid)) {}
-	R_TempDir = strdup(tmpdir_buf);
 	if (workdir && /* FIXME: gid=0 will be bad here ! */
 		chown(wdname, uid, gid)) {}
+#endif
+	R_TempDir = strdup(tmpdir_buf);
 }
 
 /* send/recv wrappers that are more robust */
@@ -564,6 +578,7 @@ int cio_recv(int s, void *buffer, int length, int flags) {
 	return -1;
 }
 
+#ifdef unix
 static int set_user(const char *usr) {
     struct passwd *p = getpwnam(usr);
 	if (!p) return 0;
@@ -1032,6 +1047,7 @@ static int performConfig(int when) {
 /* called once the server process is setup (e.g. after
    daemon fork for forked servers) */
 static void RSsrv_init() {
+#ifdef unix
 	if (pidfile) {
 		FILE *f = fopen(pidfile, "w");
 		if (f) {
@@ -1039,6 +1055,7 @@ static void RSsrv_init() {
 			fclose(f);
 		} else RSEprintf("WARNING: cannot write into pid file '%s'\n", pidfile);
 	}
+#endif
 }
 
 static void RSsrv_done() {
@@ -3021,12 +3038,17 @@ int server_send(args_t *arg, const void *buf, rlen_t len) {
 }
 
 SEXP Rserve_kill_compute(SEXP sSig) {
+#ifdef unix
 	int sig = asInteger(sSig);
 	if (!compute_pid)
 		Rf_error("no compute process attached");
 	return ScalarLogical(kill(compute_pid, sig) == 0);
+#else
+	Rf_error("Windows does not support separate compute process.");
+#endif
 }
 
+#ifdef unix
 SEXP Rserve_fork_compute(SEXP sExp) {
 	int fd[2];
 	pid_t fpid;
@@ -3149,6 +3171,12 @@ SEXP Rserve_fork_compute(SEXP sExp) {
 	/* unreachable */
 	return R_NilValue;
 }
+#else
+SEXP Rserve_fork_compute(SEXP sExp) {
+	Rf_error("Windows does not support separate compute process.");
+}
+#endif
+
 
 /* 1 = iteration successful - OCAP called
    2 = iteration successful - OOB pending (only signalled if oob_hdr is non-null)

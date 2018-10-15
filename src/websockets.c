@@ -12,6 +12,17 @@
 #include <stdio.h>
 #include <signal.h>
 
+#include <Rinternals.h>
+
+#ifdef WIN32
+/* FIXME: this is a terribe, terrible hack around Win32 idiocy.
+   we should use stdint type or some such ... */
+#define long long long
+static int getpid() { /* for compatibility */
+	return (int) GetProcessId(GetCurrentProcess());
+}
+#endif
+
 struct args {
 	server_t *srv; /* server that instantiated this connection */
     SOCKET s;
@@ -774,8 +785,6 @@ server_t *create_WS_server(int port, int flags) {
 	}
 	return 0;
 }
-
-#include <Rinternals.h>
 
 void serverLoop(void);
 

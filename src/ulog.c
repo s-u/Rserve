@@ -204,6 +204,7 @@ void ulog(const char *format, ...) {
 #else
 
 void ulog_set_path(const char *path) { }
+void ulog_set_app_name(const char *name) { }
 void ulog_begin() {}
 void ulog_add(const char *format, ...) { }
 void ulog_end() {}

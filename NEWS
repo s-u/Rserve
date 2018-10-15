@@ -14,6 +14,12 @@ NOTE: Rserve 1.8 series has many new features, but it has also removed
 
     o	support large vectors in QAP encoding/decoding
 
+    o	restore some Windows compatibility - at least to the point
+	where it compiles. It is still strongly discouraged to use
+	Windows given how limited the OS is and how it prevents
+	any sensible use (Windows only supports single-client,
+	single-thread, cooperative mode - so for toy uses only).
+
 
 1.8-5
     o	add support for callback in OCAP idle mode. If the function
