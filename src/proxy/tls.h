@@ -18,5 +18,6 @@ void free_tls(tls_t *tls);
 int add_tls(args_t *c, tls_t *tls, int server);
 void copy_tls(args_t *src, args_t *dst);
 void close_tls(args_t *c);
+int perror_tls(const char *format, ...);
 
 #endif

@@ -6,10 +6,10 @@
 
 #ifdef HAVE_TLS
 
+#include <stdio.h>
+#include <stdarg.h>
 #include <openssl/ssl.h>
-#ifdef RSERV_DEBUG
 #include <openssl/err.h>
-#endif
 
 struct tls {
     SSL_CTX *ctx;
@@ -31,9 +31,7 @@ tls_t *new_tls() {
     
     if (first_tls) {
 	SSL_library_init();
-#ifdef RSERV_DEBUG
 	SSL_load_error_strings();
-#endif
 	first_tls = 0;
 	tls = t;
     }
@@ -101,7 +99,18 @@ void close_tls(args_t *c) {
 void free_tls(tls_t *tls) {
 }
 
+int perror_tls(const char *format, ...) {
+    va_list(ap);
+    va_start(ap, format);
+    vfprintf(stderr, format, ap);
+    ERR_print_errors_fp(stderr);
+    va_end(ap);
+    return 1;
+}
+
 #else /* no SSL/TLS support, ignore everything, fail on everything */
+
+#include <stdio.h>
 
 tls_t *shared_tls(tls_t *new_tls) { return 0; }
 
@@ -114,5 +123,9 @@ void free_tls(tls_t *tls) { }
 int add_tls(args_t *c, tls_t *tls, int server) { return -1; }
 void copy_tls(args_t *src, args_t *dst) { }
 void close_tls(args_t *c) { }
+int perror_tls(const char *format, ...) {
+    fprintf(stderr, "ERROR: this binary has been built without SSL/TLS support.\n");
+    return 1;
+}
 
 #endif
