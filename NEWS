@@ -12,6 +12,10 @@ NOTE: Rserve 1.8 series has many new features, but it has also removed
     o	proxy: handle WebSockets control frames (PING/PONG/CLOSE)
 	proper.
 
+    o	proxy: fail with an error if key/certificate cannot be
+	loaded at start time. Both -k and -c are required to
+	enable TLS/SSL. (#127)
+
     o	support large vectors in QAP encoding/decoding
 
     o	restore some Windows compatibility - at least to the point

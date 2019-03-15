@@ -596,8 +596,12 @@ void R_script_socket(const char *s);
 
 static int die(const char *str) { fprintf(stderr,"\nError: %s\n\n", str); return 1; }
 
+#define TLS_INFO_KEY  1
+#define TLS_INFO_CERT 2
+#define TLS_INFO_CA   4
+
 int main(int ac, char **av) {
-    int http_port = 8088, ws_port = -1, i = 0, flags = 0;
+    int http_port = 8088, ws_port = -1, i = 0, flags = 0, tls_info = 0;
     const char *ulog_path = "ulog_socket";
     const char *scr_path = "Rscript_socket";
 
@@ -619,34 +623,46 @@ int main(int ac, char **av) {
 		    tls_t *tls = shared_tls(0);
 		    if (!tls)
 			tls = shared_tls(new_tls());
-		    set_tls_pk(tls, av[i]);
+		    if (!set_tls_pk(tls, av[i]))
+			return perror_tls("ERROR: Unable to load SSL key from '%s': ", av[i]);
 		    flags |= SRV_TLS;
+		    tls_info |= TLS_INFO_KEY;
 		} else return die("missing key path in -k <key-path>");
 		break;
 	    case 'C': if (++i < ac) {
 		    tls_t *tls = shared_tls(0);
 		    if (!tls)
 			tls = shared_tls(new_tls());
-		    set_tls_ca(tls, av[i], 0);
+		    if (!set_tls_ca(tls, av[i], 0))
+			return perror_tls("ERROR: Unable to load CA chain from '%s': ", av[i]);
+		    tls_info |= TLS_INFO_CA;
 		} else return die("missing CA-path path in -C <CA-path>");
 		break;
 	    case 'c': if (++i < ac) {
 		    tls_t *tls = shared_tls(0);
 		    if (!tls)
 			tls = shared_tls(new_tls());
-		    set_tls_cert(tls, av[i]);
+		    if (!set_tls_cert(tls, av[i]))
+			return perror_tls("ERROR: Unable to load SSL certificate from '%s': ", av[i]);
+		    tls_info |= TLS_INFO_CERT;
 		} else return die("missing cert-path path in -C <cert-path>");
 		break;
             case 'h': printf("\n\
  Usage: %s [-h] [-p <http-port>] [-w <ws-port>] [-s <QAP-socket>] [-R <Rscript-socket>] [-r <doc-root>]\n\
-        [-k <TLS-key-path> [-c <TLS-cert-path>] [-C <TLS-CA-path>]]\n\
+        [-k <TLS-key-path> -c <TLS-cert-path> [-C <TLS-CA-path>]] [-u <ulog-socket>]\n\
 \n", av[0]);
                 return 0;
             default:
                 fprintf(stderr, "\nUnrecognized flag -%c\n", av[i][1]);
                 return 1;
             }
-    
+
+    if (tls_info & TLS_INFO_KEY) {
+	if ((tls_info & (TLS_INFO_KEY | TLS_INFO_CERT)) != (TLS_INFO_KEY | TLS_INFO_CERT))
+	    return die("-k <key> requires a corresponding certificate to be supplied with -c <cert>, but it is missing");
+    } else if (tls_info)
+	fprintf(stderr, "WARNING: -c or -C are supplied without -k, they are ignored since SSL is only enabled if -k is present.\n");
+
     doc_root_len = strlen(doc_root);
     ulog_set_path(ulog_path);
     ulog("----------------");
