@@ -11,7 +11,11 @@
     ## unless we are runnning in an embedded Rserve (which provides
     ## registration in the "(embedding)" domain)
     ## we have to load the package dylib
-    if (!isTRUE(tryCatch(getNativeSymbolInfo(.register[1L])$package[["name"]] == "(embedding)",
+
+    ## R 3.6.0 broke NativeSymbolInfo by renaming the `package` to `dll` so we now have to check both
+    pkg <- function(o) if (is.null(o$package)) o$dll else o$package
+
+    if (!isTRUE(tryCatch(pkg(getNativeSymbolInfo(.register[1L]))[["name"]] == "(embedding)",
         error=function(...) FALSE)))
         library.dynam(pkgname, pkgname, libname)
     for (i in .register)
