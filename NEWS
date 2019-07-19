@@ -16,6 +16,12 @@ NOTE: Rserve 1.8 series has many new features, but it has also removed
 	loaded at start time. Both -k and -c are required to
 	enable TLS/SSL. (#127)
 
+    o	proxy: added -S <host>[:<port>] which allows automatic
+	registration and de-registation with a server manager
+	when the service is available (e.g., this can be used
+	to keep the compute node list up-to-date automatically
+	when load-balancing via the nginx reverse proxy).
+
     o	support large vectors in QAP encoding/decoding
 
     o	restore some Windows compatibility - at least to the point
