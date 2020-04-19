@@ -30,6 +30,9 @@ NOTE: Rserve 1.8 series has many new features, but it has also removed
 	any sensible use (Windows only supports single-client,
 	single-thread, cooperative mode - so for toy uses only).
 
+    o	content-type header entry is lower-cased only up to a
+	semicolon since trailing options may be case-sensitive. (#149)
+
 
 1.8-5
     o	add support for callback in OCAP idle mode. If the function
