@@ -703,6 +703,7 @@ static void http_input_iteration(args_t *c) {
 								}
 							}
 						}
+						/* lower-case all header names */
 						while (*k && *k != ':') {
 							if (*k >= 'A' && *k <= 'Z')
 								*k |= 0x20;
@@ -720,7 +721,11 @@ static void http_input_iteration(args_t *c) {
 							}
 							if (!strcmp(bol, "content-type")) {
 								char *l = k;
-								while (*l) { if (*l >= 'A' && *l <= 'Z') *l |= 0x20; l++; }
+								/* change the content type to lower case,
+								   however, stop at ; since training content
+								   may be case-sensitive such as multipart-boundary
+								   (see #149) */
+								while (*l && *l != ';') { if (*l >= 'A' && *l <= 'Z') *l |= 0x20; l++; }
 								c->attr |= CONTENT_TYPE;
 								if (c->content_type) free(c->content_type);
 								c->content_type = strdup(k);
