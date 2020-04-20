@@ -651,12 +651,21 @@ static char rserve_rev[16]; /* this is generated from rserve_ver_id by main */
 #include <openssl/rand.h>
 
 static void generate_random_bytes(void *buf, int len) {
+#ifdef RAND_FALLBACK
 	if (RAND_bytes(buf, len) != 1 &&
 		RAND_pseudo_bytes(buf, len) == -1) {
 		int i;
 		for (i = 0; i < len; i++)
 			((char*)buf)[i] = (char) random();
 	}
+#else
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
+    if (RAND_bytes(buf, len) != 1 && RAND_pseudo_bytes(buf, len) < 0)
+#else /* OpenSSL 1.1+ doesn't support pseudo random, so fail hard */
+    if (RAND_bytes(buf, len) != 1)
+#endif
+		Rf_error("Cannot generate random bytes");
+#endif
 }
 
 #else
@@ -2493,6 +2502,38 @@ static int rsa_load_key(const char *buf) {
 	return 0;
 }
 
+/* OpenSSL 1.1 has deprecated RSA_generate_key() without
+   providing an alternative, so we a have to re-implement it
+   ourselves (for no good reason) ... */
+static RSA *RSA_generate_key0(int bits, unsigned long expon) {
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
+    return RSA_generate_key(bits, expon, 0, 0);
+#else  /* How to make simple things really complicated ... */
+    RSA *rsa = RSA_new();
+    if (!rsa) {
+		Rf_warning("cannot allocate RSA key: %s", ERR_error_string(ERR_get_error(), NULL));
+		return 0;
+	}
+    {
+        BIGNUM *e = BN_new();
+		if (!e) {
+            RSA_free(rsa);
+			Rf_warning("cannot allocate exponent: %s", ERR_error_string(ERR_get_error(), NULL));
+			return 0;
+        }
+		BN_set_word(e, expon);
+		if (RSA_generate_key_ex(rsa, bits, e, NULL) <= 0) {
+            BN_free(e);
+			RSA_free(rsa);
+			Rf_warning("cannot generate key: %s", ERR_error_string(ERR_get_error(), NULL));
+			return 0;
+        }
+		BN_free(e);
+    }
+	return rsa;
+#endif
+}
+
 static int rsa_gen_resp(char **dst) {
 	unsigned char *kb;
 	unsigned char *pt;
@@ -2501,12 +2542,12 @@ static int rsa_gen_resp(char **dst) {
 #ifdef RSERV_DEBUG
 		printf("rsa_gen_resp: generating RSA key\n");
 #endif
-		rsa_srv_key = RSA_generate_key(4096, 65537, 0, 0);
+		rsa_srv_key = RSA_generate_key0(4096, 65537);
 #ifdef RSERV_DEBUG
 		printf(" - done\n");
 #endif
 	}
-	if (!rsa_srv_key || RAND_bytes((unsigned char*) authkey, sizeof(authkey)) == 0)
+	if (!rsa_srv_key || RAND_bytes((unsigned char*) authkey, sizeof(authkey)) != 1)
 		return 0;
 	kb = calloc(65536, 1);
 	if (!kb)

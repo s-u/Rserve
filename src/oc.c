@@ -47,8 +47,13 @@ static void oc_new(char *dst) {
     unsigned char hash[21];
 
 #ifdef HAVE_TLS
-    if (RAND_bytes(hash, 21) || RAND_pseudo_bytes(hash, 21))
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
+    if (RAND_bytes(hash, 21) == 1 || RAND_pseudo_bytes(hash, 21))
 	have_hash = 1;
+#else /* OpenSSL 1.1+ doesn't support pseudo-bytes fall-back, so don't try - have to use random() instead ... */
+    if (RAND_bytes(hash, 21) == 1)
+	have_hash = 1;
+#endif
 #endif
 
     if (!have_hash) { /* should only be used if TLS is not available or it fails */
