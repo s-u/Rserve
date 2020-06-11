@@ -8,13 +8,18 @@ NOTE: Rserve 1.8 series has many new features, but it has also removed
       know what it means, just ignore this note.
 
 
-1.8-6	(under development) 
+1.8-6	2020-06-11
     o	proxy: handle WebSockets control frames (PING/PONG/CLOSE)
 	proper.
 
     o	proxy: fail with an error if key/certificate cannot be
 	loaded at start time. Both -k and -c are required to
-	enable TLS/SSL. (#127)
+	enable TLS/SSL. Also the proxy will issues an error if -k
+	is used and SSL support has not been available at compile
+	time. (#127)
+
+    o	proxy: linking no longer hard-codes `-lssl` (it effectively
+	failed compilation when SSL was not available).
 
     o	proxy: added -S <host>[:<port>] which allows automatic
 	registration and de-registation with a server manager
