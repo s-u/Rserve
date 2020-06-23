@@ -643,7 +643,7 @@ static void send_srvmgr(char *what) {
 int R_script_handler(http_request_t *req, http_result_t *res, const char *path);
 void R_script_socket(const char *s);
 
-static int die(const char *str) { fprintf(stderr,"\nError: %s\n\n", str); return 1; }
+static int die(const char *str) { fprintf(stderr,"\nERROR: %s\n\n", str); return 1; }
 
 #define TLS_INFO_KEY  1
 #define TLS_INFO_CERT 2
@@ -651,6 +651,7 @@ static int die(const char *str) { fprintf(stderr,"\nError: %s\n\n", str); return
 
 int main(int ac, char **av) {
     int http_port = 8088, ws_port = -1, i = 0, flags = 0, tls_info = 0;
+    int active_servers = 0;
     const char *ulog_path = "ulog_socket";
     const char *scr_path = "Rscript_socket";
 
@@ -723,8 +724,24 @@ int main(int ac, char **av) {
     ulog("----------------");
     R_script_socket(scr_path);
     add_content_handler(R_script_handler);
-    if (http_port > 0) create_HTTP_server(http_port, HTTP_WS_UPGRADE | flags, http_request, ws_connected);
-    if (ws_port > 0) create_WS_server(ws_port, WS_PROT_QAP | flags, ws_connected);
+    if (http_port > 0) {
+	server_t *srv = create_HTTP_server(http_port, HTTP_WS_UPGRADE | flags, http_request, ws_connected);
+	if (srv) {
+	    ulog("WS/QAP INFO: started HTTP server on port %d", http_port);
+	    active_servers++;
+	} else
+	    ulog("WS/QAP ERROR: failed to start HTTP server on port %d", http_port);
+    }
+    if (ws_port > 0) {
+	server_t *srv = create_WS_server(ws_port, WS_PROT_QAP | flags, ws_connected);
+	if (srv) {
+	    ulog("WS/QAP INFO: started WebSocket server on port %d", ws_port);
+	    active_servers++;
+	} else
+	    ulog("WS/QAP ERROR: failed to start WebSocket server on port %d", ws_port);
+    }
+    if (!active_servers)
+	return die("there are no active servers, aborting.");
     ulog("WS/QAP INFO: starting server loop (http=%d, ws=%d, qap='%s', rscript='%s', doc_root='%s'", http_port, ws_port, proxy->qap_socket_path, scr_path, doc_root);
     send_srvmgr("ADD");
     serverLoop();
