@@ -673,6 +673,8 @@ int main(int ac, char **av) {
 		    tls_t *tls = shared_tls(0);
 		    if (!tls)
 			tls = shared_tls(new_tls());
+		    if (!tls)
+			return die("unable to initialize SSL - you may be missing SSL support.");
 		    if (!set_tls_pk(tls, av[i]))
 			return perror_tls("ERROR: Unable to load SSL key from '%s': ", av[i]);
 		    flags |= SRV_TLS;
