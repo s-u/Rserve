@@ -2465,9 +2465,7 @@ static int auth_user(const char *usr, const char *pwd, const char *salt) {
 #ifdef HAVE_RSA
 #include <openssl/rsa.h>
 #include <openssl/rand.h>
-#ifdef RSERV_DEBUG
 #include <openssl/err.h>
-#endif
 
 static RSA *rsa_srv_key;
 
