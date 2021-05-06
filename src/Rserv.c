@@ -908,6 +908,7 @@ int Rserve_QAP1_send_resp(args_t *arg, int rsp, rlen_t len, const void *buf) {
 	ph.res = 0;
 #endif
 	ph.msg_id = (int) arg->msg_id;
+	ulog("QAP1: sending response 0x%08x, length %ld, msg.id 0x%x", ph.cmd, len, ph.msg_id);
 #ifdef RSERV_DEBUG
     printf("OUT.sendRespData\nHEAD ");
     printDump(&ph,sizeof(ph));
@@ -2206,6 +2207,7 @@ int Rserve_prepare_child(args_t *args) {
     
     parentPID = getppid();
     close_all_srv_sockets(); /* close all server sockets - this includes arg->ss */
+	ulog("INFO: new child process %d (parent %d)", (int) getpid(), (int) parentPID);
 
 #ifdef CAN_TCP_NODELAY
     {
@@ -3841,6 +3843,9 @@ void Rserve_QAP1_connected(void *thp) {
 		process = 0;
 		pars = 0;
 
+		ulog("QAP1: CMD 0x%08x, length %ld, msg.id 0x%x",
+			 (int) ph.cmd, (long) plen, msg_id);
+
 #ifdef RSERV_DEBUG
 		if (io_log) {
 			struct timeval tv;
@@ -4689,7 +4694,8 @@ void Rserve_QAP1_connected(void *thp) {
 		sendResp(a, SET_STAT(RESP_ERR, ERR_conn_broken));
     closesocket(s);
     free(sendbuf); free(sfbuf); free(buf);
-    
+	ulog("INFO: closed connection");
+
 #ifdef RSERV_DEBUG
     printf("done.\n");
 #endif
@@ -4798,7 +4804,8 @@ void serverLoop() {
 		strcpy(main_argv[0] + strlen(main_argv[0]) - 8, "/RsrvSRV");
 		tag_argv = 2;
 	}
-    
+	ulog("INFO: Rserve server loop started");
+
     while(active && (servers || children)) { /* main serving loop */
 		int i;
 		int maxfd = 0;
@@ -4907,6 +4914,7 @@ void serverLoop() {
 		} /* end if (selRet > 0) */
 #endif
     } /* end while(active) */
+    ulog("INFO: Rserve server loop end");
 }
 
 #ifndef STANDALONE_RSERVE
@@ -4946,6 +4954,7 @@ SEXP run_Rserve(SEXP cfgFile, SEXP cfgPars) {
 			RSsrv_done();
 			Rf_error("Unable to start Rserve server");
 		}
+		ulog("INFO: started QAP1 server (%s)", qap_oc ? "OCAP" : "eval");
 		push_server(ss, srv);
 	}
 
@@ -4956,6 +4965,7 @@ SEXP run_Rserve(SEXP cfgFile, SEXP cfgPars) {
 			RSsrv_done();
 			Rf_error("Unable to start TLS/Rserve server");
 		}
+		ulog("INFO: started TLS server (%s)", qap_oc ? "OCAP" : "eval");
 		push_server(ss, srv);
 	}
 
@@ -4970,6 +4980,9 @@ SEXP run_Rserve(SEXP cfgFile, SEXP cfgPars) {
 			RSsrv_done();
 			Rf_error("Unable to start HTTP server on port %d", http_port);
 		}
+		ulog("INFO: started HTTP server on port %d%s%s", http_port,
+			 enable_ws_qap ? " + WebSockets-QAP1" : "",
+			 ws_upgrade ? " + WebSocket Upgrade" : "");
 		push_server(ss, srv);
 	}
 
@@ -4983,6 +4996,9 @@ SEXP run_Rserve(SEXP cfgFile, SEXP cfgPars) {
 			RSsrv_done();
 			Rf_error("Unable to start HTTPS server on port %d", https_port);
 		}
+		ulog("INFO: started HTTPS server on port %d%s%s", https_port,
+			 enable_ws_qap ? " + WebSockets-QAP1" : "",
+			 ws_upgrade ? " + WebSocket Upgrade" : "");
 		push_server(ss, srv);
 	}
 
@@ -5023,6 +5039,7 @@ SEXP run_Rserve(SEXP cfgFile, SEXP cfgPars) {
 	setup_signal_handlers();
 
 	Rprintf("-- running Rserve in this R session (pid=%d), %d server(s) --\n(This session will block until Rserve is shut down)\n", getpid(), server_stack_size(ss));
+	ulog("INFO: Rserve in R session (pid=%d), %d server(s)\n", getpid(), server_stack_size(ss));
 	active = 1;
 
 	serverLoop();
