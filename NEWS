@@ -8,6 +8,18 @@ NOTE: Rserve 1.8 series has many new features, but it has also removed
       know what it means, just ignore this note.
 
 
+1.8-8
+    o	add basic ulog logging for QAP1 even outside of OCAP mode (#169)
+
+
+1.8-7	2020-12-17
+    o	proxy: fail with an error if no servers can bind (#152)
+
+    o	proxy: fail if SSL cannot be initialized
+
+    o	include err.h SSL header outside of debug mode
+
+
 1.8-6	2020-06-11
     o	proxy: handle WebSockets control frames (PING/PONG/CLOSE)
 	proper.
