@@ -11,6 +11,11 @@ NOTE: Rserve 1.8 series has many new features, but it has also removed
 1.8-8
     o	add basic ulog logging for QAP1 even outside of OCAP mode (#169)
 
+    o	TLS configuration options now check the success of the
+	operation and will issue a warning if it failed. Most
+	importantly `tls.key` must succeed in order for the
+	server to support TLS.
+
 
 1.8-7	2020-12-17
     o	proxy: fail with an error if no servers can bind (#152)
