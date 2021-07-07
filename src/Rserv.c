@@ -1279,21 +1279,26 @@ static int setConfig(const char *c, const char *p) {
 		tls_t *tls = shared_tls(0);
 		if (!tls)
 			tls = shared_tls(new_tls());
-		set_tls_pk(tls, p);
+		if (set_tls_pk(tls, p) != 1)
+			RSEprintf("WARNING: setting tls.key FAILED, TLS will NOT be used%s\n",
+					  tls ? " (check your key file)" : " (TLS support is not present, you may need to re-compile with OpenSSL)");
 		return 1;
 	}
 	if (!strcmp(c, "tls.ca")) {
 		tls_t *tls = shared_tls(0);
 		if (!tls)
 			tls = shared_tls(new_tls());
-		set_tls_ca(tls, p, 0);
+		if (set_tls_ca(tls, p, 0) != 1)
+			RSEprintf("WARNING: setting tls.ca FAILED\n");
 		return 1;
 	}
 	if (!strcmp(c, "tls.cert")) {
 		tls_t *tls = shared_tls(0);
 		if (!tls)
 			tls = shared_tls(new_tls());
-		set_tls_cert(tls, p);
+		if (set_tls_cert(tls, p) != 1)
+			RSEprintf("WARNING: setting tls.cert FAILED%s\n",
+					  tls ? " (check your certificate)" : "");
 		return 1;
 	}
 	if (!strcmp(c, "pid.file") && *p) {
