@@ -1616,7 +1616,7 @@ static int loadConfig(const char *fn)
     fclose(f);
 #ifndef HAS_CRYPT
     if (!usePlain) {
-		RSEprintf("WARNING: useplain=no, but this Rserve has no crypt support!\nSet useplain=yes or compile with crypt support (if your system supports crypt).\nFalling back to plain text password.\n");
+		RSEprintf("WARNING: plain-text passwords are disabled, but this Rserve has no crypt support!\nSet 'plaintext enable' or compile with crypt support (if your system supports crypt).\nFalling back to plain text password.\n");
 		usePlain=1;
     }
 #endif
