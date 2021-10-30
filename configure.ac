@@ -1,7 +1,7 @@
 # Process this file with autoconf to produce a configure script.
 AC_INIT([Rserve],[1.8],[Simon.Urbanek@r-project.org])
 AC_CONFIG_SRCDIR([src/Rserv.c])
-AC_CONFIG_HEADER([src/config.h])
+AC_CONFIG_HEADERS([src/config.h])
 
 # find R home and set CC/CFLAGS
 : ${R_HOME=`R RHOME`}
@@ -23,8 +23,7 @@ AC_ARG_WITH([proxy],
 	[with_proxy=$withval], [with_proxy=yes])
 
 AC_ARG_ENABLE([ipv6],
-[AC_HELP_STRING([--enable-ipv6],
-		[enable the use of IPv6 protocol. @<:@no@:>@])],
+[AS_HELP_STRING([--enable-ipv6],[enable the use of IPv6 protocol. @<:@no@:>@])],
 [want_ipv6="${enableval}"],
 [want_ipv6=no])
 
@@ -35,8 +34,7 @@ if test -n "$RLD"; then
 fi
 
 AC_ARG_ENABLE([threads],
-[AC_HELP_STRING([--enable-threads],
-                [enable the use of threads in code than may benefit from it.
+[AS_HELP_STRING([--enable-threads],[enable the use of threads in code than may benefit from it.
 		Currently, it is only used in stdout/err forwarding, it does not
 		enable the threaded server.
                 @<:@auto@:>@])],
@@ -96,7 +94,6 @@ AC_PROG_CC
 # Checks for libraries.
 
 # Checks for header files.
-AC_HEADER_STDC
 AC_HEADER_SYS_WAIT
 AC_CHECK_HEADERS([limits.h string.h memory.h sys/time.h unistd.h])
 AC_CHECK_HEADERS([sys/stat.h sys/types.h sys/socket.h sys/un.h netinet/in.h netinet/tcp.h])
@@ -120,11 +117,21 @@ AC_MSG_ERROR([Cannot determine endianness neither from the compiler nor using a 
 Try adding -D_BIG_ENDIAN_ or -D_LITTLE_ENDIAN_ to PKG_CPPFLAGS.
 ])])
 ])
-AC_HEADER_TIME
+
 
 # Checks for library functions.
 AC_FUNC_FORK
-AC_TYPE_SIGNAL
+# NOTE: autoconf claims this must be void and thus is not needed
+AC_CACHE_CHECK([return type of signal handlers],[ac_cv_type_signal],[AC_COMPILE_IFELSE(
+[AC_LANG_PROGRAM([#include <sys/types.h>
+#include <signal.h>
+],
+		 [return *(signal (0, 0)) (0) == 1;])],
+		   [ac_cv_type_signal=int],
+		   [ac_cv_type_signal=void])])
+AC_DEFINE_UNQUOTED([RETSIGTYPE],[$ac_cv_type_signal],[Define as the return type of signal handlers
+		    (`int' or `void').])
+
 AC_CHECK_FUNCS([memset mkdir rmdir select socket srandomdev])
 
 # Check whether we can use crypt (and if we do if it's in the crypt library)

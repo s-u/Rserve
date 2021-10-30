@@ -1,11 +1,11 @@
 # Process this file with autoconf to produce a configure script.
 AC_INIT([Rserve-cxx-client],[0.1],[Simon.Urbanek@r-project.org])
 AC_CONFIG_SRCDIR([Rconnection.cc])
-AC_CONFIG_HEADER([config.h])
+AC_CONFIG_HEADERS([config.h])
 
 AC_PROG_CC
 AC_PROG_CXX
-AC_HEADER_STDC
+
 AC_HEADER_SYS_WAIT
 AC_CHECK_HEADERS([string.h memory.h sys/time.h unistd.h])
 AC_CHECK_HEADERS([sys/stat.h sys/types.h sys/socket.h sys/un.h netinet/in.h netinet/tcp.h])
@@ -29,11 +29,20 @@ AC_MSG_ERROR([Cannot determine endianness neither from the compiler nor using a 
 Try adding -D_BIG_ENDIAN_ or -D_LITTLE_ENDIAN_ to PKG_CPPFLAGS.
 ])])
 ])
-AC_HEADER_TIME
+
 
 # Checks for library functions.
 AC_FUNC_FORK
-AC_TYPE_SIGNAL
+AC_CACHE_CHECK([return type of signal handlers],[ac_cv_type_signal],[AC_COMPILE_IFELSE(
+[AC_LANG_PROGRAM([#include <sys/types.h>
+#include <signal.h>
+],
+		 [return *(signal (0, 0)) (0) == 1;])],
+		   [ac_cv_type_signal=int],
+		   [ac_cv_type_signal=void])])
+AC_DEFINE_UNQUOTED([RETSIGTYPE],[$ac_cv_type_signal],[Define as the return type of signal handlers
+		    (`int' or `void').])
+
 AC_CHECK_FUNCS([memset mkdir rmdir select socket])
 
 # Check whether we can use crypt (and if we do if it's in the crypt library)
