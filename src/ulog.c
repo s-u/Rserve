@@ -159,26 +159,28 @@ void ulog_add(const char *format, ...) {
 }
 
 void ulog_end() {
-#if defined RSERV_DEBUG || defined ULOG_STDERR
+#if defined (RSERV_DEBUG) || defined (ULOG_STDERR)
     buf[buf_pos] = 0;
     fprintf(stderr, "ULOG: %s\n", buf);
 #endif
-    if (ulog_port) {
-	struct sockaddr_in sa;
-	bzero(&sa, sizeof(sa));
-	sa.sin_family = AF_INET;
-	sa.sin_port = htons(ulog_port);
-	ulog_path[ulog_dcol] = 0;
-	sa.sin_addr.s_addr = inet_addr(ulog_path + 6);
-	ulog_path[ulog_dcol] = ':'; /* we probably don't even need this ... */
-	sendto(ulog_sock, buf, buf_pos, 0, (struct sockaddr*) &sa, sizeof(sa));
-    } else {
-	struct sockaddr_un sa;
-	if (!buf_pos) return;
-	bzero(&sa, sizeof(sa));
-	sa.sun_family = AF_LOCAL;
-	strcpy(sa.sun_path, ulog_path); /* FIXME: check possible overflow? */
-	sendto(ulog_sock, buf, buf_pos, 0, (struct sockaddr*) &sa, sizeof(sa));
+    if (ulog_sock != -1) {
+	if (ulog_port) {
+	    struct sockaddr_in sa;
+	    bzero(&sa, sizeof(sa));
+	    sa.sin_family = AF_INET;
+	    sa.sin_port = htons(ulog_port);
+	    ulog_path[ulog_dcol] = 0;
+	    sa.sin_addr.s_addr = inet_addr(ulog_path + 6);
+	    ulog_path[ulog_dcol] = ':'; /* we probably don't even need this ... */
+	    sendto(ulog_sock, buf, buf_pos, 0, (struct sockaddr*) &sa, sizeof(sa));
+	} else {
+	    struct sockaddr_un sa;
+	    if (!buf_pos) return;
+	    bzero(&sa, sizeof(sa));
+	    sa.sun_family = AF_LOCAL;
+	    strcpy(sa.sun_path, ulog_path); /* FIXME: check possible overflow? */
+	    sendto(ulog_sock, buf, buf_pos, 0, (struct sockaddr*) &sa, sizeof(sa));
+	}
     }
     buf_pos = 0;
 }
@@ -193,6 +195,13 @@ void ulog(const char *format, ...) {
     va_list(ap);
     va_start(ap, format);
     ulog_begin();
+#if defined (RSERV_DEBUG) || defined (ULOG_STDERR)
+    /* in case ulog_begin did not start a line */
+    if (!buf_pos) {
+	*buf = ' ';
+	buf_pos = 1;
+    }
+#endif
     if (buf_pos) {
 	vsnprintf(buf + buf_pos, sizeof(buf) - buf_pos, format, ap);
 	buf_pos += strlen(buf + buf_pos);
