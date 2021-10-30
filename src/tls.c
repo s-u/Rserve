@@ -55,6 +55,11 @@ int set_tls_ca(tls_t *tls, const char *fn_ca, const char *path_ca) {
     return SSL_CTX_load_verify_locations(tls->ctx, fn_ca, path_ca);
 }
 
+int set_tls_verify(tls_t *tls, int verify) {
+    SSL_CTX_set_verify(tls->ctx, verify ? SSL_VERIFY_PEER : SSL_VERIFY_NONE, 0);
+    return 1;
+}
+
 struct args {
     server_t *srv; /* server that instantiated this connection */
     int s;
@@ -101,6 +106,34 @@ void close_tls(args_t *c) {
 void free_tls(tls_t *tls) {
 }
 
+/* if cn is present, len > 0 and there is a cert then the common name
+   is copied to cn and terminated. It may be truncated if len is too short.
+   Return values:
+   0 = present but verification failed
+   1 = present and verification successful
+  -1 = absent */
+int verify_peer_tls(args_t *c, char *cn, int len) {
+    X509 *peer;
+    if (peer = SSL_get_peer_certificate(c->ssl)) {
+	if (cn && len > 0) {
+	    X509_NAME *sn = X509_get_subject_name(peer);
+	    X509_NAME_get_text_by_NID(sn, NID_commonName, cn, len);
+	    fprintf(stderr, "INFO: peer cert common name: \"%s\"\n", cn);
+	}
+	X509_free(peer);
+	if (SSL_get_verify_result(c->ssl) == X509_V_OK) {
+	    fprintf(stderr, "INFO: peer cert present and OK\n");
+	    return 1;
+	} else {
+	    fprintf(stderr, "INFO: peer cert present, but verification FAILED\n");
+	    return 0;
+	}
+    }
+
+    fprintf(stderr, "INFO: peer nas NO cert\n");
+    return -1;
+}
+
 #else /* no SSL/TLS support, ignore everything, fail on everything */
 
 tls_t *shared_tls(tls_t *new_tls) { return 0; }
@@ -109,10 +142,12 @@ tls_t *new_tls() { return 0; }
 int set_tls_pk(tls_t *tls, const char *fn) { return -1; }
 int set_tls_cert(tls_t *tls, const char *fn) { return -1; }
 int set_tls_ca(tls_t *tls, const char *fn_ca, const char *path_ca) { return -1; }
+int set_tls_verify(tls_t *tls, int verify) { return -1; }
 void free_tls(tls_t *tls) { }
 
 int add_tls(args_t *c, tls_t *tls, int server) { return -1; }
 void copy_tls(args_t *src, args_t *dst) { }
 void close_tls(args_t *c) { }
+int verify_peer_tls(args_t *c, char *cn, int len) { return -1; }
 
 #endif
