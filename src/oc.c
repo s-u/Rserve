@@ -129,7 +129,6 @@ SEXP Rserve_oc_register(SEXP what, SEXP sName) {
 }
 
 SEXP Rserve_oc_resolve(SEXP what) {
-    SEXP res;
     if (!inherits(what, "OCref") || TYPEOF(what) != STRSXP || LENGTH(what) != 1)
 	Rf_error("invalid OCref");
     return CAR(oc_resolve(CHAR(STRING_ELT(what, 0))));

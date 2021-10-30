@@ -114,7 +114,7 @@ void free_tls(tls_t *tls) {
   -1 = absent */
 int verify_peer_tls(args_t *c, char *cn, int len) {
     X509 *peer;
-    if (peer = SSL_get_peer_certificate(c->ssl)) {
+    if ((peer = SSL_get_peer_certificate(c->ssl))) {
 	if (cn && len > 0) {
 	    X509_NAME *sn = X509_get_subject_name(peer);
 	    X509_NAME_get_text_by_NID(sn, NID_commonName, cn, len);

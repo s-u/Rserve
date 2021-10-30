@@ -577,6 +577,8 @@ int cio_recv(int s, void *buffer, int length, int flags) {
 	return -1;
 }
 
+/* this is only used on standalone mode */
+#ifdef STANDALONE_RSERVE
 #ifdef unix
 static int set_user(const char *usr) {
     struct passwd *p = getpwnam(usr);
@@ -640,12 +642,14 @@ static int fork_http(args_t *arg) { return -1; }
 static int fork_https(args_t *arg) { return -1; }
 static int fork_ws(args_t *arg) { return -1; }
 #endif
+#endif
 
 #ifdef STANDALONE_RSERVE
 static const char *rserve_ver_id = "$Id$";
 static char rserve_rev[16]; /* this is generated from rserve_ver_id by main */
 #endif
 
+#if 0 /* FIXME: not used yet, implements generate_addr() for random MSG IDs */
 #ifdef HAVE_RSA
 #include <openssl/rand.h>
 
@@ -678,7 +682,8 @@ static void generate_random_bytes(void *buf, int len) {
 static void generate_addr(rsmsg_addr_t *addr) {
 	generate_random_bytes(addr, sizeof(*addr));
 }
-
+#endif
+ 
 #define localUCIX UCIX
 
 /* string encoding handling */
@@ -702,9 +707,6 @@ SEXP Rserve_ctrlEval(SEXP what) {
 SEXP Rserve_ctrlSource(SEXP what) {
 	return Rserve_ctrlCMD(-1, what);
 }	
-
-/* this is the representation of NAs in strings. We chose 0xff since that should never occur in UTF-8 strings. If 0xff occurs in the beginning of a string anyway, it will be doubled to avoid misrepresentation. */
-static const unsigned char NaStringRepresentation[2] = { 255, 0 };
 
 static int set_string_encoding(const char *enc, int verbose) {
 #ifdef USE_ENCODING
@@ -3128,7 +3130,7 @@ void Rserve_OCAP_connected(void *thp) {
 static int   compute_fd = -1;
 static pid_t compute_pid = 0;
 static pid_t compute_ppid = 0;
-static void *compute_iobuf;
+static char *compute_iobuf;
 static int   compute_iobuf_len;
 
 typedef struct compq {
@@ -3141,7 +3143,6 @@ static compq_t *compute_queue;
 
 static void compute_terminated() {
 	SEXP q = PROTECT(allocVector(VECSXP, 1));
-	int type = 0;
 	/* free the remaining queue */
 	while (compute_queue) {
 		compq_t *nxt = compute_queue->next;
@@ -3415,7 +3416,7 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 			handle_std_fw();
 
 		if (which == 2) { /* proxy pass-through */
-			size_t plen = 0, i;
+			size_t plen = 0;
 			unsigned int len32, hi32;
 			int cmd, iob_pos;
 
@@ -3442,7 +3443,7 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 			if (!compute_iobuf) {
 				if (!compute_iobuf_len)
 					compute_iobuf_len = max_sio_chunk;
-				compute_iobuf = malloc(compute_iobuf_len);
+				compute_iobuf = (char*) malloc(compute_iobuf_len);
 				if (!compute_iobuf) {
 #ifdef RSERV_DEBUG
 					fprintf(stderr,"FATAL: out of memory while allocating pass-thru buffer\n");
@@ -3497,7 +3498,7 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 
 			if (compute_fd == -1) continue;
 
-			if (i < plen) {
+			if (plen) {
 				ulog("ERROR: incomplete compute OCAP message - closing connection");
 				sendResp(args, SET_STAT(RESP_ERR, ERR_conn_broken));
 				closesocket(s);
@@ -4078,7 +4079,7 @@ void Rserve_QAP1_connected(void *thp) {
 		
 				unaligned = 0;
 #ifdef RSERV_DEBUG
-				printf("parsing parameters (buf=%p, len=%ld)\n", buf, (long) plen);
+				printf("parsing parameters (buf=%p, len=%ld)\n", (void*) buf, (long) plen);
 				if (plen > 0) printDump(buf,plen);
 #endif
 				c = buf;
@@ -4093,7 +4094,7 @@ void Rserve_QAP1_connected(void *thp) {
 					} 
 #ifdef RSERV_DEBUG
 					printf("PAR[%d]: %08lx (PAR_LEN=%ld, PAR_TYPE=%d, large=%s, c=%p, ptr=%p)\n", pars, i,
-						   (long)parLen, parType, (headSize==8)?"yes":"no", c, c + headSize);
+						   (long)parLen, parType, (headSize==8)?"yes":"no", (void*) c, (void*)(c + headSize));
 #endif
 #ifdef ALIGN_DOUBLES
 					if (unaligned) { /* on Sun machines it is deadly to process unaligned parameters,

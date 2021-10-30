@@ -5,7 +5,6 @@
 #include "tls.h"
 
 #include "rsdebug.h"
-#include "rserr.h"
 
 #include <sisocks.h>
 #include <string.h>
