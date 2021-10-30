@@ -16,6 +16,60 @@ NOTE: Rserve 1.8 series has many new features, but it has also removed
 	importantly `tls.key` must succeed in order for the
 	server to support TLS.
 
+    o	New option `tls.client` governs the treatment of client
+	certificates. There are following possible values:
+
+	none        - does not ask nor check the client certificate
+	request     - request certificate from the client, but
+		      do not check its validity
+	require	    - require client certificate, if not present
+		      or not valid, reject the connection
+	match:...   - client's common name  must match exactly one
+		      of the listed (comma-separated) names. No spaces
+		      are allowed around the commas.
+	prefix:...  - the client's common name must start with the
+		      specified prefix
+	suffix:...  - the client's common name must end with the
+		      specified suffix
+
+	The options `match`, `prefix` and `suffix` imply `require`.
+	Each of them can be specified only once. However, it is
+	possible to use up to one each in which case the requirement
+	is treated as logical "or", e.g.,
+
+	    tls.client match:foo.bar
+	    tls.client suffix:me.com
+
+	will allow both clients	`foo.bar` and `foo.me.com`.
+
+	NOTE: `none`/`request`/`require` are mutually exclusive. If
+	more than one is specified, the behavior is undefined
+	(currently the last one wins but that shold not be relied
+	upon). All comparisons are case-senstitive (sorry, no regex
+	support at this point, because we do not want to depend on
+	PCRE just yet).
+
+	If the `tls.client` option is not specified, then the default
+	behavior is one of `none` or `request`. In that case no attempt
+	is made to control the TLS behavior so it depends on the SSL
+	library's default whether it asks for the client certificate
+	or not, but in either case it is not checked.
+
+	NOTE: probably the best way to use the new feature is to use
+	certificates issued by your organization with
+	`tls.client require` and `tls.ca` set to the organization's CA
+	certificate which means you don't need to check client names
+	and yet no unauthorized client can connect.
+
+    o	-DULOG_STDERR now correctly produces ulog output on stderr
+	and ulog output is visible in the debug build
+
+    o	TLS shutdowns are performed explicitly and sockets closed
+	(only affects non-forking servers)
+
+    o	several possible leaks of arguments under error conditions
+	were fixed
+
 
 1.8-7	2020-12-17
     o	proxy: fail with an error if no servers can bind (#152)
