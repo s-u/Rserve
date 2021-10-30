@@ -119,6 +119,8 @@ void base64encode(const unsigned char *src, int len, char *dst);
 void Rserve_QAP1_connected(args_t *arg);
 void Rserve_text_connected(args_t *arg);
 
+int check_tls_client(int verify, const char *cn);
+
 #define FRAME_BUFFER_SIZE 65536
 
 static void WS_connected(void *parg) {
@@ -132,6 +134,8 @@ static void WS_connected(void *parg) {
 	/* we have to perform a handshake before giving over to QAP 
 	   but we have to fork() first as to not block the server on handshake */
 	if (Rserve_prepare_child(arg) != 0) { /* parent or error */
+		if (arg->s != -1)
+			closesocket(arg->s);
 		free(arg);
 		return;
 	}
@@ -142,10 +146,20 @@ static void WS_connected(void *parg) {
 	   no bad side-effects.
 	*/
 	if (arg->srv->flags & WS_TLS) {
+		char cn[256];
 		args_t *tls_arg = calloc(1, sizeof(args_t));
 		tls_arg->s = arg->s;
 		tls_arg->srv = calloc(1, sizeof(server_t));
 		add_tls(tls_arg, shared_tls(0), 1);
+		if (check_tls_client(verify_peer_tls(tls_arg, cn, 256), cn)) {
+			close_tls(tls_arg);
+			free(tls_arg->srv);
+			free(tls_arg);
+			if (arg->s != -1)
+				closesocket(arg->s);
+			free(arg);
+			return;
+		}
 		arg->tls_arg = tls_arg;
 	} else arg->tls_arg = 0;
 
@@ -155,7 +169,7 @@ static void WS_connected(void *parg) {
 		strcpy(lbuf, "HTTP/1.1 500 Out of memory\r\n\r\n");
 		WS_wire_send(arg, lbuf, strlen(lbuf));
 		WS_wire_close(arg);
-		arg->s = -1;
+		free(arg);
 		return;
 	}
 	buf[LINE_BUF_SIZE - 1] = 0;
@@ -239,6 +253,7 @@ static void WS_connected(void *parg) {
 				arg->s = -1;
 				free_header(&h);
 				free(buf);
+				free(arg);
 				return;
 			}
 			/* otherwise it's fine, we will load more */
@@ -260,6 +275,7 @@ static void WS_connected(void *parg) {
 		arg->s = -1;
 		free(buf);
 		free_header(&h);
+		free(arg);
 		return;
 	}
 #ifdef RSERV_DEBUG
@@ -283,6 +299,7 @@ static void WS_connected(void *parg) {
 				arg->s = -1;
 				free(buf);
 				free_header(&h);
+				free(arg);
 				return;
 			}
 		}
@@ -293,6 +310,7 @@ static void WS_connected(void *parg) {
 			arg->s = -1;
 			free(buf);
 			free_header(&h);
+			free(arg);
 			return;
 		}
 		v[0] = count_digits(h.key1) / count_spaces(h.key1);

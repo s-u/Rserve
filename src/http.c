@@ -861,6 +861,9 @@ static void http_input_iteration(args_t *c) {
     }
 }
 
+/* from Rserve.c */
+int check_tls_client(int verify, const char *cn);
+
 static void HTTP_connected(void *parg) {
 	args_t *arg = (args_t*) parg;
 
@@ -875,8 +878,16 @@ static void HTTP_connected(void *parg) {
 		return;
 	}
 
-	if ((arg->srv->flags & SRV_TLS) && shared_tls(0))
+	if ((arg->srv->flags & SRV_TLS) && shared_tls(0)) {
+		char cn[256];
 		add_tls(arg, shared_tls(0), 1);
+		if (check_tls_client(verify_peer_tls(arg, cn, 256), cn)) {
+			close_tls(arg);
+			closesocket(arg->s);
+			free_args(arg);
+			return;
+		}
+	}
 
 	while (arg->s != -1)
 		http_input_iteration(arg);

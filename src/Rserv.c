@@ -346,6 +346,11 @@ static int close_all_io = 0; /* if enabled all I/O is re-directed to /dev/null
 static int oob_allowed = 0; /* this flag is set once handshake is done such that OOB messages are permitted */
 static int oob_context_prefix = 0; /* if set, context is prepended in OOB
 									  messages sent by Rserve itself */
+
+/* configuration for TLS client checking */
+static int tls_client_require = 0;
+static char *tls_client_match, *tls_client_prefix, *tls_client_suffix;
+
 #ifdef DAEMON
 int daemonize = 1;
 #endif
@@ -1301,6 +1306,33 @@ static int setConfig(const char *c, const char *p) {
 					  tls ? " (check your certificate)" : "");
 		return 1;
 	}
+	if (!strcmp(c, "tls.client")) {
+		int tls_verify = 1, tls_require = 1;
+		tls_t *tls;
+		if (!strcmp(p, "require")) {         /* ask: yes, verify: yes */
+		} else if (!strcmp(p, "none")) {     /* ask: no,  verify: no */
+			tls_verify = 0; tls_require = 0;
+		} else if (!strcmp(p, "request")) {  /* ask: yes, verify: no */
+			tls_require = 0;
+		} else if (!strncmp(p, "match:", 6)) { /* all others imply require */
+			tls_client_match = strdup(p + 6);
+		} else if (!strncmp(p, "prefix:", 7)) {
+			tls_client_prefix = strdup(p + 7);
+		} else if (!strncmp(p, "suffix:", 7)) {
+			tls_client_suffix = strdup(p + 7);
+		} else {
+			RSEprintf("WARNING: invalid tls.client specification '%s', ignoring\n", p);
+			return 1;
+		}
+
+		tls = shared_tls(0);
+		if (!tls)
+			tls = shared_tls(new_tls());
+		if (set_tls_verify(tls, tls_verify) != 1)
+			RSEprintf("WARNING: setting tls.verify FAILED\n");
+		tls_client_require = tls_require;
+		return 1;
+	}
 	if (!strcmp(c, "pid.file") && *p) {
 		pidfile = strdup(p);
 		return 1;
@@ -2240,6 +2272,9 @@ void Rserve_text_connected(void *thp) {
 	char *buf = (char*) malloc(bl--);
 	if (!buf) {
 		RSEprintf("ERROR: cannot allocate buffer\n");
+		if (arg->s != -1)
+			closesocket(arg->s);
+		free(arg);
 		return;
 	}
 
@@ -2324,6 +2359,9 @@ void Rserve_text_connected(void *thp) {
 			}
 		}
 	}
+	if (arg->s != -1)
+		closesocket(arg->s);
+	free(arg);
 }
 
 static char auth_buf[4096];
@@ -2886,13 +2924,68 @@ SEXP Rserve_forward_stdio() {
 	return ScalarLogical(1);
 }
 
+/* return 0 to proceed or 1 to fail */
+int check_tls_client(int verify, const char *cn) {
+	int cnl = cn ? strlen(cn) : 0, failed = 0;
+	/* if client cert is not required, always succeed */
+	if (!tls_client_require)
+		return 0;
+
+	/* if it is required, but is not valid, direct fail */
+	if (verify != 1) {
+		ulog("WARNING: tls.client check enabled, but no valid certificate, rejecting");
+		return 1;
+	}
+
+	/* valid cert, let's see if we have specific match requirements */
+	if (tls_client_match) {
+		if (cn) {
+			const char *c = strstr(tls_client_match, cn);
+			if (c && (c == tls_client_match || c[-1] == ',') &&
+				(c[cnl] == ',' || !c[cnl])) {
+				ulog("INFO: TLS client '%s' matched, allowing", cn);
+				return 0;
+			}
+		}
+		ulog("INFO: TLS client '%s' fails match rule", cn ? cn : "<NULL>");
+		failed++;
+	}
+
+	if (tls_client_prefix) {
+		if (cn && !strncmp(cn, tls_client_prefix, strlen(tls_client_prefix))) {
+			ulog("INFO: TLS client '%s' prefix match, allowing", cn);
+			return 0;
+		}
+		ulog("INFO: TLS client '%s' fails prefix rule", cn ? cn : "<NULL>");
+		failed++;
+	}
+
+	if (tls_client_suffix) {
+		if (cn && cnl >= strlen(tls_client_suffix) &&
+			!strcmp(cn + cnl - strlen(tls_client_suffix), tls_client_suffix)) {
+			ulog("INFO: TLS client '%s' suffix match, allowing", cn);
+			return 0;
+		}
+		ulog("INFO: TLS client '%s' fails suffix rule", cn ? cn : "<NULL>");
+		failed++;
+	}
+
+	if (!failed)
+		ulog("INFO: TLS client '%s' has valid certificate, no rules to apply, allowing");
+
+	return failed ? 1 : 0;
+}
+
 void Rserve_OCAP_connected(void *thp) {
     struct args *args = (struct args*)thp;
 	server_t *srv = args->srv;
 	int fres = Rserve_prepare_child(args);
 	qap_runtime_t *rt;
+	int uses_tls = 0;
 
 	if (fres != 0) { /* not a child (error or parent) */
+		if (args->s != -1)
+			closesocket(args->s);
 		free(args);
 		return;
 	}
@@ -2900,6 +2993,8 @@ void Rserve_OCAP_connected(void *thp) {
 	/* this should never happen, but just in case ... */
 	if (!(args->srv->flags & SRV_QAP_OC)) {
 		RSEprintf("FATAL: OCAP is disabled yet we are in OCAPconnected");
+		if (args->s != -1)
+			closesocket(args->s);
 		free(args);
 		return;
 	}
@@ -2907,8 +3002,18 @@ void Rserve_OCAP_connected(void *thp) {
 	setup_workdir();
 
 	/* setup TLS if desired */
-	if ((args->srv->flags & SRV_TLS) && shared_tls(0))
+	if ((args->srv->flags & SRV_TLS) && shared_tls(0)) {
+		char cn[256];
 		add_tls(args, shared_tls(0), 1);
+		if (check_tls_client(verify_peer_tls(args, cn, 256), cn)) {
+			close_tls(args);
+			if (args->s != -1)
+				closesocket(args->s);
+			free(args);
+			return;
+		}
+		uses_tls = 1;
+	}
 
 	{ /* OCinit */
 		SOCKET s = args->s;
@@ -2945,6 +3050,7 @@ void Rserve_OCAP_connected(void *thp) {
 #ifdef RSERV_DEBUG
 			printf("ERROR: failed to eval oc.init() - aborting!");
 #endif
+			if (uses_tls) close_tls(args);
 			closesocket(s);
 			free(args);
 			return;			
@@ -2953,10 +3059,12 @@ void Rserve_OCAP_connected(void *thp) {
 		current_runtime = rt = new_qap_runtime(args);
 		if (!rt) {
 			ulog("OCAP-ERROR: cannot allocate QAP runtime");
+			if (uses_tls) close_tls(args);
 			closesocket(s);
 			free(args);
 			return;
 		}
+		/* from now on the run-time takes ownership of args */
 
 		args->flags |= F_OUT_BIN; /* in OC everything is binary */
 		PROTECT(oc);
@@ -2985,6 +3093,7 @@ void Rserve_OCAP_connected(void *thp) {
 #endif
 			/* FIXME: */
 			sendRespData(args, SET_STAT(RESP_ERR, ERR_object_too_big), 4, &osz);
+			if (uses_tls) close_tls(args);
 			free_qap_runtime(rt);
 			closesocket(s);
 			UNPROTECT(1);
@@ -3013,11 +3122,12 @@ void Rserve_OCAP_connected(void *thp) {
 
 	/* everything is binary from now on */
 	args->flags |= F_OUT_BIN;
-	
+
 	while (OCAP_iteration(rt, 0)) {}
-	
+
 	/* FIXME: for compute_fd should we defer the cleanup to the compute process? */
 	Rserve_cleanup();
+	if (uses_tls) close_tls(args);
 	free_qap_runtime(rt);
 }
 
@@ -3497,6 +3607,9 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 #endif
 					i = 0;
 					while ((rn = srv->recv(args, ((char*)rt->buf) + i, (plen - i > max_sio_chunk) ? max_sio_chunk : (plen - i)))) {
+#ifdef RSERV_DEBUG
+						printf(" rn = %d (i = %ld)\n", rn, (long) i);
+#endif
 						if (rn > 0) i += rn;
 						if (i >= plen || rn < 1) break;
 					}
@@ -3551,14 +3664,30 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 				/* FIXME: this is a bit hacky since we skipped parameter parsing */
 				int par_t = ibuf[0] & 0xff;
 				const char *c_ocname = 0;
+#ifdef RSERV_DEBUG
+				printf(" OCAP call\n");
+#endif
 				if (par_t == DT_SEXP || par_t == (DT_SEXP | DT_LARGE)) {
 					unsigned int *sptr;
+#ifdef RSERV_DEBUG
+					printf(" - OK, has DT_SEXP\n");
+#endif
 					sptr = ibuf + ((par_t & DT_LARGE) ? 2 : 1);
 					/* FIXME: we're not checking the size?!? */
 					val = QAP_decode(&sptr);
+#ifdef RSERV_DEBUG
+					printf(" - resulting type: %d\n", TYPEOF(val));
+#endif
 					if (val && TYPEOF(val) == LANGSXP) {
 						SEXP ocref = CAR(val);
+#ifdef RSERV_DEBUG
+						printf(" - good, is a call\n");
+#endif
 						if (TYPEOF(ocref) == STRSXP && LENGTH(ocref) == 1) {
+#ifdef RSERV_DEBUG
+							printf(" - head is a ocref, trying to resolve %s\n", 
+								   CHAR(STRING_ELT(ocref, 0)));
+#endif
 							SEXP ocv = oc_resolve(CHAR(STRING_ELT(ocref, 0)));
 							if (ocv && ocv != R_NilValue && CAR(ocv) != R_NilValue) {
 								/* valid reference -- replace it in the call */
@@ -3728,6 +3857,7 @@ void Rserve_QAP1_connected(void *thp) {
     int pars;
     int process;
 	int rn;
+	int uses_tls = 0;
     ParseStatus stat;
     char *sendbuf;
     rlen_t sendBufSize;
@@ -3787,9 +3917,19 @@ void Rserve_QAP1_connected(void *thp) {
 	/* FIXME: we used to free a here, but now that we use it we have to defer that ... */
     
     csock = s;
-    
-	if ((a->srv->flags & SRV_TLS) && shared_tls(0))
+
+	if ((a->srv->flags & SRV_TLS) && shared_tls(0)) {
+		char cn[256];
 		add_tls(a, shared_tls(0), 1);
+		if (check_tls_client(verify_peer_tls(a, cn, 256), cn)) {
+			s = a->s;
+			close_tls(a);
+			free(a);
+			closesocket(s);
+			return;
+		}
+		uses_tls = 1;
+	}
 
 	{
 		strcpy(buf,IDstring);
@@ -3871,8 +4011,11 @@ void Rserve_QAP1_connected(void *thp) {
 			/* in OC mode everything but OCcall is invalid */
 		if ((a->srv->flags & SRV_QAP_OC) && ph.cmd != CMD_OCcall) {
 			sendResp(a, SET_STAT(RESP_ERR, ERR_disabled));
-			free(sendbuf); free(sfbuf);
+			free(sendbuf);
+			free(sfbuf);
+			if (uses_tls) close_tls(a);
 			closesocket(s);
+			free(a);
 			return;
 		}
 
@@ -3907,7 +4050,9 @@ void Rserve_QAP1_connected(void *thp) {
 #endif
 						sendResp(a, SET_STAT(RESP_ERR,ERR_out_of_mem));
 						free(sendbuf); free(sfbuf);
+						if (uses_tls) close_tls(a);
 						closesocket(s);
+						free(a);
 						return;
 					}	    
 				}
@@ -3916,6 +4061,9 @@ void Rserve_QAP1_connected(void *thp) {
 #endif
 				i = 0;
 				while ((rn = srv->recv(a, ((char*)buf) + i, (plen - i > max_sio_chunk) ? max_sio_chunk : (plen - i)))) {
+#ifdef RSERV_DEBUG
+					printf(" [2] rn = %d (i = %ld)\n", rn, (long) i);
+#endif
 					if (rn > 0) i += rn;
 					if (i >= plen || rn < 1) break;
 				}
@@ -4032,7 +4180,9 @@ void Rserve_QAP1_connected(void *thp) {
 			if (!valid) {
 				ulog("ERROR OCcall: invalid reference");
 				free(sendbuf); free(sfbuf);
+				if (uses_tls) close_tls(a);
 				closesocket(s);				
+				free(a);
 				return;
 			}
 			PROTECT(val);
@@ -4082,8 +4232,10 @@ void Rserve_QAP1_connected(void *thp) {
 							free(pload);
 					} else {
 						sendResp(a, SET_STAT(RESP_ERR, ERR_securityClose));
+						if (uses_tls) close_tls(a);
 						closesocket(s);
 						free(sendbuf); free(sfbuf); free(buf);
+						free(a);
 						return;
 					}
 				} else
@@ -4175,8 +4327,10 @@ void Rserve_QAP1_connected(void *thp) {
 		/* if not authed by now, close connection */
 		if (authReq && !authed) {
 			sendResp(a, SET_STAT(RESP_ERR, ERR_auth_failed));
+			if (uses_tls) close_tls(a);
 			closesocket(s);
 			free(sendbuf); free(sfbuf); free(buf);
+			free(a);
 			return;
 		}
 
@@ -4191,8 +4345,10 @@ void Rserve_QAP1_connected(void *thp) {
 			printf("initiating clean shutdown.\n");
 #endif
 			active = 0;
+			if (uses_tls) close_tls(a);
 			closesocket(s);
 			free(sendbuf); free(sfbuf); free(buf);
+			free(a);
 #ifdef FORKED
 			if (parentPID > 0)
 				kill(parentPID, SIGTERM);
@@ -4246,7 +4402,9 @@ void Rserve_QAP1_connected(void *thp) {
 #endif
 						sendResp(a, SET_STAT(RESP_ERR, ERR_out_of_mem));
 						free(buf); free(sfbuf);
+						if (uses_tls) close_tls(a);
 						closesocket(s);
+						free(a);
 						return;
 					}
 					sendBufSize = ns;
@@ -4623,7 +4781,9 @@ void Rserve_QAP1_connected(void *thp) {
 #endif
 									sendResp(a, SET_STAT(RESP_ERR, ERR_out_of_mem));
 									free(buf); free(sfbuf);
+									if (uses_tls) close_tls(a);
 									closesocket(s);
+									free(a);
 									return;
 								} else {
 									unsigned int osz = (rs > 0xffffffff) ? 0xffffffff : rs;
@@ -4667,7 +4827,9 @@ void Rserve_QAP1_connected(void *thp) {
 #endif
 								sendResp(a, SET_STAT(RESP_ERR, ERR_out_of_mem));
 										free(buf); free(sfbuf);
+										if (uses_tls) close_tls(a);
 										closesocket(s);
+										free(a);
 										return;		    
 							}
 						}
@@ -4697,8 +4859,10 @@ void Rserve_QAP1_connected(void *thp) {
 #endif
     if (rn > 0)
 		sendResp(a, SET_STAT(RESP_ERR, ERR_conn_broken));
+	if (uses_tls) close_tls(a);
     closesocket(s);
     free(sendbuf); free(sfbuf); free(buf);
+	free(a);
 	ulog("INFO: closed connection");
 
 #ifdef RSERV_DEBUG
@@ -4842,6 +5006,17 @@ void serverLoop() {
 				int ss = srv->ss;
 				int succ = 0;
 				if (server[i] && FD_ISSET(ss, &readfds)) {
+					/* sa is allocated here, and must be freed before the
+					   end of the iteration. The connected(sa) API function
+					   assumes ownership of sa so it MUST free the pointer
+					   even on error. Conversely, sa may NOT be used
+					   here once connected() was called.
+					   FIXME: we could change the semantics to not transfer
+					   ownership to avoid leaks in server implementations,
+					   but 1) it would require all implementations to change
+					   and 2) they may add nested structures to the payload
+					   which they control so those may still leak if we are
+					   responsible */
 					sa = (struct args*)malloc(sizeof(struct args));
 					memset(sa, 0, sizeof(struct args));
 					al = sizeof(sa->sa);
@@ -4892,6 +5067,7 @@ void serverLoop() {
 							printf("INFO: peer is not on allowed IP list, closing connection\n");
 #endif
 							closesocket(sa->s);
+							free(sa);
 						}
 					} else { /* ---> remote enabled */
 #ifdef RSERV_DEBUG
