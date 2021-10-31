@@ -8,7 +8,7 @@ NOTE: Rserve 1.8 series has many new features, but it has also removed
       know what it means, just ignore this note.
 
 
-1.8-8
+1.8-8	2021-10-31
     o	add basic ulog logging for QAP1 even outside of OCAP mode (#169)
 
     o	TLS configuration options now check the success of the
