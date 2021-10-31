@@ -70,6 +70,10 @@ VER=`./version`
 echo "Rserve version ${VER}"
 cat DESCRIPTION| sed "s/Version:.*/Version: ${VER}/" > d
 mv d DESCRIPTION
+# move m4 so check doesn't complain
+if [ -e  m4 ]; then 
+  mv m4 tools/
+fi
 echo "Creating package ..."
 cd ..
 # do NOT use build - it screws up symbolic links
