@@ -14,6 +14,14 @@ extern cetype_t string_encoding;
 #define mkRChar(X) mkCharCE((X), string_encoding)
 #endif
 
+/* this is only used in debugging output for down-casing
+   pointers to long on Windows as intermediate step */
+#ifdef WIN64
+typedef unsigned long long temp_ptr_int_t;
+#else
+typedef unsigned long temp_ptr_int_t;
+#endif
+
 /* this is the representation of NAs in strings. We chose 0xff since that should never occur in UTF-8 strings. If 0xff occurs in the beginning of a string anyway, it will be doubled to avoid misrepresentation. */
 static const unsigned char NaStringRepresentation[2] = { 255, 0 };
 
@@ -197,7 +205,9 @@ SEXP decode_to_SEXP(unsigned int **buf)
 		lh = CDR(lh);
 	    }
 #ifdef RSERV_DEBUG
-	    printf(" end of vector %lx/%lx\n", (long) *buf, (long) ie);
+	    printf(" end of vector %lx/%lx\n",
+		   (unsigned long) ((temp_ptr_int_t) *buf),
+		   (unsigned long) ((temp_ptr_int_t) ie));
 #endif
 	    UNPROTECT(2); /* val and vr */
 	    break;
@@ -235,13 +245,17 @@ SEXP decode_to_SEXP(unsigned int **buf)
 	    *buf = b;
 	    while ((unsigned char*)*buf < ie) {
 #ifdef RSERV_DEBUG
-		printf(" el %08lx of %08lx\n", (unsigned long)*buf, (unsigned long) ie);
+		printf(" el %08lx of %08lx\n",
+		       (unsigned long) ((temp_ptr_int_t) *buf),
+		       (unsigned long) ((temp_ptr_int_t) ie));
 #endif
 		SEXP el = PROTECT(decode_to_SEXP(buf));
 		SEXP ea = R_NilValue;
 		if (ty == XT_LANG_TAG || ty==XT_LIST_TAG) {
 #ifdef RSERV_DEBUG
-		    printf(" tag %08lx of %08lx\n", (unsigned long)*buf, (unsigned long) ie);
+		    printf(" tag %08lx of %08lx\n",
+			   (unsigned long) ((temp_ptr_int_t) *buf),
+			   (unsigned long) ((temp_ptr_int_t) ie));
 #endif
 		    ea = decode_to_SEXP(buf);
 		    if (ea != R_NilValue) PROTECT(ea);

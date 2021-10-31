@@ -59,4 +59,5 @@
 /* Define to 1 if you can safely include both <sys/time.h> and <time.h>. */
 #define TIME_WITH_SYS_TIME 1
 
-
+/* CRAN has OpenSSL so we can use TLS */
+#define HAVE_TLS 1

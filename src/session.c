@@ -12,9 +12,8 @@
 #include "session.h"
 #ifdef HAVE_MEMORY_H
 #include <memory.h>
-#else
-#include <string.h>
 #endif
+#include <string.h>
 #include <stdlib.h>
 
 static struct sSession *session=0;

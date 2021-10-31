@@ -61,7 +61,7 @@ void accepted_server(server_t *srv, int cs) {
 	/* if keep-alive is enabled and supported - try to set it */
 	if (srv->flags & SRV_KEEPALIVE) {
 		int ka = 1;
-		setsockopt(cs, SOL_SOCKET, SO_KEEPALIVE, &ka, sizeof(ka));
+		setsockopt(cs, SOL_SOCKET, SO_KEEPALIVE, (const char *) &ka, sizeof(ka));
 	}
 #endif
 }

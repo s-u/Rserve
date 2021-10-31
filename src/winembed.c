@@ -34,6 +34,7 @@
 #if R_VERSION < 0x2010
 #include "Startup.h"
 #else
+#include <Rembedded.h>
 #include <R_ext/RStartup.h>
 #endif
 

@@ -165,7 +165,6 @@ typedef int socklen_t;
 #define random() rand()
 #define srandom() srand()
 #define CAN_TCP_NODELAY
-#define _WINSOCKAPI_
 #include <winsock2.h>
 #include <windows.h>
 #include <winbase.h>
@@ -893,6 +892,12 @@ static void printSEXP(SEXP e) /* merely for debugging purposes
 
 /* if set Rserve doesn't accept other than local connections. */
 static int localonly = 1;
+
+#if defined (WIN32) && defined (RSERV_DEBUG)
+static int getpid() {
+	return (int) GetCurrentProcessId();
+}
+#endif
 
 /* send a response including the data part */
 int Rserve_QAP1_send_resp(args_t *arg, int rsp, rlen_t len, const void *buf) {
