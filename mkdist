@@ -74,11 +74,14 @@ mv d DESCRIPTION
 if [ -e  m4 ]; then 
   mv m4 tools/
 fi
+# remove files CRAN doesn't like
+rm clients clients.txt version
 echo "Creating package ..."
 cd ..
 # do NOT use build - it screws up symbolic links
-#R CMD build --force Rserve
-tar fcz Rserve_${VER}.tar.gz Rserve
+#tar fcz Rserve_${VER}.tar.gz Rserve
+# ok, give up ...
+R CMD build Rserve
 cd ${SWD}
 cp /tmp/Rserve.tmp/Rserve_${VER}.tar.gz ..
 rm -rf /tmp/Rserve.tmp
