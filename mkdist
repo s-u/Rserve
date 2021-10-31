@@ -81,7 +81,7 @@ cd ..
 # do NOT use build - it screws up symbolic links
 #tar fcz Rserve_${VER}.tar.gz Rserve
 # ok, give up ...
-R CMD build Rserve
+R CMD build --force Rserve
 cd ${SWD}
 cp /tmp/Rserve.tmp/Rserve_${VER}.tar.gz ..
 rm -rf /tmp/Rserve.tmp
