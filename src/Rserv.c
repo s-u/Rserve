@@ -1032,6 +1032,16 @@ static int get_random_uid() {
 	return uid;
 }
 
+#ifdef unix
+static int chkres1(const char *cmd, int res) {
+	if (res) {
+		perror(cmd);
+		RSEprintf("ERROR: %s failed\n", cmd);
+	}
+	return res;
+}
+#endif
+
 static int performConfig(int when) {
 	int fail = 0;
 #ifdef unix
@@ -1047,13 +1057,12 @@ static int performConfig(int when) {
 	if (when == SU_CLIENT && random_uid) { /* FIXME: we */
 		int ruid = get_random_uid();
 		prepare_set_user(ruid, random_gid ? ruid : 0);
-		if (random_gid)
-			setgid(ruid);
-		setuid(ruid);
+		if (chkres1("setgid", random_gid && setgid(ruid))) fail++;
+		if (chkres1("setuid", setuid(ruid))) fail++;
 	} else if (su_time == when) {
 		if (requested_uid) prepare_set_user(requested_uid, requested_gid);
-		if (requested_gid) setgid(requested_gid);
-		if (requested_uid) setuid(requested_uid);
+		if (chkres1("setuid", requested_gid && setgid(requested_gid))) fail++;
+		if (chkres1("setuid", requested_uid && setuid(requested_uid))) fail++;
 	}
 #endif
 
@@ -2493,10 +2502,8 @@ static int auth_user(const char *usr, const char *pwd, const char *salt) {
 					if (auto_uid)
 						prepare_set_user(u_uid ? u_uid : default_uid,
 										 auto_gid ? (u_gid ? u_gid : default_gid) : 0);
-					if (auto_gid)
-						setgid(u_gid ? u_gid : default_gid);
-					if (auto_uid)
-						setuid(u_uid ? u_uid : default_uid);
+					chkres1("setgid", auto_gid && setgid(u_gid ? u_gid : default_gid));
+					chkres1("setuid", auto_uid && setuid(u_uid ? u_uid : default_uid));
 				}
 #endif
 			}
