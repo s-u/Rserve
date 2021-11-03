@@ -8,6 +8,10 @@ NOTE: Rserve 1.8 series has many new features, but it has also removed
       know what it means, just ignore this note.
 
 
+1.8-9
+    o	move m4 under tools according to R-exts 1.2
+
+
 1.8-8	2021-10-31
     o	add basic ulog logging for QAP1 even outside of OCAP mode (#169)
 
