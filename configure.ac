@@ -120,6 +120,7 @@ Try adding -D_BIG_ENDIAN_ or -D_LITTLE_ENDIAN_ to PKG_CPPFLAGS.
 ])])
 ])
 
+AC_CHECK_SIZEOF(size_t)
 
 # Checks for library functions.
 AC_FUNC_FORK
