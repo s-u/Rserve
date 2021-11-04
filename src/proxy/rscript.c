@@ -19,6 +19,9 @@
 #include <sys/time.h>
 #include <errno.h>
 
+#ifndef AF_LOCAL
+#define AF_LOCAL AF_UNIX
+#endif
 
 static char *scr_socket = "Rscript_socket";
 
