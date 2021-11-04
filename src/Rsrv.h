@@ -348,6 +348,18 @@ struct phdr {   /* always 16 bytes */
 #define ALIGN_DOUBLES
 #endif
 
+#ifndef SIZEOF_SIZE_T
+#include <Rconfig.h> /* defines SIZEOF_SIZE_T in case we missed it */
+#endif
+
+/* long vectors - we don't want to mandate Rinternals.h here
+   so we use the minimal definition */
+#if ( SIZEOF_SIZE_T > 4 )
+#include <stddef.h> /* for ptrdiff_t, which is required by C99 */
+typedef ptrdiff_t rlen_t;
+/* this is used for alignment/masking */
+#define rlen_max ((rlen_t) 0x7fffffffffffffff)
+#else /* old legacy definition using unsigned long */
 /* this is the type used to calculate pointer distances */
 /* note: we may want to use size_t or something more compatible */
 typedef unsigned long rlen_t;
@@ -361,7 +373,7 @@ typedef unsigned long rlen_t;
 #define rlen_max 0xffffffffL
 #endif /* __LP64__ */
 #endif /* ULONG_MAX */
-
+#endif /* long vector fallback */
 
 /* functions/macros to convert native endianess of int/double for transport
    currently ony PPC style and Intel style are supported */
