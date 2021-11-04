@@ -33,8 +33,8 @@ static const unsigned char NaStringRepresentation[2] = { 255, 0 };
 
 rlen_t getStorageSize(SEXP x) {
     int t = TYPEOF(x);
-    rlen_t tl = XLENGTH(x); /* although LENGTH can only be 32-bit use rlen_t to avoid downcasting */
     rlen_t len = 4;
+    rlen_t tl = 0;
     
 #if defined RSERV_DEBUG && ! (defined DEBUG_NO_STORAGE)
     printf("getStorageSize(%p,type=%d,len=%ld) ", (void*)x, t, tl);
@@ -62,20 +62,27 @@ rlen_t getStorageSize(SEXP x) {
 		len+=getStorageSize(FORMALS(x));
 		len+=getStorageSize(BODY(x));
 		break;
-	case CPLXSXP:
-		len += tl * 16L; break;
+    case CPLXSXP:
+		tl = XLENGTH(x);
+		len += tl * 16L;
+		break;
     case REALSXP:
-		len += tl * 8L; break;
+		tl = XLENGTH(x);
+		len += tl * 8L;
+		break;
     case INTSXP:
-		len += tl * 4L; break;
+		tl = XLENGTH(x);
+		len += tl * 4L;
+		break;
     case LGLSXP:
-	case RAWSXP:
+    case RAWSXP:
+		tl = XLENGTH(x);
 		if (tl > 1)
 			len += 4L + align(tl);
 		else
-			len += 4L;	
+			len += 4L;
 		break;
-		
+
     case SYMSXP:
     case CHARSXP:
 		{
@@ -90,7 +97,8 @@ rlen_t getStorageSize(SEXP x) {
 		break;
     case STRSXP:
 		{
-			unsigned int i = 0;
+			rlen_t i = 0;
+			tl = XLENGTH(x);
 			while (i < tl) {
 				len += getStorageSize(STRING_ELT(x, i));
 				i++;
@@ -101,6 +109,7 @@ rlen_t getStorageSize(SEXP x) {
     case VECSXP:
 		{
 			unsigned int i = 0;
+			tl = XLENGTH(x);
 			while(i < tl) {
 				len += getStorageSize(VECTOR_ELT(x,i));
 				i++;
@@ -190,12 +199,12 @@ unsigned int* storeSEXP(unsigned int* buf, SEXP x, rlen_t storage_size) {
 		buf += XLENGTH(x) * sizeof(double) / sizeof(*buf);
 #else
 		{
-		    R_len_t i = 0;
-		    while(i < XLENGTH(x)) {
-			fixdcpy(buf, REAL(x) + i);
-			buf += 2; /* sizeof(double)=2*sizeof(int) */
-			i++;
-		    }
+			rlen_t i = 0, n = XLENGTH(x);
+			while(i < n) {
+				fixdcpy(buf, REAL(x) + i);
+				buf += 2; /* sizeof(double)=2*sizeof(int) */
+				i++;
+			}
 		}
 #endif
 		goto didit;
@@ -210,21 +219,21 @@ unsigned int* storeSEXP(unsigned int* buf, SEXP x, rlen_t storage_size) {
 		buf += XLENGTH(x) * sizeof(*COMPLEX(x)) / sizeof(*buf);
 #else
 		{
-		    R_len_t i = 0;
-		    while(i < XLENGTH(x)) {
-			fixdcpy(buf, &(COMPLEX(x)[i].r));
-			buf += 2; /* sizeof(double)=2*sizeof(int) */
-			fixdcpy(buf, &(COMPLEX(x)[i].i));
-			buf += 2; /* sizeof(double)=2*sizeof(int) */
-			i++;
-		    }
+			rlen_t i = 0, n = XLENGTH(x);
+			while (i < n) {
+				fixdcpy(buf, &(COMPLEX(x)[i].r));
+				buf += 2; /* sizeof(double)=2*sizeof(int) */
+				fixdcpy(buf, &(COMPLEX(x)[i].i));
+				buf += 2; /* sizeof(double)=2*sizeof(int) */
+				i++;
+			}
 		}
 #endif
 		goto didit;
     }
 
 	if (t==RAWSXP) {
-		R_len_t ll = LENGTH(x);
+		rlen_t ll = XLENGTH(x);
 		*buf = itop(XT_RAW | hasAttr);
 		buf++;
 		attrFixup;
@@ -236,7 +245,7 @@ unsigned int* storeSEXP(unsigned int* buf, SEXP x, rlen_t storage_size) {
 	}
 		
     if (t==LGLSXP) {
-		R_len_t ll = LENGTH(x), i = 0;
+		rlen_t ll = XLENGTH(x), i = 0;
 		int *lgl = LOGICAL(x);
 		*buf = itop(XT_ARRAY_BOOL | hasAttr);
 		buf++;
@@ -259,7 +268,7 @@ unsigned int* storeSEXP(unsigned int* buf, SEXP x, rlen_t storage_size) {
     
 	if (t == STRSXP) {
 		char *st;
-		R_len_t nx = LENGTH(x), i;
+		rlen_t nx = XLENGTH(x), i;
 		*buf = itop(XT_ARRAY_STR|hasAttr);
 		buf++;
 		attrFixup;
@@ -283,7 +292,7 @@ unsigned int* storeSEXP(unsigned int* buf, SEXP x, rlen_t storage_size) {
 	}
 
     if (t==EXPRSXP || t==VECSXP) {
-		R_len_t i = 0, n = LENGTH(x);
+		rlen_t i = 0, n = XLENGTH(x);
 		*buf = itop(((t == EXPRSXP) ? XT_VECTOR_EXP : XT_VECTOR) | hasAttr);
 		buf++;
 		attrFixup;
@@ -295,7 +304,7 @@ unsigned int* storeSEXP(unsigned int* buf, SEXP x, rlen_t storage_size) {
     }
 	
     if (t==INTSXP) {
-		R_len_t n = LENGTH(x);
+		rlen_t n = XLENGTH(x);
 		int *iptr = INTEGER(x);
 		*buf = itop(XT_ARRAY_INT | hasAttr);
 		buf++;
@@ -305,7 +314,7 @@ unsigned int* storeSEXP(unsigned int* buf, SEXP x, rlen_t storage_size) {
 		buf += n;
 #else
 		{
-		    R_len_t i = 0;
+		    rlen_t i = 0;
 		    while(i < n) {
 			*buf = itop(iptr[i]);
 			buf++;
