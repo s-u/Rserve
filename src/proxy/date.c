@@ -1,7 +1,7 @@
 /* utilities to parse valid HTTP times
    and to generate RFC 822/1123 date 
    
-   (C)Copyright 2014 Simon Urbanek
+   (C)Copyright 2014,21 Simon Urbanek
 
    License: BSD
 */
@@ -19,6 +19,7 @@ double http2posix(const char *c);
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 
 static const char *c_wkd[7] = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
 static const char *c_mon[12] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul",
@@ -62,11 +63,35 @@ static double parse_hms(const char **c_ptr) {
     return (double) (s + (m * 60) + (h *3600));
 }
 
+/* start of each month in seconds */
+static const int cml[] = { 0, 0, 2678400, 5097600, 7776000, 10368000, 13046400, 15638400,
+			   18316800, 20995200, 23587200, 26265600, 28857600, 31536000 };
+
+typedef int64_t time_int_t;
+
+static double day2posix(int day, int month, int year) {
+    double ts;
+
+    /* check input ranges */
+    if (year < 1970 || year > 2199 || month < 1 || month > 12 || day < 1 || day > 31)
+	return 0.0;
+    year -= 1970;
+    /* adjust for all leap years prior to the current one */
+    ts = ((time_int_t)((years + 1) / 4)) * (time_int_t) 86400;
+    if (year > 130) /* 2100 is an exception - not a leap year */
+	ts -= 86400;
+    ts += ((time_int_t) year) * ((time_int_t) 31536000);
+    /* month */
+    ts += cml[m];
+    if (m > 2 && (y & 3) == 2 && y != 130 /* 2100 again */) ts += 86400;
+    /* day */
+    ts += (d - 1) * 86400;    
+    return ts;
+}
+
 double http2posix(const char *c) {
     int mon, day, year;
     double hms;
-    struct tm tm;
-    memset(&tm, 0, sizeof(tm));
     /* skip weekday */
     while (*c && *c != ' ') c++;
     if (!*c) return 0.0;
@@ -111,8 +136,5 @@ double http2posix(const char *c) {
 	    return 0.0;
     }
     /* ok, we got hms and day/month/year - assemble it to POSIX */
-    tm.tm_year = year - 1900;
-    tm.tm_mday = day;
-    tm.tm_mon = mon;
-    return hms + (double) timegm(&tm);
+    return hms + day2posix(day, mon, year);
 }
