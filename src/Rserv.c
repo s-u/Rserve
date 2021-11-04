@@ -3766,7 +3766,7 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 							return 1;
 						} else { /* try to allocate a large, temporary send buffer */
 							tempSB = rs + 64L;
-							tempSB &= rlen_max << 12;
+							tempSB &= rlen_max ^ 0xfff;
 							tempSB += 0x1000;
 #ifdef RSERV_DEBUG
 							printf("Trying to allocate temporary send buffer of %ld bytes.\n", (long)tempSB);
@@ -4769,7 +4769,7 @@ void Rserve_QAP1_connected(void *thp) {
 							sendRespData(a, SET_STAT(RESP_ERR, ERR_object_too_big), 4, &osz);
 						} else { /* try to allocate a large, temporary send buffer */
 							tempSB = rs + 64L;
-							tempSB &= rlen_max << 12;
+							tempSB &= rlen_max ^ 0xfff;
 							tempSB += 0x1000;
 #ifdef RSERV_DEBUG
 							printf("Trying to allocate temporary send buffer of %ld bytes.\n", (long)tempSB);
