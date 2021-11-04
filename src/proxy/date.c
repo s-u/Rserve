@@ -77,15 +77,16 @@ static double day2posix(int day, int month, int year) {
 	return 0.0;
     year -= 1970;
     /* adjust for all leap years prior to the current one */
-    ts = ((time_int_t)((years + 1) / 4)) * (time_int_t) 86400;
+    ts = ((time_int_t)((year + 1) / 4)) * (time_int_t) 86400;
     if (year > 130) /* 2100 is an exception - not a leap year */
 	ts -= 86400;
     ts += ((time_int_t) year) * ((time_int_t) 31536000);
     /* month */
-    ts += cml[m];
-    if (m > 2 && (y & 3) == 2 && y != 130 /* 2100 again */) ts += 86400;
+    ts += cml[month];
+    if (month > 2 && (year & 3) == 2 && year != 130 /* 2100 again */)
+	ts += 86400;
     /* day */
-    ts += (d - 1) * 86400;    
+    ts += (day - 1) * 86400;
     return ts;
 }
 
