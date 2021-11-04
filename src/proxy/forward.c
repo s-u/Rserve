@@ -29,6 +29,10 @@
 #include <sys/socket.h>
 #include <netdb.h>
 
+#ifndef AF_LOCAL
+#define AF_LOCAL AF_UNIX
+#endif
+
 /* send OOB idle on WebSockets every 10 min (FIXME: make this configurable) */
 #define HEARTBEAT_INTERVAL 600
 
@@ -156,12 +160,12 @@ struct args {
     server_t *srv; /* server that instantiated this connection */
 };
 
-typedef struct queue {
+typedef struct queue_fs {
     unsigned long len;
     unsigned long seq;
-    struct queue *next;
+    struct queue_fs *next;
     char data[1];
-} queue_t;
+} queue_ft;
 
 typedef struct {
     const char *qap_socket_path;
@@ -173,7 +177,7 @@ typedef struct {
     int queue_sleeping; /* if set the queue consumer is sleeping and wants to be signalled */
     unsigned long queue_seq;
     int qap_stage, active, qap_alive, ws_alive;
-    queue_t *ws_to_qap;
+    queue_ft *ws_to_qap;
 } proxy_t;
 
 /* FIXME: we have no good way to pass this to the http handler, so we use a global var for now */
@@ -185,7 +189,7 @@ static void *forward(void *ptr) {
     proxy_t *proxy = (proxy_t*) ptr;
     int s = proxy->qap;
     ssize_t n;
-    queue_t *qe;
+    queue_ft *qe;
 
     ulog("QAP->WS  INFO: started forwarding thread");
     while (proxy->active && proxy->qap_alive) {
@@ -270,8 +274,8 @@ static void *forward(void *ptr) {
 #endif
 	    ulog("QAP->WS  INFO: <<== message === (cmd=0x%x, msg_id=0x%x), size = %lu", hdr.cmd, hdr.msg_id, tl);
 
-	    /* FIXME: this is really an abuse of queue_t for historical reasons -- we just use it as a buffer!! */
-	    if (!(qe = malloc(tl + sizeof(hdr) + sizeof(queue_t)))) { /* failed to allocate buffer for the message */
+	    /* FIXME: this is really an abuse of queue_ft for historical reasons -- we just use it as a buffer!! */
+	    if (!(qe = malloc(tl + sizeof(hdr) + sizeof(queue_ft)))) { /* failed to allocate buffer for the message */
 		/* FIXME: we should flush the contents and respond with an error condition */
 		ulog("QAP->WS  ERROR: unable to allocate memory for message of size %lu", tl);
 		break;
@@ -324,7 +328,7 @@ static void *enqueue(void *ptr) {
     while (proxy->active && proxy->ws_alive) {
 	int n = proxy->ws->srv->recv(proxy->ws, &hdr, sizeof(hdr));
 	unsigned long tl, pos = 0;
-	queue_t *qe;
+	queue_ft *qe;
 
 	ulog("WS ->Q   INFO: WS recv = %d", n);
 	if (n < sizeof(hdr)) {
@@ -344,7 +348,7 @@ static void *enqueue(void *ptr) {
 #endif
 	ulog("WS ->Q   INFO: === message ==>> (cmd=0x%x, msg_id=0x%x), size = %lu", hdr.cmd, hdr.msg_id, tl);
 
-	if (!(qe = malloc(tl + sizeof(hdr) + sizeof(queue_t)))) { /* failed to allocate buffer for the message */
+	if (!(qe = malloc(tl + sizeof(hdr) + sizeof(queue_ft)))) { /* failed to allocate buffer for the message */
 	    /* FIXME: we should flush the contents and respond with an error condition */
 	    ulog("WS ->Q   ERROR: unable to allocate memory for message of size %lu", tl);
 	    break;
@@ -369,7 +373,7 @@ static void *enqueue(void *ptr) {
 	pthread_mutex_lock(&proxy->mux);
 	qe->seq = ++proxy->queue_seq; /* currently not needed, but safer to increment when locked */
 	if (proxy->ws_to_qap) {
-	    queue_t *q = proxy->ws_to_qap;
+	    queue_ft *q = proxy->ws_to_qap;
 	    /* find the end of the queue */
 	    while (q->next)
 		q = q->next;
@@ -426,7 +430,7 @@ static void *heartbeat(void *ptr) {
 static void ws_connected(args_t *arg, char *protocol) {
     int s;
     struct sockaddr_un sau;
-    pthread_t forward_thread, enqueue_thread, heartbeat_thread;
+    pthread_t forward_thread, enqueue_fthread, heartbeat_thread;
     pthread_attr_t thread_attr;
     
     fprintf(stderr, "INFO: web sockets connected (protocol %s)\n", protocol ? protocol : "<NULL>");
@@ -471,7 +475,7 @@ static void ws_connected(args_t *arg, char *protocol) {
     /* create WS read enqueuing thread */
     pthread_attr_init(&thread_attr);
     pthread_attr_setdetachstate(&thread_attr, PTHREAD_CREATE_DETACHED);
-    pthread_create(&enqueue_thread, &thread_attr, enqueue, proxy);
+    pthread_create(&enqueue_fthread, &thread_attr, enqueue, proxy);
 
     /* create WS heartbeat thread */
     pthread_attr_init(&thread_attr);
@@ -491,7 +495,7 @@ static void ws_connected(args_t *arg, char *protocol) {
        equeue signals contents on the queue
      */
     while (proxy->active) {
-	queue_t *q;
+	queue_ft *q;
 	pthread_mutex_lock(&proxy->mux);
 	ulog("Q  ->QAP INFO: waiting for message in the queue");
 	if (!proxy->ws_to_qap && proxy->qap_alive) { /* if there is nothing to process, wait until enqueue posts something */
