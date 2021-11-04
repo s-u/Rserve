@@ -4,8 +4,8 @@ PKG_LIBS=-lssl -lcrypto -lws2_32 -lcrypt32
 all: $(SHLIB) server
 #	$(MAKE) client
 
-SERVER_SRC = standalone.c md5.c session.c qap_decode.c qap_encode.c sha1.c base64.c websockets.c RSserver.c tls.c http.c oc.c rsio.c ulog.c ioc.c utils.c
-SERVER_H = Rsrv.h qap_encode.h qap_decode.h RSserver.h http.h oc.h sha1.h md5.h rsio.h ulog.h
+SERVER_SRC = standalone.c md5.c session.c qap_decode.c qap_encode.c sha1.c base64.c websockets.c RSserver.c tls.c http.c oc.c ulog.c ioc.c utils.c
+SERVER_H = Rsrv.h qap_encode.h qap_decode.h RSserver.h http.h oc.h sha1.h md5.h ulog.h
 
 server:	$(SERVER_SRC) $(SERVER_H)
 	$(CC) -DSTANDALONE_RSERVE -DDAEMON -I. -Iinclude $(ALL_CPPFLAGS) $(ALL_CFLAGS) $(CPPFLAGS) $(CFLAGS) $(PKG_CPPFLAGS) $(PKG_CFLAGS) -o Rserve.exe $(SERVER_SRC) $(ALL_LIBS) $(PKG_LIBS)
