@@ -160,7 +160,7 @@ void ulog_end() {
     if (ulog_sock != -1) {
 	if (ulog_port) {
 	    struct sockaddr_in sa;
-	    bzero(&sa, sizeof(sa));
+	    memset(&sa, 0, sizeof(sa));
 	    sa.sin_family = AF_INET;
 	    sa.sin_port = htons(ulog_port);
 	    ulog_path[ulog_dcol] = 0;
@@ -170,7 +170,7 @@ void ulog_end() {
 	} else {
 	    struct sockaddr_un sa;
 	    if (!buf_pos) return;
-	    bzero(&sa, sizeof(sa));
+	    memset(&sa, 0, sizeof(sa));
 	    sa.sun_family = AF_LOCAL;
 	    strcpy(sa.sun_path, ulog_path); /* FIXME: check possible overflow? */
 	    sendto(ulog_sock, buf, buf_pos, 0, (struct sockaddr*) &sa, sizeof(sa));
