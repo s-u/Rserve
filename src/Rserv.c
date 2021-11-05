@@ -870,7 +870,7 @@ static void printSEXP(SEXP e) /* merely for debugging purposes
 		printf("String vector of length %d:\n",LENGTH(e));
 		while(i<LENGTH(e)) {
 			if (dumpLimit && i>dumpLimit) { printf("..."); break; };
-			printSEXP(VECTOR_ELT(e,i)); i++;
+			printSEXP(STRING_ELT(e,i)); i++;
 		}
 		return;
     }
@@ -4614,8 +4614,11 @@ void Rserve_QAP1_connected(void *thp) {
 		}
 		
 		if (ph.cmd==CMD_serEval || ph.cmd==CMD_serEEval || ph.cmd == CMD_serAssign) {
+			SEXP us;
 			int Rerr = 0;
-			SEXP us = R_tryEval(LCONS(install("unserialize"),CONS(pp,R_NilValue)), R_GlobalEnv, &Rerr);
+			PROTECT(pp);
+			us = R_tryEval(PROTECT(LCONS(install("unserialize"),PROTECT(CONS(pp,R_NilValue)))), R_GlobalEnv, &Rerr);
+			UNPROTECT(3);
 			PROTECT(us);
 			a->msg_id = msg_id; /* just in case R-side used OOB */
 			process = 1;
@@ -4624,7 +4627,9 @@ void Rserve_QAP1_connected(void *thp) {
 					if (TYPEOF(us) != VECSXP || LENGTH(us) < 2) {
 						sendResp(a, SET_STAT(RESP_ERR, ERR_inv_par));
 					} else {
-						R_tryEval(LCONS(install("<-"),CONS(VECTOR_ELT(us, 0), CONS(VECTOR_ELT(us, 1), R_NilValue))), R_GlobalEnv, &Rerr);
+						R_tryEval(PROTECT(LCONS(install("<-"),
+												PROTECT(CONS(VECTOR_ELT(us, 0), PROTECT(CONS(VECTOR_ELT(us, 1), R_NilValue)))))), R_GlobalEnv, &Rerr);
+						UNPROTECT(3);
 						a->msg_id = msg_id; /* just in case R-side used OOB (unlikely, but ...) */
 						if (Rerr == 0)
 							sendResp(a, RESP_OK);
@@ -4638,7 +4643,8 @@ void Rserve_QAP1_connected(void *thp) {
 						ev = R_tryEval(ev, R_GlobalEnv, &Rerr);
 					PROTECT(ev);
 					if (Rerr == 0) {
-						SEXP sr = R_tryEval(LCONS(install("serialize"),CONS(ev, CONS(R_NilValue, R_NilValue))), R_GlobalEnv, &Rerr);
+						SEXP sr = R_tryEval(PROTECT(LCONS(install("serialize"), PROTECT(CONS(ev, PROTECT(CONS(R_NilValue, R_NilValue)))))), R_GlobalEnv, &Rerr);
+						UNPROTECT(3);
 						a->msg_id = msg_id; /* just in case R-side used OOB */
 						if (Rerr == 0 && TYPEOF(sr) == RAWSXP) {
 							sendRespData(a, RESP_OK, LENGTH(sr), RAW(sr));
