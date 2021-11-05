@@ -37,7 +37,21 @@ rlen_t getStorageSize(SEXP x) {
     rlen_t tl = 0;
     
 #if defined RSERV_DEBUG && ! (defined DEBUG_NO_STORAGE)
-    printf("getStorageSize(%p,type=%d,len=%ld) ", (void*)x, t, tl);
+    switch(tl) { /* only some types support XLENGTH calls now */
+    case CPLXSXP:
+    case REALSXP:
+    case INTSXP:
+    case LGLSXP:
+    case RAWSXP:
+    case STRSXP:
+    case EXPRSXP:
+    case VECSXP:
+	tl = XLENGTH(x);
+	break;
+    default:
+	tl = (rlen_t) -1;
+    }
+    printf("getStorageSize(%p,type=%d,len=%ld) ", (void*)x, t, (long) tl);
 #endif
     if (t != CHARSXP && TYPEOF(ATTRIB(x)) == LISTSXP) {
 		rlen_t alen = getStorageSize(ATTRIB(x));

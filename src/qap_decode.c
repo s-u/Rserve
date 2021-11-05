@@ -37,7 +37,7 @@ SEXP decode_to_SEXP(unsigned int **buf)
     SEXP val = 0, vatt = 0;
     int ty = PAR_TYPE(ptoi(*b));
     rlen_t ln = PAR_LEN(ptoi(*b));
-    R_len_t i, l;
+    rlen_t i, l;
     
     if (IS_LARGE(ty)) {
 	ty ^= XT_LARGE;
@@ -127,7 +127,7 @@ SEXP decode_to_SEXP(unsigned int **buf)
 	l = ln / 16;
 	val = allocVector(CPLXSXP, l);
 #ifdef NATIVE_COPY
-	memcpy(COMPLEX(val), b, sizeof(*COMPLEX(val)) * l);
+	memcpy(COMPLEX(val), b, sizeof(Rcomplex) * l);
 	b += l * 4;
 #else
 	i = 0;
@@ -184,25 +184,26 @@ SEXP decode_to_SEXP(unsigned int **buf)
     case XT_VECTOR_EXP:
 	{
 	    unsigned char *ie = (unsigned char*) b + ln;
-	    R_len_t n = 0;
-	    SEXP lh = R_NilValue;
-	    SEXP vr = allocVector(VECSXP, 1);
+	    rlen_t n = 0;
+	    SEXP vr = PROTECT(CONS(R_NilValue, R_NilValue));
+	    SEXP tail = vr;
 	    *buf = b;
-	    PROTECT(vr);
 	    while ((unsigned char*)*buf < ie) {
 		SEXP v = decode_to_SEXP(buf);
-		lh = CONS(v, lh);
-		SET_VECTOR_ELT(vr, 0, lh); /* this is our way of staying protected .. maybe not optimal .. */
+		/* CONS() protects its arguments if GC is needed so v is safe */
+		SEXP ne = CONS(v, R_NilValue);
+		SETCDR(tail, ne);
+		tail = ne;
 		n++;
 	    }
 #ifdef RSERV_DEBUG
-	    printf(" vector (%s), %d elements\n", (ty == XT_VECTOR) ? "generic" : ((ty == XT_VECTOR_EXP) ? "expression" : "string"), n);
+	    printf(" vector (%s), %ld elements\n", (ty == XT_VECTOR) ? "generic" : ((ty == XT_VECTOR_EXP) ? "expression" : "string"), (long) n);
 #endif
 	    val = PROTECT(allocVector((ty==XT_VECTOR) ? VECSXP : ((ty == XT_VECTOR_EXP) ? EXPRSXP : STRSXP), n));
-	    while (n > 0) {
-		n--;
-		SET_VECTOR_ELT(val, n, CAR(lh));
-		lh = CDR(lh);
+	    n = 0;
+	    while (CDR(vr) != R_NilValue) {
+		vr = CDR(vr);
+		SET_VECTOR_ELT(val, n++, CAR(vr));
 	    }
 #ifdef RSERV_DEBUG
 	    printf(" end of vector %lx/%lx\n",
