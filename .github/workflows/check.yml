@@ -13,7 +13,6 @@ jobs:
       matrix:
         os: [ windows-latest, macOS-10.15, ubuntu-20.04 ]
         r-version: [ devel ]
-        java: [ 8 ]
         include:
         - os: windows-2022
           r-version: devel-ucrt
@@ -23,7 +22,7 @@ jobs:
 
       - uses: actions/setup-java@v1
         with:
-          java-version: ${{ matrix.java }}
+          java-version: 8
 
       # r-lib/setup-r doesn't setup UCRT properly (yet)
       - if: ${{ matrix.r-version != 'devel-ucrt' }}
