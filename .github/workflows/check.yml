@@ -39,3 +39,4 @@ jobs:
           macos-deps: openssl-1.1.1h
           windows-deps: openssl
           check-flags: --as-cran
+          dep-type: source
