@@ -1,5 +1,5 @@
 PKG_CPPFLAGS=-DRSERVE_PKG -DWin32 -I. -Iinclude -Iinclude/Win32
-PKG_LIBS=-lssl -lcrypto -lws2_32 -lcrypt32
+PKG_LIBS=-lssl -lcrypto -lws2_32 -lcrypt32 -lz
 
 all: $(SHLIB) server
 #	$(MAKE) client
