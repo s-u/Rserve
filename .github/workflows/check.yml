@@ -1,0 +1,41 @@
+on: [push, pull_request]
+
+name: check
+
+jobs:
+  check:
+    runs-on: ${{ matrix.os }}
+
+    name: ${{ matrix.os }} R ${{ matrix.r-version }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ windows-latest, macOS-10.15, ubuntu-20.04 ]
+        r-version: [ devel ]
+        include:
+        - os: windows-2022
+          r-version: devel-ucrt
+
+    steps:
+      - uses: actions/checkout@v2
+
+      # r-lib/setup-r doesn't setup UCRT properly (yet)
+      - if: ${{ matrix.r-version != 'devel-ucrt' }}
+        uses: r-lib/actions/setup-r@v1
+        with:
+          r-version: ${{ matrix.r-version }}
+
+      - if: ${{ runner.os == 'Windows' && matrix.r-version == 'devel-ucrt' }}
+        uses: kalibera/ucrt3/actions/r-install@main
+      - if: ${{ runner.os == 'Windows' && matrix.r-version == 'devel-ucrt' }}
+        uses: kalibera/ucrt3/actions/toolchain-install@main
+        with:
+          toolchain-type: base
+
+      - uses: s-u/R-actions/pkg-check@master
+        with:
+          debian-deps: libssl-dev
+          macos-deps: openssl-1.1.1h
+          windows-deps: openssl
+          check-flags: --as-cran
