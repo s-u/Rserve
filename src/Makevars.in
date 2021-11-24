@@ -1,16 +1,17 @@
 PKG_CPPFLAGS=-DRSERVE_PKG -I. -Iinclude @CPPFLAGS@
 PKG_LIBS=@LIBS@
+EMBED_CPPFLAGS=@RINC@
 
 all: $(SHLIB) @WITH_SERVER_TRUE@ server
 @WITH_CLIENT_TRUE@	$(MAKE) client
-@WITH_PROXY_TRUE@	$(MAKE) -C proxy 'CC=$(CC)' 'CPPFLAGS=-I.. -DFORKED $(CPPFLAGS) $(PKG_CPPFLAGS)' CFLAGS='$(CFLAGS) $(PKG_CFLAGS) @PTHREAD_CFLAGS@' 'LIBS=$(PKG_LIBS)' && cp -p proxy/forward .
+@WITH_PROXY_TRUE@	$(MAKE) -C proxy 'CC=$(CC)' 'CPPFLAGS=-I.. -DFORKED $(CPPFLAGS) $(PKG_CPPFLAGS)' CFLAGS='$(CFLAGS) $(PKG_CFLAGS) @PTHREAD_CFLAGS@' 'LDFLAGS=$(LDFLAGS)' 'LIBS=$(PKG_LIBS)' && cp -p proxy/forward .
 
 SERVER_SRC = standalone.c md5.c session.c qap_decode.c qap_encode.c sha1.c base64.c websockets.c RSserver.c tls.c http.c oc.c ulog.c ioc.c utils.c
 SERVER_H = Rsrv.h qap_encode.h qap_decode.h RSserver.h http.h oc.h sha1.h md5.h ulog.h
 
 server:	$(SERVER_SRC) $(SERVER_H)
-	$(CC) -DSTANDALONE_RSERVE -DDAEMON -I. -Iinclude $(ALL_CPPFLAGS) $(ALL_CFLAGS) $(CPPFLAGS) $(CFLAGS) $(PKG_CPPFLAGS) $(PKG_CFLAGS) -o Rserve $(SERVER_SRC) $(ALL_LIBS) $(PKG_LIBS)
-	$(CC) -DSTANDALONE_RSERVE -DRSERV_DEBUG -DNODAEMON -I. -Iinclude $(ALL_CPPFLAGS) $(ALL_CFLAGS) $(PKG_CPPFLAGS) $(PKG_CFLAGS) -o Rserve.dbg $(SERVER_SRC) $(ALL_LIBS) $(PKG_LIBS)
+	$(CC) -DSTANDALONE_RSERVE -DDAEMON -I. -Iinclude $(ALL_CPPFLAGS) $(ALL_CFLAGS) $(CPPFLAGS) $(CFLAGS) $(PKG_CPPFLAGS) $(EMBED_CPPFLAGS) $(PKG_CFLAGS) -o Rserve $(SERVER_SRC) $(LDFLAGS) $(ALL_LIBS) $(PKG_LIBS)
+	$(CC) -DSTANDALONE_RSERVE -DRSERV_DEBUG -DNODAEMON -I. -Iinclude $(ALL_CPPFLAGS) $(ALL_CFLAGS) $(PKG_CPPFLAGS) $(EMBED_CPPFLAGS) $(PKG_CFLAGS) -o Rserve.dbg $(SERVER_SRC) $(LDFLAGS) $(ALL_LIBS) $(PKG_LIBS)
 
 # merging to bin/Rserve works only if installed from sources, won't work for binary
 	-./mergefat Rserve "$(R_HOME)/bin/Rserve"
