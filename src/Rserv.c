@@ -2276,6 +2276,8 @@ int Rserve_prepare_child(args_t *args) {
 
 #endif
 
+	authkey_req = 0; /* reset auth count for non-forked servers */
+
 	self_args = args;
 
 	return 0;
@@ -4266,9 +4268,10 @@ void Rserve_QAP1_connected(void *thp) {
 				sendResp(a, SET_STAT(RESP_ERR, ERR_inv_par));
 			else {
 				int dl = 0;
-				if (!rsa_srv_key || (dl = rsa_decode(rsa_buf, (char*) parP[0], parL[0])) < 1) {
+				/* the authkey must have been requested */
+				if (!authkey_req || !rsa_srv_key || (dl = rsa_decode(rsa_buf, (char*) parP[0], parL[0])) < 1) {
 #ifdef RSERV_DEBUG
-					printf("CMD_secLogin: decode failed - rsa_srv_key=%p, dl = %d (payload %d)\n", (void*)rsa_srv_key, dl, (int) parL[0]);
+					printf("CMD_secLogin: decode failed - authkey_req=%d, rsa_srv_key=%p, dl = %d (payload %d)\n", authkey_req, (void*)rsa_srv_key, dl, (int) parL[0]);
 #endif
 					sendResp(a, SET_STAT(RESP_ERR, ERR_auth_failed));
 				} else {
