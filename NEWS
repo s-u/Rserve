@@ -25,6 +25,8 @@ NOTE: Rserve 1.8 series has many new features, but it has also removed
 	should upgrade to this version to avoid vulnerability.
 	Note that clients do not have to be updated.
 
+    o	Respect CPPFLAGS and LDFLAGS from R CMD config
+
 
 1.8-9	2021-11-05
     o	move m4 under tools according to R-exts 1.2
