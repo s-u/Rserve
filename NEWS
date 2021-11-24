@@ -13,6 +13,9 @@ NOTE: Rserve 1.8 series has many new features, but it has also removed
 	256 bytes such that the payload of CMD_secLogin can fit
 	into one encryption block (for 4096-bit RSA key).
 
+    o	Prevent replay attacks on non-forked servers using
+	CMD_secLogin without CMD_keyReq.
+
 
 1.8-9	2021-11-05
     o	move m4 under tools according to R-exts 1.2
