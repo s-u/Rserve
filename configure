@@ -5255,8 +5255,6 @@ printf %s "checking whether threads are desired... " >&6; }
 if test "$want_threads" != no; then
    { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: yes" >&5
 printf "%s\n" "yes" >&6; }
-   { printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking for working threads support" >&5
-printf %s "checking for working threads support... " >&6; }
 
 
 
@@ -5784,6 +5782,8 @@ if test x"$ax_pthread_ok" = xyes; then
      CPPFLAGS="$CPPFLAGS $PTHREAD_CFLAGS"
      ## and we ignore PTHREAD_CC since we have to use R's settings
      with_threads=yes
+     { printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking for working threads support" >&5
+printf %s "checking for working threads support... " >&6; }
      { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: yes" >&5
 printf "%s\n" "yes" >&6; }
 
@@ -5791,6 +5791,8 @@ printf "%s\n" "yes" >&6; }
 else
         ax_pthread_ok=no
 
+     { printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking for working threads support" >&5
+printf %s "checking for working threads support... " >&6; }
      { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: no" >&5
 printf "%s\n" "no" >&6; }
      if test "$want_threads" = yes; then
