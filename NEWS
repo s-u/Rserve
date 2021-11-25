@@ -8,7 +8,7 @@ NOTE: Rserve 1.8 series has many new features, but it has also removed
       know what it means, just ignore this note.
 
 
-1.8-10	(under development)
+1.8-10	2021-11-25
     o	reduce the size of the authkey (nonce) in CMD_reqKey to
 	256 bytes such that the payload of CMD_secLogin can fit
 	into one encryption block (for 4096-bit RSA key). This
