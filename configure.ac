@@ -223,15 +223,16 @@ AC_CHECK_HEADER([openssl/ssl.h],
 AC_MSG_CHECKING([whether threads are desired])
 if test "$want_threads" != no; then
    AC_MSG_RESULT([yes])
-   AC_MSG_CHECKING([for working threads support])
    AX_PTHREAD([
      LIBS="$PTHREAD_LIBS $LIBS"
      ## we don't want to mess with CFLAGS so we (ab)use CPPFLAGS
      CPPFLAGS="$CPPFLAGS $PTHREAD_CFLAGS" 
      ## and we ignore PTHREAD_CC since we have to use R's settings
      with_threads=yes
+     AC_MSG_CHECKING([for working threads support])
      AC_MSG_RESULT([yes])
    ], [
+     AC_MSG_CHECKING([for working threads support])
      AC_MSG_RESULT([no])
      if test "$want_threads" = yes; then
        AC_MSG_ERROR([Threads were requested, but no working threads support was found])
