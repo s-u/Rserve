@@ -663,8 +663,10 @@ static int  WS_recv_data(args_t *arg, void *buf, rlen_t read_len) {
 	if (arg->bp == 0) {
 		/* don't read past the current frame in case we're in a frame ... */
 		/* FIXME: it shouldn't matter but it appears that we don't handle that case correctly */
-		int max_sz = ((arg->flags & F_INFRAME) && arg->l1) ? arg->l1 : arg->bl;
-		int n = WS_wire_recv(arg, arg->buf, max_sz);
+		int n, max_sz = ((arg->flags & F_INFRAME) && arg->l1) ? arg->l1 : arg->bl;
+		if (max_sz > arg->bl)
+			max_sz = arg->bl;
+		n = WS_wire_recv(arg, arg->buf, max_sz);
 		if (n < 1) return n;
 		arg->bp = n;
 #ifdef RSERV_DEBUG
