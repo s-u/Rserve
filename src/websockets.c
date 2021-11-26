@@ -35,18 +35,18 @@ struct args {
 	size_t l1, l2;
 };
 
-static ssize_t WS_recv_data(args_t *arg, void *buf, rlen_t read_len);
-static int     WS_send_resp(args_t *arg, int rsp, rlen_t len, const void *buf);
-static ssize_t WS_send_data(args_t *arg, const void *buf, rlen_t len);
+static ssize_t WS_recv_data(args_t *arg, void *buf, size_t read_len);
+static int     WS_send_resp(args_t *arg, int rsp, size_t len, const void *buf);
+static ssize_t WS_send_data(args_t *arg, const void *buf, size_t len);
 
 /* those will eventually be in the API but for now ... */
-ssize_t cio_send(int s, const void *buffer, rlen_t length, int flags);
-ssize_t cio_recv(int s, void *buffer, rlen_t length, int flags);
+ssize_t cio_send(int s, const void *buffer, size_t length, int flags);
+ssize_t cio_recv(int s, void *buffer, size_t length, int flags);
 
-static ssize_t WS_wire_send(args_t *arg, const void *buf, rlen_t len) {
+static ssize_t WS_wire_send(args_t *arg, const void *buf, size_t len) {
 	return (arg->tls_arg) ? arg->tls_arg->srv->send(arg->tls_arg, buf, len) : cio_send(arg->s, buf, len, 0);
 }
-static ssize_t WS_wire_recv(args_t *arg, void *buf, rlen_t len) {
+static ssize_t WS_wire_recv(args_t *arg, void *buf, size_t len) {
 	return (arg->tls_arg) ? arg->tls_arg->srv->recv(arg->tls_arg, buf, len) : cio_recv(arg->s, buf, len, 0);
 }
 static void WS_wire_close(args_t *arg) {
@@ -65,8 +65,8 @@ static void WS_wire_close(args_t *arg) {
 	arg->s = -1;
 }
 
-static int do_mask(char *msg, rlen_t len, int koff, char *key) {
-	rlen_t i = 0;
+static int do_mask(char *msg, size_t len, int koff, char *key) {
+	size_t i = 0;
 	while (i < len) {
 		msg[i] ^= key[(i + koff) & 3];
 		i++;
@@ -100,15 +100,15 @@ static void free_header(struct header_info *h) {
 	if (h->protocol) free(h->protocol);
 }
 
-static rlen_t count_spaces(const char *c) {
-	rlen_t n = 0;
+static size_t count_spaces(const char *c) {
+	size_t n = 0;
 	while (*c) { if (*c == ' ') n++; c++; }
 	return n;	
 }
 
 static unsigned long count_digits(const char *c) {
-	rlen_t n = 0;
-	while (*c) { if (*c >= '0' && *c <= '9') n = n * 10L + (rlen_t)(*c - '0'); c++; }
+	size_t n = 0;
+	while (*c) { if (*c >= '0' && *c <= '9') n = n * 10L + (size_t)(*c - '0'); c++; }
 	return n;	
 }
 
@@ -437,7 +437,7 @@ void WS13_upgrade(args_t *arg, const char *key, const char *protocol, const char
 	Rserve_QAP1_connected(arg);
 }
 
-static int WS_send_resp(args_t *arg, int rsp, rlen_t len, const void *buf) {
+static int WS_send_resp(args_t *arg, int rsp, size_t len, const void *buf) {
 	unsigned char *sbuf = (unsigned char*) arg->sbuf;
 	if (len > rlen_max - 128) {
 #ifdef RSERV_DEBUG
@@ -449,8 +449,8 @@ static int WS_send_resp(args_t *arg, int rsp, rlen_t len, const void *buf) {
 		/* FIXME: we can't really tunnel QAP1 without some encoding ... */
 	} else {
 		struct phdr ph;
-		rlen_t pl = 0;
-		rlen_t flen = len + sizeof(ph);
+		size_t pl = 0;
+		size_t flen = len + sizeof(ph);
 		ph.cmd = itop(rsp | ((rsp & CMD_OOB) ? 0 : CMD_RESP));
 		ph.len = itop(len);
 #ifdef __LP64__
@@ -490,7 +490,7 @@ static int WS_send_resp(args_t *arg, int rsp, rlen_t len, const void *buf) {
 			sbuf[pl++] = 127;
 			{
 				int i = 8;
-				rlen_t l = flen;
+				size_t l = flen;
 				while (i--) {
 					sbuf[pl + i] = l & 255;
 					l >>= 8;
@@ -503,7 +503,7 @@ static int WS_send_resp(args_t *arg, int rsp, rlen_t len, const void *buf) {
 		while (len + pl) {
 			ssize_t n;
 			/* arg->sl is only 64k so there are no size issues */
-			rlen_t send_here = (len + pl > arg->sl) ? arg->sl : (len + pl);
+			size_t send_here = (len + pl > arg->sl) ? arg->sl : (len + pl);
 			if (send_here > pl)
 				memcpy(sbuf + pl, buf, send_here - pl);
 			n = WS_wire_send(arg, sbuf, send_here);
@@ -533,7 +533,7 @@ static int WS_send_resp(args_t *arg, int rsp, rlen_t len, const void *buf) {
 
 /* we use send_data only to send the ID string so we don't bother supporting frames bigger than the buffer */
 /* FIXME: not true anymore - it is used for pass-through, so we did implement binary fragmentation */
-static ssize_t WS_send_data(args_t *arg, const void *buf, rlen_t len) {
+static ssize_t WS_send_data(args_t *arg, const void *buf, size_t len) {
 	unsigned char *sbuf = (unsigned char*) arg->sbuf;
 	if (arg->ver == 0) {
 		if (len < arg->sl - 2) {
@@ -556,7 +556,7 @@ static ssize_t WS_send_data(args_t *arg, const void *buf, rlen_t len) {
 			return -1;
 		}
 	} else {
-		rlen_t total = len, pl = 0;
+		size_t total = len, pl = 0;
 		sbuf[pl++] =  ((arg->flags & F_OUT_BIN) ? 1 : 0) + ((arg->ver < 4) ? 0x04 : 0x81); /* text, 4+ has inverted FIN bit */
 		if (len < 126) /* short length */
 			sbuf[pl++] = len;
@@ -568,7 +568,7 @@ static ssize_t WS_send_data(args_t *arg, const void *buf, rlen_t len) {
 			sbuf[pl++] = 127;
 			{
 				int i = 8;
-				rlen_t l = len;
+				size_t l = len;
 				while (i--) {
 					sbuf[pl + i] = l & 255;
 					l >>= 8;
@@ -578,7 +578,7 @@ static ssize_t WS_send_data(args_t *arg, const void *buf, rlen_t len) {
 		}
         while (len + pl) {
             ssize_t n;
-			rlen_t send_here = (len + pl > arg->sl) ? arg->sl : (len + pl);
+			size_t send_here = (len + pl > arg->sl) ? arg->sl : (len + pl);
             if (send_here > pl)
                 memcpy(sbuf + pl, buf, send_here - pl);
             n = WS_wire_send(arg, sbuf, send_here);
@@ -607,7 +607,7 @@ static ssize_t WS_send_data(args_t *arg, const void *buf, rlen_t len) {
 	return 0;
 }
 
-static ssize_t WS_recv_data(args_t *arg, void *buf, rlen_t read_len) {
+static ssize_t WS_recv_data(args_t *arg, void *buf, size_t read_len) {
 #ifdef RSERV_DEBUG
 	fprintf(stderr, "WS_recv_data for %ld (bp = %d)\n", (long) read_len, arg->bp);
 #endif
@@ -689,7 +689,7 @@ static ssize_t WS_recv_data(args_t *arg, void *buf, rlen_t read_len) {
 		/* don't read past the current frame in case we're in a frame ... */
 		/* FIXME: it shouldn't matter but it appears that we don't handle that case correctly */
 		ssize_t n;
-		rlen_t max_sz = ((arg->flags & F_INFRAME) && arg->l1) ? arg->l1 : arg->bl;
+		size_t max_sz = ((arg->flags & F_INFRAME) && arg->l1) ? arg->l1 : arg->bl;
 		if (max_sz > arg->bl)
 			max_sz = arg->bl;
 		n = WS_wire_recv(arg, arg->buf, max_sz);
@@ -718,11 +718,11 @@ static ssize_t WS_recv_data(args_t *arg, void *buf, rlen_t read_len) {
 	} else { /* not in frame - interpret a new frame */
 		unsigned char *fr = (unsigned char*) arg->buf;
 #ifdef RSERV_DEBUG /* FIXME: we don't use more -- why? */
-		rlen_t more = (arg->ver < 4) ? ((fr[0] & 0x80) == 0x80) : ((fr[0] & 0x80) == 0);
+		size_t more = (arg->ver < 4) ? ((fr[0] & 0x80) == 0x80) : ((fr[0] & 0x80) == 0);
 #endif
 		int mask = 0, ct = fr[0] & 127;
-		rlen_t need = 0, at_least, payload;
-		rlen_t len = 0;
+		size_t need = 0, at_least, payload;
+		size_t len = 0;
 		/* set the F_IN_BIN flag according to the frame type */
 		if ((arg->ver < 4 && ct == 5) ||
 			(arg->ver >= 4 && ct == 2))
@@ -760,7 +760,7 @@ static ssize_t WS_recv_data(args_t *arg, void *buf, rlen_t read_len) {
 #endif
 				return -1;
 			}
-			len = (rlen_t) raw_len;
+			len = (size_t) raw_len;
 		}
 #ifdef RSERV_DEBUG
 		fprintf(stderr, "INFO: WS_recv_data frame type=%02x, len=%lu, more=%d, mask=%d (need=%d)\n", ct, (unsigned long) len, (int) more, (int) mask, (int) need);
@@ -785,7 +785,7 @@ static ssize_t WS_recv_data(args_t *arg, void *buf, rlen_t read_len) {
 		if (mask) {
 #ifdef RSERV_DEBUG
 #ifdef WS_DEBUG
-			{ rlen_t i; for (i = 0; i < payload; i++) fprintf(stderr, " %02x", (int) (unsigned char) arg->buf[need + i]); fprintf(stderr,"\n"); }
+			{ size_t i; for (i = 0; i < payload; i++) fprintf(stderr, " %02x", (int) (unsigned char) arg->buf[need + i]); fprintf(stderr,"\n"); }
 #endif
 #endif
 			SET_F_MASK(arg->flags, do_mask(arg->buf + need, payload, 0, arg->buf + need - 4));
@@ -793,7 +793,7 @@ static ssize_t WS_recv_data(args_t *arg, void *buf, rlen_t read_len) {
 			memcpy(&arg->l2, arg->buf + need - 4, 4);
 #ifdef RSERV_DEBUG
 #ifdef WS_DEBUG
-			{ rlen_t i; for (i = 0; i < payload; i++) fprintf(stderr, " %02x", (int) (unsigned char) arg->buf[need + i]); fprintf(stderr,"\n"); }
+			{ size_t i; for (i = 0; i < payload; i++) fprintf(stderr, " %02x", (int) (unsigned char) arg->buf[need + i]); fprintf(stderr,"\n"); }
 #endif
 #endif
 		} else arg->flags &= ~ F_MASK;

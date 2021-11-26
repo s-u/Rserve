@@ -351,7 +351,7 @@ int daemonize = 1;
 char **main_argv; /* this is only set by standalone! */
 int    main_argc;
 
-rlen_t maxSendBufSize = 0; /* max. sendbuf for auto-resize. 0=no limit */
+size_t maxSendBufSize = 0; /* max. sendbuf for auto-resize. 0=no limit */
 
 int Rsrv_interactive = 1; /* default for R_Interactive flag */
 
@@ -474,7 +474,7 @@ static void prepare_set_user(int uid, int gid) {
 }
 
 /* send/recv wrappers that are more robust */
-ssize_t cio_send(int s, const void *buffer, rlen_t length, int flags) {
+ssize_t cio_send(int s, const void *buffer, size_t length, int flags) {
 	ssize_t n;
 	while ((n = send(s, buffer, length, flags)) == -1) {
 		/* the only case we handle specially is EINTR to recover automatically */
@@ -532,7 +532,7 @@ static void std_fw_input_handler(void *dummy) {
 #endif
 
 /*  */
-ssize_t cio_recv(int s, void *buffer, rlen_t length, int flags) {
+ssize_t cio_recv(int s, void *buffer, size_t length, int flags) {
 	ssize_t n;
 	struct timeval timv;
     fd_set readfds;
@@ -909,10 +909,10 @@ static int getpid() {
 #endif
 
 /* send a response including the data part */
-int Rserve_QAP1_send_resp(args_t *arg, int rsp, rlen_t len, const void *buf) {
+int Rserve_QAP1_send_resp(args_t *arg, int rsp, size_t len, const void *buf) {
 	server_t *srv = arg->srv;
 	struct phdr ph;
-	rlen_t i = 0;
+	size_t i = 0;
 	/* do not tag OOB with CMD_RESP */
 	if (!(rsp & CMD_OOB)) rsp |= CMD_RESP;
     ph.cmd = itop(rsp);	
@@ -974,7 +974,7 @@ int authReq = 0;
 int usePlain = 0;
 
 /* max. size of the input buffer (per connection) */
-rlen_t maxInBuf = 256 * (1024 * 1024); /* default is 256MB */
+size_t maxInBuf = 256 * (1024 * 1024); /* default is 256MB */
 
 /* if non-zero then the password file is loaded before client su so it can be unreadable by the clients */
 int cache_pwd = 0;
@@ -1688,7 +1688,7 @@ static int loadConfig(const char *fn)
    therefore we start with a small buffer and allocate more if necessary
 */
 
-static rlen_t inBuf = 32768; /* 32kB should be ok unless CMD_assign sends large data */
+static size_t inBuf = 32768; /* 32kB should be ok unless CMD_assign sends large data */
 
 /* static buffer size used for file transfer.
    The user is still free to allocate its own size  */
@@ -2013,6 +2013,8 @@ static int send_oob_sexp(int cmd, SEXP exp) {
 		/* check buffer size vs REXP size to avoid dangerous overflows
 		   todo: resize the buffer as necessary */
 		rs = QAP_getStorageSize(exp);
+		if (rs < 0)
+			Rf_error("Unable to encode R object");
 
 		/* FIXME: add a 4k security margin - it should no longer be needed,
 		   originally the space was grown proportionally to account for a bug,
@@ -2744,7 +2746,7 @@ void Rserve_cleanup() {
 struct qap_runtime {
 	struct args *args;  /* input args */
     char  *buf;         /* send/recv buffer */
-    rlen_t buf_size;    /* size of the buffer */
+    size_t buf_size;    /* size of the buffer */
 	int level;          /* re-entrance level */
 };
 
@@ -3102,13 +3104,15 @@ void Rserve_OCAP_connected(void *thp) {
 #ifdef RSERV_DEBUG
 		printf("oc.init storage size = %ld bytes\n",(long)rs);
 #endif
-		if (rs > rt->buf_size - 64L) {  /* is the send buffer too small ? */
+		if (rs < 0 || rs > rt->buf_size - 64L) {  /* cannot encode or is the send buffer too small ? */
 			unsigned int osz = (rs > 0xffffffff) ? 0xffffffff : rs;
 			osz = itop(osz);
 #ifdef RSERV_DEBUG
-			printf("ERROR: object too big (%ld available, %ld required)\n", (long) rt->buf_size, (long) rs);
+			if (rs < 0)
+				printf("ERROR: cannot QAP-encode R object\n");
+			else
+				printf("ERROR: object too big (%ld available, %ld required)\n", (long) rt->buf_size, (long) rs);
 #endif
-			/* FIXME: */
 			sendRespData(args, SET_STAT(RESP_ERR, ERR_object_too_big), 4, &osz);
 			if (uses_tls) close_tls(args);
 			free_qap_runtime(rt);
@@ -3201,11 +3205,11 @@ extern char Rserve_oc_prefix;
 
 #define COMPUTE_OC_PREFIX '@'
 
-ssize_t server_recv(args_t *arg, void *buf, rlen_t len) {
+ssize_t server_recv(args_t *arg, void *buf, size_t len) {
 	return recv(arg->s, buf, len, 0);
 }
 
-ssize_t server_send(args_t *arg, const void *buf, rlen_t len) {
+ssize_t server_send(args_t *arg, const void *buf, size_t len) {
 	return send(arg->s, buf, len, 0);
 }
 
@@ -3602,7 +3606,7 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 			
 			{
 				if (!maxInBuf || plen < maxInBuf) {
-					rlen_t i;
+					size_t i;
 					if (plen >= rt->buf_size) {
 #ifdef RSERV_DEBUG
 						printf("resizing input buffer (was %ld, need %ld) to %ld\n", (long)rt->buf_size, (long) plen, (long)(((plen | 0x1fffL) + 1L)));
@@ -3753,11 +3757,15 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 					return 1;
 				} else {
 					char *sendhead = 0;
-					rlen_t tempSB = 0;
+					size_t tempSB = 0;
 					/* check buffer size vs REXP size to avoid dangerous overflows
 					   todo: resize the buffer as necessary
 					*/
 					rlen_t rs = QAP_getStorageSize(exp);
+					if (rs < 0) { /* just in case there is encoding error */
+						sendResp(args, SET_STAT(RESP_ERR, ERR_inv_par));
+						return 1;
+					}
 					/* FIXME: add a 4k security margin - it should no longer be needed,
 					   originally the space was grown proportionally to account for a bug,
 					   but that bug has been fixed. */
@@ -3766,7 +3774,7 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 					printf("result storage size = %ld bytes (buffer %ld bytes)\n",(long)rs, (long)rt->buf_size);
 #endif
 					if (rs > rt->buf_size - 64L) { /* is the send buffer too small ? */
-						if (maxSendBufSize && rs + 64L > maxSendBufSize) { /* first check if we're allowed to resize */
+						if (maxSendBufSize && rs > maxSendBufSize - 4160L) { /* first check if we're allowed to resize */
 							unsigned int osz = (rs > 0xffffffff) ? 0xffffffff : rs;
 							osz = itop(osz);
 #ifdef RSERV_DEBUG
@@ -3878,7 +3886,7 @@ void Rserve_QAP1_connected(void *thp) {
 	int uses_tls = 0;
     ParseStatus stat;
     char *sendbuf;
-    rlen_t sendBufSize;
+    size_t sendBufSize;
     char *tail;
     char *sfbuf;
     int Rerror;
@@ -3887,10 +3895,10 @@ void Rserve_QAP1_connected(void *thp) {
 #ifdef HAS_CRYPT
     char salt[5];
 #endif
-    rlen_t tempSB=0;
+    size_t tempSB=0;
     
     int parT[16];
-    rlen_t parL[16];
+    size_t parL[16];
     void *parP[16];
     
     SEXP xp,exp;
@@ -4052,10 +4060,10 @@ void Rserve_QAP1_connected(void *thp) {
 		} else if (plen > 0) {
 			unsigned int phead;
 			int parType = 0;
-			rlen_t parLen = 0;
+			size_t parLen = 0;
 	    
 			if (!maxInBuf || plen < maxInBuf) {
-				rlen_t i;
+				size_t i;
 				if (plen >= inBuf) {
 #ifdef RSERV_DEBUG
 					printf("resizing input buffer (was %ld, need %ld) to %ld\n", (long)inBuf, (long) plen, (long)(((plen | 0x1fffL) + 1L)));
@@ -4107,12 +4115,12 @@ void Rserve_QAP1_connected(void *thp) {
 #endif
 				c = buf;
 				while((c < buf + plen) && (phead = ptoi(*((unsigned int*)c)))) {
-					rlen_t headSize = 4;
+					size_t headSize = 4;
 					parType = PAR_TYPE(phead);
 					parLen = PAR_LEN(phead);
 					if ((parType & DT_LARGE) > 0) { /* large parameter */
 						headSize += 4;
-						parLen |= ((rlen_t)((unsigned int)ptoi(*(unsigned int*)(c + 4)))) << 24;
+						parLen |= ((size_t)((unsigned int)ptoi(*(unsigned int*)(c + 4)))) << 24;
 						parType ^= DT_LARGE;
 					} 
 #ifdef RSERV_DEBUG
@@ -4408,9 +4416,9 @@ void Rserve_QAP1_connected(void *thp) {
 			if (pars < 1 || parT[0] != DT_INT) 
 				sendResp(a, SET_STAT(RESP_ERR, ERR_inv_par));
 			else {
-				rlen_t ns = ptoi(((unsigned int*)(parP[0]))[0]);
+				int ns = ptoi(((unsigned int*)(parP[0]))[0]);
 #ifdef RSERV_DEBUG
-				printf(">>CMD_setSendBuf to %ld bytes.\n", (long)ns);
+				printf(">>CMD_setSendBuf to %d bytes.\n", ns);
 #endif
 				if (ns > 0) { /* 0 means don't touch the buffer size */
 					if (ns < 32768) ns = 32768; /* we enforce a minimum of 32kB */
@@ -4494,12 +4502,12 @@ void Rserve_QAP1_connected(void *thp) {
 				if (!cf)
 					sendResp(a, SET_STAT(RESP_ERR, ERR_notOpen));
 				else {
-					rlen_t fbufl = sfbufSize;
+					int fbufl = sfbufSize;
 					char *fbuf = sfbuf;
 					if (pars == 1 && parT[0] == DT_INT)
 						fbufl = ptoi(((unsigned int*)(parP[0]))[0]);
 #ifdef RSERV_DEBUG
-					printf(">>CMD_readFile(%ld)\n", fbufl);
+					printf(">>CMD_readFile(%d)\n", fbufl);
 #endif
 					if (fbufl < 0) fbufl = sfbufSize;
 					if (fbufl > sfbufSize) {
@@ -4773,17 +4781,21 @@ void Rserve_QAP1_connected(void *thp) {
 					/* FIXME: add a 4k security margin - it should no longer be needed,
 					   originally the space was grown proportionally to account for a bug,
 					   but that bug has been fixed. */
-					rs += 4096;
 #ifdef RSERV_DEBUG
 					printf("result storage size = %ld bytes\n",(long)rs);
 #endif
-					if (rs > sendBufSize - 64L) { /* is the send buffer too small ? */
+					if (rs >= 0)
+						rs += 4096;
+					if (rs < 0 || rs > sendBufSize - 64L) { /* encoding error or is the send buffer too small ? */
 						canProceed = 0;
-						if (maxSendBufSize && rs + 64L > maxSendBufSize) { /* first check if we're allowed to resize */
+						if ((rs < 0) || (maxSendBufSize && rs + 64L > maxSendBufSize)) { /* first check if we're allowed to resize */
 							unsigned int osz = (rs > 0xffffffff) ? 0xffffffff : rs;
 							osz = itop(osz);
 #ifdef RSERV_DEBUG
-							printf("ERROR: object too big (sendBuf=%ld)\n", sendBufSize);
+							if (rs < 0)
+								printf("ERROR: object encoding error\n");
+							else
+								printf("ERROR: object too big (sendBuf=%ld)\n", sendBufSize);
 #endif
 							sendRespData(a, SET_STAT(RESP_ERR, ERR_object_too_big), 4, &osz);
 						} else { /* try to allocate a large, temporary send buffer */

@@ -356,29 +356,19 @@ struct phdr {   /* always 16 bytes */
 #include <sys/types.h> /* s/size_t */
 
 /* long vectors - we don't want to mandate Rinternals.h here
-   so we use the minimal definition */
-#if ( SIZEOF_SIZE_T > 4 )
-/* we use unsigned version, though */
-typedef size_t  rlen_t;
-typedef ssize_t srlen_t;
-/* this is used for alignment/masking */
-#define rlen_max ((rlen_t) 0xffffffffffffffff)
-#else /* old legacy definition using unsigned long */
-/* this is the type used to calculate pointer distances */
-/* note: we may want to use size_t or something more compatible */
-typedef unsigned long rlen_t;
-typedef long srlen_t;
+   so we use the minimal definition. By now size_t and ptrdiff_t
+   should be ubiquitous so no more special cases */
 
-#ifdef ULONG_MAX
-#define rlen_max ULONG_MAX
+typedef ssize_t rlen_t;
+/* we really need an unsigned type for safety in places where R is not involved */
+typedef size_t urlen_t;
+
+/* this is used for alignment/masking */
+#if ( SIZEOF_SIZE_T > 4 )
+#define rlen_max ((rlen_t) 0x7fffffffffffffff)
 #else
-#ifdef __LP64__
-#define rlen_max 0xffffffffffffffffL 
-#else
-#define rlen_max 0xffffffffL
-#endif /* __LP64__ */
-#endif /* ULONG_MAX */
-#endif /* long vector fallback */
+#define rlen_max ((rlen_t) 0x7fffffff)
+#endif
 
 /* functions/macros to convert native endianess of int/double for transport
    currently ony PPC style and Intel style are supported */
