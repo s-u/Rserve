@@ -61,7 +61,7 @@ struct args {
 	/* the following entries are not populated by Rserve but can be used by server implemetations */
 	char *buf, *sbuf;
 	int   ver, bp, bl, sp, sl, flags;
-	long  l1, l2;
+	size_t l1, l2;
 	/* The following fields are informational, populated by Rserve */
     SAIN sa;
     int ucix;

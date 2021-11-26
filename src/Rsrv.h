@@ -352,17 +352,22 @@ struct phdr {   /* always 16 bytes */
 #include <Rconfig.h> /* defines SIZEOF_SIZE_T in case we missed it */
 #endif
 
+#include <stddef.h> /* for ptrdiff_t, which is required by C99 */
+#include <sys/types.h> /* s/size_t */
+
 /* long vectors - we don't want to mandate Rinternals.h here
    so we use the minimal definition */
 #if ( SIZEOF_SIZE_T > 4 )
-#include <stddef.h> /* for ptrdiff_t, which is required by C99 */
-typedef ptrdiff_t rlen_t;
+/* we use unsigned version, though */
+typedef size_t  rlen_t;
+typedef ssize_t srlen_t;
 /* this is used for alignment/masking */
-#define rlen_max ((rlen_t) 0x7fffffffffffffff)
+#define rlen_max ((rlen_t) 0xffffffffffffffff)
 #else /* old legacy definition using unsigned long */
 /* this is the type used to calculate pointer distances */
 /* note: we may want to use size_t or something more compatible */
 typedef unsigned long rlen_t;
+typedef long srlen_t;
 
 #ifdef ULONG_MAX
 #define rlen_max ULONG_MAX

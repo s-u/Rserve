@@ -295,7 +295,7 @@ struct args {
 	/* the following entries are not populated by Rserve but can be used by server implemetations */
 	char *buf, *sbuf;
 	int   ver, bp, bl, sp, sl, flags;
-	long  l1, l2;
+	size_t  l1, l2;
 	/* The following fields are informational, populated by Rserve */
     SAIN sa;
     int ucix;
@@ -474,8 +474,8 @@ static void prepare_set_user(int uid, int gid) {
 }
 
 /* send/recv wrappers that are more robust */
-int cio_send(int s, const void *buffer, int length, int flags) {
-	int n;
+ssize_t cio_send(int s, const void *buffer, rlen_t length, int flags) {
+	ssize_t n;
 	while ((n = send(s, buffer, length, flags)) == -1) {
 		/* the only case we handle specially is EINTR to recover automatically */
 		if (errno != EINTR) break;			
@@ -532,8 +532,8 @@ static void std_fw_input_handler(void *dummy) {
 #endif
 
 /*  */
-int cio_recv(int s, void *buffer, int length, int flags) {
-	int n;
+ssize_t cio_recv(int s, void *buffer, rlen_t length, int flags) {
+	ssize_t n;
 	struct timeval timv;
     fd_set readfds;
 	if (!last_idle_time) {
@@ -956,7 +956,7 @@ int Rserve_QAP1_send_resp(args_t *arg, int rsp, rlen_t len, const void *buf) {
 		return -1;
 	
 	while (i < len) {
-		int rs = srv->send(arg, (char*)buf + i, (len - i > max_sio_chunk) ? max_sio_chunk : (len - i));
+		ssize_t rs = srv->send(arg, (char*)buf + i, (len - i > max_sio_chunk) ? max_sio_chunk : (len - i));
 		if (rs < 1)
 			return -1;
 		i += rs;
@@ -2173,7 +2173,7 @@ static SEXP Rserve_oobMsg_(SEXP exp, SEXP code, int throw_error) {
 			/* parse the payload - we ony support SEXPs though (and DT_STRING) */
 			{
 				unsigned int *hi = (unsigned int*) orb, pt = PAR_TYPE(ptoi(hi[0]));
-				unsigned long psz = PAR_LEN(ptoi(hi[0]));
+				size_t psz = PAR_LEN(ptoi(hi[0]));
 				SEXP res;
 				if (pt & DT_LARGE) {
 					psz |= hi[1] << 24;
@@ -2339,7 +2339,7 @@ void Rserve_text_connected(void *thp) {
 					exp = R_tryEval(lang2(install("as.character"), exp), R_GlobalEnv, &err);
 				if (!err && TYPEOF(exp) == STRSXP) {
 					int i = 0, l = LENGTH(exp);
-					long tl = 0;
+					size_t tl = 0;
 					char *sb = buf;
 					while (i < l) {
 						tl += strlen(Rf_translateCharUTF8(STRING_ELT(exp, i))) + 1;
@@ -3152,7 +3152,7 @@ static int   compute_fd = -1;
 static pid_t compute_pid = 0;
 static pid_t compute_ppid = 0;
 static char *compute_iobuf;
-static int   compute_iobuf_len;
+static size_t compute_iobuf_len;
 
 typedef struct compq {
 	struct compq *next;
@@ -3201,11 +3201,11 @@ extern char Rserve_oc_prefix;
 
 #define COMPUTE_OC_PREFIX '@'
 
-int server_recv(args_t *arg, void *buf, rlen_t len) {
+ssize_t server_recv(args_t *arg, void *buf, rlen_t len) {
 	return recv(arg->s, buf, len, 0);
 }
 
-int server_send(args_t *arg, const void *buf, rlen_t len) {
+ssize_t server_send(args_t *arg, const void *buf, rlen_t len) {
 	return send(arg->s, buf, len, 0);
 }
 
@@ -3358,7 +3358,8 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
     struct phdr ph;
 	server_t *srv;
 	SOCKET s;
-	int rn, msg_id;
+	int msg_id;
+	ssize_t rn;
 
 	if (!rt) rt = current_runtime;
 	if (!rt || !rt->args) return 0;
@@ -3437,9 +3438,9 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 			handle_std_fw();
 
 		if (which == 2) { /* proxy pass-through */
-			size_t plen = 0;
+			size_t plen = 0, iob_pos;
 			unsigned int len32, hi32;
-			int cmd, iob_pos;
+			int cmd;
 
 			rn = recv(compute_fd, (char*)&ph, sizeof(ph), 0);
 			if (rn != sizeof(ph)) {
@@ -3449,7 +3450,7 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 			}
 
 #ifdef RSERV_DEBUG
-			printf("\nOCAP pass-thru header read result: %d\n", rn);
+			printf("\nOCAP pass-thru header read result: %ld\n", (long) rn);
 			if (rn > 0) printDump(&ph, rn);
 #endif
 			/* NOTE: do not touch ph since we may need to pass it unharmed to oob */
@@ -3469,7 +3470,8 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 #ifdef RSERV_DEBUG
 					fprintf(stderr,"FATAL: out of memory while allocating pass-thru buffer\n");
 #endif
-					ulog("ERROR: out of memory while allocating pass-thru buffer of %d\n", compute_iobuf_len);
+					ulog("ERROR: out of memory while allocating pass-thru buffer of %lu\n",
+						 (unsigned long) compute_iobuf_len);
 					closesocket(compute_fd);
 					sendResp(args, SET_STAT(RESP_ERR,ERR_out_of_mem));
 					closesocket(s);
@@ -3491,7 +3493,7 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 				if (plen) {
 					rn = recv(compute_fd, compute_iobuf + iob_pos, (plen > compute_iobuf_len - iob_pos) ? (compute_iobuf_len - iob_pos) : plen, 0);
 #ifdef OOB_ULOG
-					ulog("OCAP-pass-thru: read from compute yields %d (expected %d)", rn,  (plen > compute_iobuf_len) ? compute_iobuf_len : plen);
+					ulog("OCAP-pass-thru: read from compute yields %ld (expected %ld)", (long) rn, (long) (plen > compute_iobuf_len) ? compute_iobuf_len : plen);
 #endif
 					if (rn > 0) {
 						plen -= rn;
@@ -3537,7 +3539,7 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 
 			rn = srv->recv(args, (char*)&ph, sizeof(ph));
 #ifdef RSERV_DEBUG
-			printf("\nOCAP iter header read result: %d\n", rn);
+			printf("\nOCAP iter header read result: %ld\n", (long) rn);
 			if (rn > 0) printDump(&ph, rn);
 #endif
 			if (rn != sizeof(ph)) {
@@ -3624,7 +3626,7 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 					i = 0;
 					while ((rn = srv->recv(args, ((char*)rt->buf) + i, (plen - i > max_sio_chunk) ? max_sio_chunk : (plen - i)))) {
 #ifdef RSERV_DEBUG
-						printf(" rn = %d (i = %ld)\n", rn, (long) i);
+						printf(" rn = %ld (i = %ld)\n", (long) rn, (long) i);
 #endif
 						if (rn > 0) i += rn;
 						if (i >= plen || rn < 1) break;

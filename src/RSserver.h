@@ -16,9 +16,10 @@
 typedef struct args args_t;
 
 typedef void (*work_fn_t)(void *par);
+/* 0 = success, <0 = error */
 typedef int  (*send_fn_t)(args_t *arg, int rsp, rlen_t len, const void *buf);
-typedef int  (*buf_fn_t) (args_t *arg, void *buf, rlen_t len);
-typedef int  (*cbuf_fn_t) (args_t *arg, const void *buf, rlen_t len);
+typedef ssize_t (*buf_fn_t) (args_t *arg, void *buf, rlen_t len);
+typedef ssize_t (*cbuf_fn_t) (args_t *arg, const void *buf, rlen_t len);
 typedef int  (*fork_fn_t) (args_t *arg);
 
 /* definition of a server */
@@ -53,8 +54,8 @@ void release_server_stack(server_stack_t *s);
 
 /* some generic implementations */
 void server_fin(void *x);
-int server_recv(args_t *arg, void *buf, rlen_t len);
-int server_send(args_t *arg, const void *buf, rlen_t len);
+ssize_t server_recv(args_t *arg, void *buf, rlen_t len);
+ssize_t server_send(args_t *arg, const void *buf, rlen_t len);
 
 void stop_server_loop();
 void serverLoop();
