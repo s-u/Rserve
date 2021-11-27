@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <signal.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #include <Rinternals.h>
 
