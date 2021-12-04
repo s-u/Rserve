@@ -353,6 +353,7 @@ struct phdr {   /* always 16 bytes */
 #endif
 
 #include <stddef.h> /* for ptrdiff_t, which is required by C99 */
+#include <stdint.h> /* not directly used but for fixed-size int types */
 #include <sys/types.h> /* s/size_t */
 
 /* long vectors - we don't want to mandate Rinternals.h here
