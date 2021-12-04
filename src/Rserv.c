@@ -1053,6 +1053,10 @@ static int chkres1(const char *cmd, int res) {
 
 static int performConfig(int when) {
 	int fail = 0;
+	if (oob_console && !enable_oob) {
+		RSEprintf("WARNING: oob.console is enabled, but oob is disabled, that won't work - disabling console\n");
+		oob_console = 0;
+	}
 #ifdef unix
 	if (when == SU_NOW) {
 		if (requested_chroot && chroot(requested_chroot)) {
