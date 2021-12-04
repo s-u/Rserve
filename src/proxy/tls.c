@@ -31,7 +31,9 @@ tls_t *new_tls() {
     
     if (first_tls) {
 	SSL_library_init();
+#ifdef RSERV_DEBUG
 	SSL_load_error_strings();
+#endif
 	first_tls = 0;
 	tls = t;
     }
@@ -53,6 +55,11 @@ int set_tls_ca(tls_t *tls, const char *fn_ca, const char *path_ca) {
     return SSL_CTX_load_verify_locations(tls->ctx, fn_ca, path_ca);
 }
 
+int set_tls_verify(tls_t *tls, int verify) {
+    SSL_CTX_set_verify(tls->ctx, verify ? SSL_VERIFY_PEER : SSL_VERIFY_NONE, 0);
+    return 1;
+}
+
 struct args {
     server_t *srv; /* server that instantiated this connection */
     int s;
@@ -62,11 +69,11 @@ struct args {
     void *res2;
 };
 
-static int tls_recv(args_t *c, void *buf, size_t len) {
+static ssize_t tls_recv(args_t *c, void *buf, size_t len) {
     return SSL_read(c->ssl, buf, len);
 }
 
-static int tls_send(args_t *c, const void *buf, size_t len) {
+static ssize_t tls_send(args_t *c, const void *buf, size_t len) {
     return SSL_write(c->ssl, buf, len);
 }
 
@@ -99,6 +106,34 @@ void close_tls(args_t *c) {
 void free_tls(tls_t *tls) {
 }
 
+/* if cn is present, len > 0 and there is a cert then the common name
+   is copied to cn and terminated. It may be truncated if len is too short.
+   Return values:
+   0 = present but verification failed
+   1 = present and verification successful
+  -1 = absent */
+int verify_peer_tls(args_t *c, char *cn, int len) {
+    X509 *peer;
+    if ((peer = SSL_get_peer_certificate(c->ssl))) {
+	if (cn && len > 0) {
+	    X509_NAME *sn = X509_get_subject_name(peer);
+	    X509_NAME_get_text_by_NID(sn, NID_commonName, cn, len);
+	    fprintf(stderr, "INFO: peer cert common name: \"%s\"\n", cn);
+	}
+	X509_free(peer);
+	if (SSL_get_verify_result(c->ssl) == X509_V_OK) {
+	    fprintf(stderr, "INFO: peer cert present and OK\n");
+	    return 1;
+	} else {
+	    fprintf(stderr, "INFO: peer cert present, but verification FAILED\n");
+	    return 0;
+	}
+    }
+
+    fprintf(stderr, "INFO: peer nas NO cert\n");
+    return -1;
+}
+
 int perror_tls(const char *format, ...) {
     va_list(ap);
     va_start(ap, format);
@@ -118,11 +153,14 @@ tls_t *new_tls() { return 0; }
 int set_tls_pk(tls_t *tls, const char *fn) { return -1; }
 int set_tls_cert(tls_t *tls, const char *fn) { return -1; }
 int set_tls_ca(tls_t *tls, const char *fn_ca, const char *path_ca) { return -1; }
+int set_tls_verify(tls_t *tls, int verify) { return -1; }
 void free_tls(tls_t *tls) { }
 
 int add_tls(args_t *c, tls_t *tls, int server) { return -1; }
 void copy_tls(args_t *src, args_t *dst) { }
 void close_tls(args_t *c) { }
+int verify_peer_tls(args_t *c, char *cn, int len) { return -1; }
+
 int perror_tls(const char *format, ...) {
     fprintf(stderr, "ERROR: this binary has been built without SSL/TLS support.\n");
     return 1;

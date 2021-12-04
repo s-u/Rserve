@@ -11,6 +11,8 @@
 #include <string.h>
 #include <stdio.h>
 #include <signal.h>
+#include <stddef.h>
+#include <stdint.h>
 
 struct args {
 	server_t *srv; /* server that instantiated this connection */
@@ -22,18 +24,28 @@ struct args {
 	/* the following entries are not populated by Rserve but can be used by server implemetations */
 	char *buf, *sbuf;
 	int   ver, bp, bl, sp, sl, flags;
-	long  l1, l2;
+	size_t  l1, l2;
 };
 
-static int  WS_recv_data(args_t *arg, void *buf, size_t read_len);
-static void WS_send_resp(args_t *arg, int rsp, size_t len, const void *buf);
-static int  WS_send_data(args_t *arg, const void *buf, size_t len);
+static ssize_t WS_recv_data(args_t *arg, void *buf, size_t read_len);
+static int     WS_send_resp(args_t *arg, int rsp, size_t len, const void *buf);
+static ssize_t WS_send_data(args_t *arg, const void *buf, size_t len);
 
-static int WS_wire_send(args_t *arg, const void *buf, size_t len) {
+/* we don't actually use R here, so no point looking for large vectors,
+   so let's use size_t width - no config, so let's hope for __SIZE_WIDTH__.
+   Note that this only defines the max frame size so at the worst we limit
+   to 2Gb frames - likley more than enough either way */
+#if defined __SIZE_WIDTH__ && (__SIZE_WIDTH__ >= 64)
+#define rlen_max ((size_t) 0x7fffffffffffffff)
+#else
+#define rlen_max ((size_t) 0x7fffffff)
+#endif
+
+static ssize_t WS_wire_send(args_t *arg, const void *buf, size_t len) {
 	return (arg->tls_arg) ? arg->tls_arg->srv->send(arg->tls_arg, buf, len) : send(arg->s, buf, len, 0);
 }
 
-static int WS_wire_recv(args_t *arg, void *buf, size_t len) {
+static ssize_t WS_wire_recv(args_t *arg, void *buf, size_t len) {
 	return (arg->tls_arg) ? arg->tls_arg->srv->recv(arg->tls_arg, buf, len) : recv(arg->s, buf, len, 0);
 }
 
@@ -53,8 +65,8 @@ static void WS_wire_close(args_t *arg) {
 	arg->s = -1;
 }
 
-static int do_mask(char *msg, int len, int koff, char *key) {
-	int i = 0;
+static int do_mask(char *msg, size_t len, int koff, char *key) {
+	size_t i = 0;
 	while (i < len) {
 		msg[i] ^= key[(i + koff) & 3];
 		i++;
@@ -88,15 +100,15 @@ static void free_header(struct header_info *h) {
 	if (h->protocol) free(h->protocol);
 }
 
-static unsigned long count_spaces(const char *c) {
-	unsigned long n = 0;
+static size_t count_spaces(const char *c) {
+	size_t n = 0;
 	while (*c) { if (*c == ' ') n++; c++; }
 	return n;	
 }
 
 static unsigned long count_digits(const char *c) {
-	unsigned long n = 0;
-	while (*c) { if (*c >= '0' && *c <= '9') n = n * 10L + (unsigned long)(*c - '0'); c++; }
+	size_t n = 0;
+	while (*c) { if (*c >= '0' && *c <= '9') n = n * 10L + (size_t)(*c - '0'); c++; }
 	return n;	
 }
 
@@ -405,14 +417,16 @@ void WS13_upgrade(args_t *arg, const char *key, const char *protocol, const char
 #define itop(X) (X)
 #define ptoi(X) (X)
 
-static void WS_send_resp(args_t *arg, int rsp, size_t len, const void *buf) {
+static int WS_send_resp(args_t *arg, int rsp, size_t len, const void *buf) {
 	unsigned char *sbuf = (unsigned char*) arg->sbuf;
+	if (len > rlen_max - 128)
+		return -1; /* too big */
 	if (arg->ver == 0) {
 		/* FIXME: we can't really tunnel QAP1 without some encoding ... */
 	} else {
 		qap_hdr_t ph;
-		int pl = 0;
-		long flen = len + sizeof(ph);
+		size_t pl = 0;
+		size_t flen = len + sizeof(ph);
 		ph.cmd = itop(rsp | ((rsp & CMD_OOB) ? 0 : CMD_RESP));
 		ph.len = itop(len);
 #ifdef __LP64__
@@ -448,38 +462,49 @@ static void WS_send_resp(args_t *arg, int rsp, size_t len, const void *buf) {
 			sbuf[pl++] = 126;
 			sbuf[pl++] = flen >> 8;
 			sbuf[pl++] = flen & 255;
-		} else { /* 64-bit */
+		} else { /* 64-bit (on 32-bit plarforms the high 4 will be 0) */
 			sbuf[pl++] = 127;
-			{ int i = 8; long l = flen; while (i--) { sbuf[pl + i] = l & 255; l >>= 8; } }
+			{
+				int i = 8;
+				size_t l = flen;
+				while (i--) {
+					sbuf[pl + i] = l & 255;
+					l >>= 8;
+				}
+			}
 			pl += 8;
 		}	
 		memcpy(sbuf + pl, &ph, sizeof(ph));
 		pl += sizeof(ph);
 		while (len + pl) {
-			int n, send_here = (len + pl > arg->sl) ? arg->sl : (len + pl);
+			ssize_t n;
+			/* arg->sl is only 64k so there are no size issues */
+			size_t send_here = (len + pl > arg->sl) ? arg->sl : (len + pl);
 			if (send_here > pl)
 				memcpy(sbuf + pl, buf, send_here - pl);
 			n = WS_wire_send(arg, sbuf, send_here);
 #ifdef RSERV_DEBUG
 			if (pl) {
-				fprintf(stderr, "WS_send_resp: sending 4+ frame (ver %02d), n = %d / %d (of total %ld)\n", arg->ver, n, send_here, flen);
+				fprintf(stderr, "WS_send_resp: sending 4+ frame (ver %02d), n = %ld / %ld (of total %ld)\n", arg->ver, (long) n, (unsigned long)send_here, flen);
 #ifdef WS_DEBUG
 				{ int i, m = send_here; if (m > 100) m = 100; for (i = 0; i < m; i++) fprintf(stderr, " %02x", (int) sbuf[i]); fprintf(stderr,"\n"); }
 #endif
 			} else
-				fprintf(stderr, "WS_send_resp: continuation (%d bytes)\n", n);
+				fprintf(stderr, "WS_send_resp: continuation (%ld bytes)\n", (long) n);
 #endif
 			if (n != send_here) {
 #ifdef RSERV_DEBUG
-				fprintf(stderr, "WS_send_resp: write failed (%d expected, got %d)\n", send_here, n);
+				fprintf(stderr, "WS_send_resp: write failed (%ld expected, got %ld)\n",
+						(long) send_here, (long) n);
 #endif
-				return;
+				return -1;
 			}
 			buf = ((char*)buf) + send_here - pl;
 			len -= send_here - pl;
 			pl = 0;
 		}
 	}
+	return 0;
 }
 
 void WS_set_binary(args_t *arg, int flag) {
@@ -489,25 +514,26 @@ void WS_set_binary(args_t *arg, int flag) {
 		arg->flags &= ~F_OUT_BIN;
 }
 
-static int  WS_send_data_(args_t *arg, const void *buf, size_t len, int opcode);
+static ssize_t WS_send_data_(args_t *arg, const void *buf, size_t len, int opcode);
 
-static int  WS_send_data(args_t *arg, const void *buf, size_t len) {
+static ssize_t WS_send_data(args_t *arg, const void *buf, size_t len) {
 	int opcode = ((arg->flags & F_OUT_BIN) ? 1 : 0) + ((arg->ver < 4) ? 4 : 1); /* 2/1 for ver4+, 5/4 for ver0 */
 	return WS_send_data_(arg, buf, len, opcode);
 }
 
 /* we use send_data only to send the ID string so we don't bother supporting frames bigger than the buffer */
-static int  WS_send_data_(args_t *arg, const void *buf, size_t len, int opcode) {
+static ssize_t WS_send_data_(args_t *arg, const void *buf, size_t len, int opcode) {
 	unsigned char *sbuf = (unsigned char*) arg->sbuf;
 	if (arg->ver == 0) {
 		if (len < arg->sl - 2) {
-			int n;
+			ssize_t n;
 			sbuf[0] = 0;
 			memcpy(sbuf + 1, buf, len);
 			sbuf[len + 1] = 0xff;
 			n = WS_wire_send(arg, sbuf, len + 2);
 #ifdef RSERV_DEBUG
-			fprintf(stderr, "WS_send_data: sending 00 frame, n = %d / %d\n", n, (int) len + 2);
+			fprintf(stderr, "WS_send_data: sending 00 frame, n = %ld / %lu\n",
+					(long) n, (unsigned long) len + 2);
 #endif
 			if (n == len + 2) return len;
 			if (n < len + 2 && n >= len) return len - 1;
@@ -519,8 +545,7 @@ static int  WS_send_data_(args_t *arg, const void *buf, size_t len, int opcode) 
 			return -1;
 		}
 	} else {
-		unsigned long total = len;
-		int pl = 0;
+		size_t total = len, pl = 0;
 		sbuf[pl++] =  (opcode & 0x7f) | ((arg->ver < 4) ? 0 : 0x80); /* 4+ has inverted FIN bit */
 		if (len < 126) /* short length */
 			sbuf[pl++] = len;
@@ -532,7 +557,7 @@ static int  WS_send_data_(args_t *arg, const void *buf, size_t len, int opcode) 
 			sbuf[pl++] = 127;
 			{
 				int i = 8;
-				unsigned long l = len;
+				size_t l = len;
 				while (i--) {
 					sbuf[pl + i] = l & 255;
 					l >>= 8;
@@ -542,22 +567,24 @@ static int  WS_send_data_(args_t *arg, const void *buf, size_t len, int opcode) 
 		}
 
         while (len + pl) {
-            int n, send_here = (len + pl > arg->sl) ? arg->sl : (len + pl);
+            ssize_t n;
+			size_t send_here = (len + pl > arg->sl) ? arg->sl : (len + pl);
             if (send_here > pl)
                 memcpy(sbuf + pl, buf, send_here - pl);
             n = WS_wire_send(arg, sbuf, send_here);
 #ifdef RSERV_DEBUG
             if (pl) {
-                fprintf(stderr, "WS_send_data: sending 4+ frame (ver %02d), n = %d / %d (of total %ld)\n", arg->ver, n, send_here, len);
+                fprintf(stderr, "WS_send_data: sending 4+ frame (ver %02d), n = %ld / %lu (of total %ld)\n", arg->ver, (long) n, (unsigned long) send_here, (long) len);
 #ifdef WS_DEBUG
                 { int i, m = send_here; if (m > 100) m = 100; for (i = 0; i < m; i++) fprintf(stderr, " %02x", (int) sbuf[i]); fprintf(stderr,"\n"); }
 #endif
             } else
-                fprintf(stderr, "WS_send_data: continuation (%d bytes)\n", n);
+                fprintf(stderr, "WS_send_data: continuation (%ld bytes)\n", (long) n);
 #endif
             if (n != send_here) {
 #ifdef RSERV_DEBUG
-                fprintf(stderr, "WS_send_data: write failed (%d expected, got %d)\n", send_here, n);
+                fprintf(stderr, "WS_send_data: write failed (%ld expected, got %ld)\n",
+						(long) send_here, (long) n);
 #endif
                 return -1;
             }
@@ -574,14 +601,16 @@ static int  WS_send_data_(args_t *arg, const void *buf, size_t len, int opcode) 
 #define FRT_PING   9
 #define FRT_PONG   10
 
-static int  WS_recv_data_(args_t *arg, void *buf, size_t read_len);
+static ssize_t WS_recv_data_(args_t *arg, void *buf, size_t read_len);
 
 /* one extra indirection - we are handing WebSockets control frames internally
    so the application doesn't have to deal with them as they are WS-specific */
-static int  WS_recv_data(args_t *arg, void *buf, size_t read_len) {
-	int n = 0;
+static ssize_t WS_recv_data(args_t *arg, void *buf, size_t read_len) {
+	ssize_t n = 0;
 	while (1) {
 		n = WS_recv_data_(arg, buf, read_len);
+		if (n < 1)
+			break;
 		/* catch control frames - those shouldn't go to the application */
 		if (GET_F_FT(arg->flags) > 7) {
 #ifdef RSERV_DEBUG
@@ -612,19 +641,19 @@ static int  WS_recv_data(args_t *arg, void *buf, size_t read_len) {
 	return n;
 }
 
-static int  WS_recv_data_(args_t *arg, void *buf, size_t read_len) {
+static ssize_t WS_recv_data_(args_t *arg, void *buf, size_t read_len) {
 #ifdef RSERV_DEBUG
-	fprintf(stderr, "WS_recv_data for %d (bp = %d)\n", (int) read_len, arg->bp);
+	fprintf(stderr, "WS_recv_data for %ld (bp = %d)\n", (long) read_len, arg->bp);
 #endif
 	if (arg->ver == 0) {
 		/* make sure we have at least one (in frame) or two (oof) bytes in the buffer */
 		int min_size = (arg->flags & F_INFRAME) ? 1 : 2;
 		while (arg->bp < min_size) {
-			int n = WS_wire_recv(arg, arg->buf + arg->bp, arg->bl - arg->bp);
+			ssize_t n = WS_wire_recv(arg, arg->buf + arg->bp, arg->bl - arg->bp);
 #ifdef RSERV_DEBUG
-			fprintf(stderr, "WS_recv_data: needs ver 00 frame, reading %d bytes in addition to %d\n", n, arg->bp);
+			fprintf(stderr, "WS_recv_data: needs ver 00 frame, reading %ld bytes in addition to %d\n", (long) n, arg->bp);
 #ifdef WS_DEBUG
-			{ int i; fprintf(stderr, "Buffer: "); for (i = 0; i < n; i++) fprintf(stderr, " %02x", (int) (unsigned char) arg->buf[i]); fprintf(stderr,"\n"); }
+			{ size_t i; fprintf(stderr, "Buffer: "); for (i = 0; i < n; i++) fprintf(stderr, " %02x", (int) (unsigned char) arg->buf[i]); fprintf(stderr,"\n"); }
 #endif
 #endif
 			if (n < 1) return n;
@@ -647,7 +676,7 @@ static int  WS_recv_data_(args_t *arg, void *buf, size_t read_len) {
 		/* NOTE: this is actually always true since we guarantee both F_INFRAME and bp > 0 above */
 	    if ((arg->flags & F_INFRAME) && arg->bp > 0) {
 			unsigned char *b = (unsigned char*) arg->buf;
-			int i = 0;
+			ssize_t i = 0;
 #ifdef RSERV_DEBUG
 			fprintf(stderr, "WS_recv_data: have %d bytes of a frame, requested %d, returning what we have\n", arg->bp, (int) read_len);
 #endif
@@ -692,13 +721,13 @@ static int  WS_recv_data_(args_t *arg, void *buf, size_t read_len) {
 	/* make sure we have at least one byte in the buffer */
 	if (arg->bp == 0) {
 		/* read as much as we can with one request */
-		int n = WS_wire_recv(arg, arg->buf, arg->bl);
+		ssize_t n = WS_wire_recv(arg, arg->buf, arg->bl);
 		if (n < 1) return n;
 		arg->bp = n;
 #ifdef RSERV_DEBUG
-		fprintf(stderr, "INFO: WS_recv_data: read %d bytes:\n", n);
+		fprintf(stderr, "INFO: WS_recv_data: read %ld bytes:\n", (long) n);
 #ifdef WS_DEBUG
-		{ int i; for (i = 0; i < n; i++) fprintf(stderr, " %02x", (int) (unsigned char) arg->buf[i]); fprintf(stderr,"\n"); }
+		{ size_t i; for (i = 0; i < n; i++) fprintf(stderr, " %02x", (int) (unsigned char) arg->buf[i]); fprintf(stderr,"\n"); }
 #endif
 #endif
 	}
@@ -720,11 +749,11 @@ static int  WS_recv_data_(args_t *arg, void *buf, size_t read_len) {
 	} else { /* not in frame - interpret a new frame */
 		unsigned char *fr = (unsigned char*) arg->buf;
 #ifdef RSERV_DEBUG /* FIXME: we don't use more -- why? */
-		int more = (arg->ver < 4) ? ((fr[0] & 0x80) == 0x80) : ((fr[0] & 0x80) == 0);
+		size_t more = (arg->ver < 4) ? ((fr[0] & 0x80) == 0x80) : ((fr[0] & 0x80) == 0);
 #endif
-		int mask = 0;
-		int need = 0, ct = fr[0] & 127, at_least, payload;
-		long len = 0;
+		int mask = 0, ct = fr[0] & 127;
+		size_t need = 0, at_least, payload;
+		size_t len = 0;
 		/* set the F_IN_BIN flag according to the frame type */
 		if ((arg->ver < 4 && ct == 5) ||
 			(arg->ver >= 4 && ct == 2))
@@ -733,7 +762,7 @@ static int  WS_recv_data_(args_t *arg, void *buf, size_t read_len) {
 			arg->flags &= ~ F_IN_BIN;
 		SET_F_FT(arg->flags, ct);
 		if (arg->bp == 1) {
-			int n = WS_wire_recv(arg, arg->buf + 1, arg->bl - 1);
+			ssize_t n = WS_wire_recv(arg, arg->buf + 1, arg->bl - 1);
 			if (n < 1) return n;
 			arg->bp = n + 1;
 		}
@@ -741,7 +770,7 @@ static int  WS_recv_data_(args_t *arg, void *buf, size_t read_len) {
 		len = fr[1] & 127;
 		need = 2 + (mask ? 4 : 0) + ((len < 126) ? 0 : ((len == 126) ? 2 : 8));
 		while (arg->bp < need) {
-			int n = WS_wire_recv(arg, arg->buf + arg->bp, arg->bl - arg->bp);
+			ssize_t n = WS_wire_recv(arg, arg->buf + arg->bp, arg->bl - arg->bp);
 			if (n < 1) return n;
 			arg->bp += n;
 		}
@@ -754,21 +783,31 @@ static int  WS_recv_data_(args_t *arg, void *buf, size_t read_len) {
 #endif
 				return -1;
 			}
-#define SH(X,Y) (((long)X) << Y)
-			len = SH(fr[4], 48) | SH(fr[5], 40) | SH(fr[5], 32) | SH(fr[6], 24) | SH(fr[7], 16) | SH(fr[8], 8) | (long)fr[9];
+#define SH(X,Y) (((uint64_t)X) << Y)
+			uint64_t raw_len = SH(fr[4], 48) | SH(fr[5], 40) | SH(fr[5], 32) | SH(fr[6], 24) | SH(fr[7], 16) | SH(fr[8], 8) | (uint64_t)fr[9];
+			if (raw_len > rlen_max - 64L) {
+#ifdef RSERV_DEBUG
+				fprintf(stderr, "WS_recv_data: requested frame length is larger than rlen_max for this platform\n");
+#endif
+				return -1;
+			}
+			len = (size_t) raw_len;
 		}
 #ifdef RSERV_DEBUG
-		fprintf(stderr, "INFO: WS_recv_data frame type=%02x, len=%d, more=%d, mask=%d (need=%d)\n", ct, (int) len, more, mask, need);
+		fprintf(stderr, "INFO: WS_recv_data frame type=%02x, len=%lu, more=%d, mask=%d (need=%d)\n", ct, (unsigned long) len, (int) more, (int) mask, (int) need);
 #endif
 		at_least = need + len;
 		if (at_least > arg->bl)
 			at_least = arg->bl;
+
+		/* this is always positive, because need is at most 14 and at_least
+		   is need + len only capped by the buffer size which is >14 */
 		payload = at_least - need;
-		
+
 		while (arg->bp < at_least) {
-			int n = WS_wire_recv(arg, arg->buf + arg->bp, at_least - arg->bp);
+			ssize_t n = WS_wire_recv(arg, arg->buf + arg->bp, at_least - arg->bp);
 #ifdef RSERV_DEBUG
-			fprintf(stderr, "INFO: read extra %d bytes in addition to %d (need %d)\n", n, arg->bp, need);
+			fprintf(stderr, "INFO: read extra %ld bytes in addition to %d (need %ld)\n", (long) n, arg->bp, (long) need);
 #endif
 			if (n < 1) return n;
 			arg->bp += n;
@@ -789,7 +828,7 @@ static int  WS_recv_data_(args_t *arg, void *buf, size_t read_len) {
 		   read requested at least as much, we can deliver the whole frame */
 		if (payload == len && read_len >= payload) {
 #ifdef RSERV_DEBUG
-			fprintf(stderr, "INFO: WS_recv_data frame has %d bytes, requested %d, returning entire frame\n", (int) len, (int) read_len);
+			fprintf(stderr, "INFO: WS_recv_data frame has %ld bytes, requested %ld, returning entire frame\n", (long) len, (long) read_len);
 #endif
 			memcpy(buf, arg->buf + need, len);
 			if (arg->bp > at_least) { /* this is unlikely but possible if we got multiple frames in the first read */
@@ -802,10 +841,11 @@ static int  WS_recv_data_(args_t *arg, void *buf, size_t read_len) {
 		/* left-over - we will end up with an incompete frame - either we got an incomplete frame or
 		   less than the span of the frame was requested */
 #ifdef RSERV_DEBUG
-		fprintf(stderr, "INFO: WS_recv_data frame has %d bytes (of %ld frame), requested %d, returning partial frame\n", payload, len, (int) read_len);
+		fprintf(stderr, "INFO: WS_recv_data frame has %lu bytes (of %lu frame), requested %d, returning partial frame\n", (unsigned long) payload, (unsigned long) len, (int) read_len);
 #endif
 		/* we can only return all we got */
-		if (read_len > payload) read_len = payload;
+		if (read_len > payload)
+			read_len = payload;
 		memcpy(buf, arg->buf + need, read_len);
 		if (arg->bp > need + read_len) /* if there is any data beyond what we will deliver, we need to move it */
 			memmove(arg->buf, arg->buf + need + read_len, arg->bp - need - read_len);

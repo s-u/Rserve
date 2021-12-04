@@ -291,7 +291,7 @@ struct args {
 	/* the following entries are not populated by Rserve but can be used by server implemetations */
 	char *buf, *sbuf;
 	int   ver, bp, bl, sp, sl, flags;
-	long  l1, l2;
+	size_t l1, l2;
 	/* The following fields are informational, populated by Rserve */
     SAIN sa;
     int ucix;
@@ -300,11 +300,11 @@ struct args {
 #endif
 };
 
-int server_recv(args_t *arg, void *buf, size_t len) {
+ssize_t server_recv(args_t *arg, void *buf, size_t len) {
 	return recv(arg->s, buf, len, 0);
 }
 
-int server_send(args_t *arg, const void *buf, size_t len) {
+ssize_t server_send(args_t *arg, const void *buf, size_t len) {
 	return send(arg->s, buf, len, 0);
 }
 

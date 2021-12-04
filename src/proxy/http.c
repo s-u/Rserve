@@ -44,7 +44,7 @@
 
 struct buffer {
     struct buffer *next, *prev;
-    int size, length;
+    size_t size, length;
     char data[1];
 };
 
@@ -71,7 +71,7 @@ struct args {
 	/* the following entries are not populated by Rserve but can be used by server implemetations */
 	char *buf, *sbuf;
 	int   ver, bp, bl, sp, sl, flags;
-	long  l1, l2;
+	size_t  l1, l2;
 	/* The following fields are informational, populated by Rserve */
     SAIN sa;
     int ucix;
@@ -104,7 +104,7 @@ static void free_buffer(struct buffer *buf) {
 }
 
 /* allocate a new buffer */
-static struct buffer *alloc_buffer(int size, struct buffer *parent) {
+static struct buffer *alloc_buffer(size_t size, struct buffer *parent) {
     struct buffer *buf = (struct buffer*) malloc(sizeof(struct buffer) + size);
     if (!buf) return buf;
     buf->next = 0;
@@ -190,7 +190,7 @@ static void free_args(args_t *c)
     }
 }
 
-static int send_response(args_t *c, const char *buf, unsigned int len)
+static int send_response(args_t *c, const char *buf, size_t len)
 {
 	server_t *srv = c->srv;
     unsigned int i = 0;
