@@ -19,18 +19,49 @@ extern Rboolean R_Visible;
    on one hand, but on the other hand R_ToplevelExec() removes the context
    which also removes the traceback. So the trick is to use R_ExecWithCleanup()
    to add another layer where we stash the traceback before R_ToplevelExec()
-   blows it away. It woudl be really just one extra line in R sources, but
-   what can you do ... */
+   blows it away. It would be really just one extra line in R sources, but
+   what can you do ...
+
+   R_ToplevelExec(Rserve_eval_) -> R_ExecWithCleanup(Rserve_eval_do -> eval)
+
+ */
 
 typedef struct rs_eval {
-    SEXP what, rho, ctx_obj, last, traceback;
+    SEXP what, rho, ctx_obj, last, traceback, handler;
     int exp;
 } rs_eval_t;
+
+static SEXP last_condtion;
+
+SEXP Rserve_set_last_condition(SEXP sCond) {
+    if (last_condtion && last_condtion != R_NilValue)
+	R_ReleaseObject(last_condtion);
+    if (!sCond || sCond == R_NilValue)
+	last_condtion = 0;
+    else {
+	last_condtion = sCond;
+	R_PreserveObject(last_condtion);
+    }
+    return R_NilValue;
+}
 
 static SEXP Rserve_eval_do(void *arg) {
     rs_eval_t *e = (rs_eval_t*) arg;
     SEXP what = e->what, rho = e->rho, x;
     int i, n;
+
+    /* add calling handler to catch error conditions so we can report them - see #154 */
+    if (e->handler) {
+	SEXP sInternal = Rf_install(".Internal");
+	SEXP addCondHands = Rf_install(".addCondHands");
+	SEXP ach = PROTECT(lang2(sInternal,
+			    lang6(addCondHands,
+				  PROTECT(Rf_mkString("error")),
+				  e->handler,
+				  rho, R_NilValue, PROTECT(Rf_ScalarLogical(1)))));
+	eval(ach, rho);
+	UNPROTECT(3);
+    }
 
     if (TYPEOF(what) == EXPRSXP) {
         n = LENGTH(what);
@@ -97,9 +128,9 @@ SEXP Rserve_set_context(SEXP sObj) {
     return RS_current_context;
 }
 
-SEXP Rserve_eval(SEXP what, SEXP rho, SEXP retLast, SEXP retExp, SEXP ctxObj) {
+SEXP Rserve_eval(SEXP what, SEXP rho, SEXP retLast, SEXP retExp, SEXP ctxObj, SEXP sHandler) {
     int need_last = asInteger(retLast), exp_value = asInteger(retExp);
-    rs_eval_t e = { what, rho, 0, 0, 0, 0 };
+    rs_eval_t e = { what, rho, 0, 0, 0, 0, 0 };
     SEXP saved_context = RS_current_context;
     int  saved_context_is_protected = RS_current_context_is_protected;
     if (ctxObj != R_NilValue) {
@@ -107,10 +138,13 @@ SEXP Rserve_eval(SEXP what, SEXP rho, SEXP retLast, SEXP retExp, SEXP ctxObj) {
         RS_current_context_is_protected = 0;
     }
     e.ctx_obj = RS_current_context;
+    if (sHandler != R_NilValue)
+	e.handler = sHandler;
+    Rserve_set_last_condition(0);
     if (!R_ToplevelExec(Rserve_eval_, &e)) {
         RS_current_context = saved_context;
         RS_current_context_is_protected = saved_context_is_protected;
-        SEXP res = PROTECT(mkNamed(VECSXP, (const char*[]) { "error", "traceback", "expression", "context", "" }));
+        SEXP res = PROTECT(mkNamed(VECSXP, (const char*[]) { "error", "traceback", "expression", "context", "condition", "" }));
         SET_VECTOR_ELT(res, 1, e.traceback ? e.traceback : R_NilValue);
         const char *errmsg = R_curErrorBuf();
         SET_VECTOR_ELT(res, 0, errmsg ? mkString(errmsg) : R_NilValue);
@@ -119,6 +153,7 @@ SEXP Rserve_eval(SEXP what, SEXP rho, SEXP retLast, SEXP retExp, SEXP ctxObj) {
         else
             SET_VECTOR_ELT(res, 2, ScalarInteger(e.exp < 0 ? NA_INTEGER : (e.exp + 1)));
         SET_VECTOR_ELT(res, 3, e.ctx_obj ? e.ctx_obj : R_NilValue);
+	SET_VECTOR_ELT(res, 4, last_condtion ? last_condtion : R_NilValue);
         setAttrib(res, R_ClassSymbol, mkString("Rserve-eval-error"));
         UNPROTECT(1);
         return res;

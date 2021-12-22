@@ -12,7 +12,7 @@
 }
 \usage{
 Rserve.eval(what, where = .GlobalEnv, last.value = FALSE, exp.value = FALSE,
-            context = NULL)
+            context = NULL, handler = .default.error)
 }
 %- maybe also 'usage' for other objects documented here.
 \arguments{
@@ -26,6 +26,9 @@ Rserve.eval(what, where = .GlobalEnv, last.value = FALSE, exp.value = FALSE,
     it will only store the index of the expression in \code{what}.}
   \item{context}{optional object that will be used as the context
     for the duration of the evaluation.}
+  \item{handler}{optional error calling handler to register for the
+    evaluation - the default is to store teh condition so it can be
+    reported in the result - see below}.
 }
 \details{
   If \code{what} contains one or more expressions, they are evaluated
@@ -48,6 +51,10 @@ Rserve.eval(what, where = .GlobalEnv, last.value = FALSE, exp.value = FALSE,
   \item{expression}{if \code{what} contains multiple expressions then
   this will be either an index to the expression that caused the error
   (\code{exp.value=FALSE}) or the actual expression (otherwise).}
+  \item{context}{current Rserve context, \code{NULL} if none has been set}
+  \item{condition}{if the default error handler has been registered then
+  on error the captured condition object is stored here, \code{NULL}
+  otherwise}
 
   If the evaluation finished without an error then the result is either
   \code{TRUE} if \code{last.value=FALSE} or the value of the last
@@ -64,5 +71,13 @@ Rserve.eval(what, where = .GlobalEnv, last.value = FALSE, exp.value = FALSE,
   (Rserve.eval(expression(f())))
   (Rserve.eval(parse(text="1:5\n1+1")))
   (Rserve.eval(quote(1+1), last.value=TRUE))
+
+  error_with_condition = function(object = NULL) {
+    cond = errorCondition("this is a custom error with condition",
+                          object = object, 
+                          class = "CustomError")
+    stop(cond)
+  }
+  str(Rserve.eval(quote(error_with_condition("hello")), last.value = TRUE))
 }
 \keyword{manip}
