@@ -31,16 +31,16 @@ typedef struct rs_eval {
     int exp;
 } rs_eval_t;
 
-static SEXP last_condtion;
+static SEXP last_condition;
 
 SEXP Rserve_set_last_condition(SEXP sCond) {
-    if (last_condtion && last_condtion != R_NilValue)
-	R_ReleaseObject(last_condtion);
+    if (last_condition && last_condition != R_NilValue)
+	R_ReleaseObject(last_condition);
     if (!sCond || sCond == R_NilValue)
-	last_condtion = 0;
+	last_condition = 0;
     else {
-	last_condtion = sCond;
-	R_PreserveObject(last_condtion);
+	last_condition = sCond;
+	R_PreserveObject(last_condition);
     }
     return R_NilValue;
 }
@@ -153,7 +153,7 @@ SEXP Rserve_eval(SEXP what, SEXP rho, SEXP retLast, SEXP retExp, SEXP ctxObj, SE
         else
             SET_VECTOR_ELT(res, 2, ScalarInteger(e.exp < 0 ? NA_INTEGER : (e.exp + 1)));
         SET_VECTOR_ELT(res, 3, e.ctx_obj ? e.ctx_obj : R_NilValue);
-	SET_VECTOR_ELT(res, 4, last_condtion ? last_condtion : R_NilValue);
+	SET_VECTOR_ELT(res, 4, last_condition ? last_condition : R_NilValue);
         setAttrib(res, R_ClassSymbol, mkString("Rserve-eval-error"));
         UNPROTECT(1);
         return res;

@@ -15,6 +15,17 @@ NOTE: Rserve 1.8 series has many new features, but it has also removed
     o	clean up code to avoid mixing 32-bit and 64-bit integers on
 	64-bit platforms
 
+    o	enhance `Rserve.eval()` to report the condition object for
+	error conditions in the `condition` component of the
+	`Rserve-eval-error` object (#154)
+
+	This is done by registering a calling handler `.default.error`
+	for the error condition which stashes the condition object
+	(via `Rserve_set_last_condition`) so `Rserve.eval` can pick
+	it up. The `Rserve.eval` function gains a `handler` argument,
+	but it should be considered experimental as it may change
+	to allow more generic registration of condition handlers.
+
 
 1.8-10	2021-11-25
     o	reduce the size of the authkey (nonce) in CMD_reqKey to
