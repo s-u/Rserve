@@ -17,14 +17,17 @@ NOTE: Rserve 1.8 series has many new features, but it has also removed
 
     o	enhance `Rserve.eval()` to report the condition object for
 	error conditions in the `condition` component of the
-	`Rserve-eval-error` object (#154)
+	`Rserve-eval-error` object (#154) and to support custom 
+	calling	handlers.
 
-	This is done by registering a calling handler `.default.error`
-	for the error condition which stashes the condition object
+	This is done by adding a new argument `handlers` to
+	`Rserve.eval()` which allows registration of calling handlers
+	for the duration of the evaluation. The default
+	is to register an `error` handler which stores the condition
 	(via `Rserve_set_last_condition`) so `Rserve.eval` can pick
-	it up. The `Rserve.eval` function gains a `handler` argument,
-	but it should be considered experimental as it may change
-	to allow more generic registration of condition handlers.
+	it up and return in the `condition` component. To revert
+	to previous behavior, use `handers=NULL` which prevents the
+	registration of handlers.
 
 
 1.8-10	2021-11-25

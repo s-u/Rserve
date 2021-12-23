@@ -27,7 +27,7 @@ extern Rboolean R_Visible;
  */
 
 typedef struct rs_eval {
-    SEXP what, rho, ctx_obj, last, traceback, handler;
+    SEXP what, rho, ctx_obj, last, traceback, handlers;
     int exp;
 } rs_eval_t;
 
@@ -50,17 +50,17 @@ static SEXP Rserve_eval_do(void *arg) {
     SEXP what = e->what, rho = e->rho, x;
     int i, n;
 
-    /* add calling handler to catch error conditions so we can report them - see #154 */
-    if (e->handler) {
+    /* add calling handlers to catch error conditions so we can report them - see #154 */
+    if (e->handlers) {
 	SEXP sInternal = Rf_install(".Internal");
 	SEXP addCondHands = Rf_install(".addCondHands");
 	SEXP ach = PROTECT(lang2(sInternal,
 			    lang6(addCondHands,
-				  PROTECT(Rf_mkString("error")),
-				  e->handler,
+				  Rf_getAttrib(e->handlers, R_NamesSymbol),
+				  e->handlers,
 				  rho, R_NilValue, PROTECT(Rf_ScalarLogical(1)))));
 	eval(ach, rho);
-	UNPROTECT(3);
+	UNPROTECT(2);
     }
 
     if (TYPEOF(what) == EXPRSXP) {
@@ -128,7 +128,7 @@ SEXP Rserve_set_context(SEXP sObj) {
     return RS_current_context;
 }
 
-SEXP Rserve_eval(SEXP what, SEXP rho, SEXP retLast, SEXP retExp, SEXP ctxObj, SEXP sHandler) {
+SEXP Rserve_eval(SEXP what, SEXP rho, SEXP retLast, SEXP retExp, SEXP ctxObj, SEXP sHandlers) {
     int need_last = asInteger(retLast), exp_value = asInteger(retExp);
     rs_eval_t e = { what, rho, 0, 0, 0, 0, 0 };
     SEXP saved_context = RS_current_context;
@@ -138,8 +138,8 @@ SEXP Rserve_eval(SEXP what, SEXP rho, SEXP retLast, SEXP retExp, SEXP ctxObj, SE
         RS_current_context_is_protected = 0;
     }
     e.ctx_obj = RS_current_context;
-    if (sHandler != R_NilValue)
-	e.handler = sHandler;
+    if (sHandlers != R_NilValue)
+	e.handlers = sHandlers;
     Rserve_set_last_condition(0);
     if (!R_ToplevelExec(Rserve_eval_, &e)) {
         RS_current_context = saved_context;
