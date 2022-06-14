@@ -5163,7 +5163,10 @@ SEXP run_Rserve(SEXP cfgFile, SEXP cfgPars) {
 				Rf_warning("Unknown configuration setting `%s`, ignored.", key);
 		}
 	}
-	
+
+	if (src_list)
+		Rf_warning("server/eval configuration only applies to stand-alone Rserve and is ignored in run.Rserve().");
+
 	RSsrv_init();
 	/* FIXME: should we really do this ? setuid, chroot etc. are not meant to work inside R ... */
 	performConfig(SU_NOW);
