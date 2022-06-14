@@ -29,6 +29,12 @@ NOTE: Rserve 1.8 series has many new features, but it has also removed
 	to previous behavior, use `handers=NULL` which prevents the
 	registration of handlers.
 
+    o	Issue a warning if eval/source configuration directive is used
+	in `run.Rserve()` since they only affect stand-alone Rserve
+	daemon startup and thus setting them in an R session is likely
+	a mistake (as the user can run R code directly in the session
+	prior to calling `run.Rserve()` instead).
+
 
 1.8-10	2021-11-25
     o	reduce the size of the authkey (nonce) in CMD_reqKey to
