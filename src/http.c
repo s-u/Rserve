@@ -312,6 +312,18 @@ static void fin_request(args_t *c) {
 		c->attr |= CONNECTION_CLOSE;
 }
 
+static SEXP s_http_request_fn;
+
+static void http_set_request_fn(SEXP sFn) {
+	s_http_request_fn = sFn ? sFn : install(".http.request");
+}
+
+/* API */
+SEXP Rserve_set_http_request_fn(SEXP sFn) {
+	http_set_request_fn(sFn);
+	return s_http_request_fn;
+}
+
 /* process a request by calling the httpd() function in R */
 static void process_request(args_t *c)
 {
@@ -333,6 +345,8 @@ static void process_request(args_t *c)
 		*(s++) = 0;
 		query = s;
     }
+	if (!s_http_request_fn)
+		s_http_request_fn = install(".http.request");
     uri_decode(c->url); /* decode the path part */
     {   /* construct "try(httpd(url, query, body, headers), silent=TRUE)" */
 		SEXP sTrue = PROTECT(ScalarLogical(TRUE));
@@ -342,7 +356,7 @@ static void process_request(args_t *c)
 		SEXP sArgs = PROTECT(list4(mkString(c->url), sQuery, sBody, sReqHeaders));
 		SEXP sTry = install("try");
 		SEXP y, x = PROTECT(lang3(sTry,
-								  LCONS(install(".http.request"), sArgs),
+								  LCONS(s_http_request_fn, sArgs),
 								  sTrue));
 		SET_TAG(CDR(CDR(x)), install("silent"));
 		DBG(Rprintf("eval(try(.http.request('%s'),silent=TRUE))\n", c->url));

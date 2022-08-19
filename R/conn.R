@@ -83,5 +83,13 @@ Rserve.eval <- function(what, where=.GlobalEnv, last.value=FALSE, exp.value=FALS
 Rserve.context <- function(what)
     if (missing(what)) .Call(Rserve_get_context) else .Call(Rserve_set_context, what)
 
+.persistence <- new.env()
+
+Rserve.set.http.request <- function(what) {
+    if (!is.null(what) && !is.symbol(what))
+        .persistence$http.request <- what
+    invisible(.Call(Rserve_set_http_request_fn, what))
+}
+
 resolve.ocap <- function(ocap)
   .Call(Rserve_oc_resolve, ocap)

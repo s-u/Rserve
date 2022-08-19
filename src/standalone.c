@@ -19,6 +19,9 @@ SEXP Rserve_eval(SEXP what, SEXP rho, SEXP retLast, SEXP retExp,
 SEXP Rserve_set_context(SEXP what);
 SEXP Rserve_set_last_condition(SEXP sCond);
 
+/* from http.c */
+SEXP Rserve_set_http_request_fn(SEXP sFn);
+
 static int ex(int res) {
 	RSsrv_done();
 	return res;
@@ -221,6 +224,7 @@ int main(int argc, char **argv)
 			{"Rserve_eval", (DL_FUNC) &Rserve_eval, 5},
 			{"Rserve_get_context", (DL_FUNC) &Rserve_get_context, 0},
 			{"Rserve_set_context", (DL_FUNC) &Rserve_set_context, 1},
+			{"Rserve_set_http_request_fn", (DL_FUNC) &Rserve_set_http_request_fn, 1},
 			{"Rserve_set_last_condition", (DL_FUNC) &Rserve_set_last_condition, 1},
 			{NULL, NULL, 0}
 		};
