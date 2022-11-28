@@ -1,6 +1,6 @@
 /*
  *  Rserv : R-server that allows to use embedded R via TCP/IP
- *  Copyright (C) 2002-15 Simon Urbanek
+ *  Copyright (C) 2002-22 Simon Urbanek
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -3908,7 +3908,6 @@ void Rserve_QAP1_connected(void *thp) {
     size_t parL[16];
     void *parP[16];
     
-    SEXP xp,exp;
     FILE *cf=0;
 
 	int pc_res;
@@ -4718,7 +4717,7 @@ void Rserve_QAP1_connected(void *thp) {
 #ifdef RSERV_DEBUG
 				printf("parseString(\"%s\")\n",c);
 #endif
-				xp = parseString(c, &j, &stat);
+				SEXP xp = parseString(c, &j, &stat);
 				PROTECT(xp);
 #ifdef RSERV_DEBUG
 				printf("buffer parsed, stat=%d, parts=%d\n", stat, j);
@@ -4766,7 +4765,7 @@ void Rserve_QAP1_connected(void *thp) {
 		/* any command above can set eval_result -- in that case we 
 		   encode the result and send it as the reply */
 		if (eval_result || Rerror) {
-			if (eval_result) exp = PROTECT(eval_result);
+			SEXP exp = eval_result ? PROTECT(eval_result) : R_NilValue;
 #ifdef RSERV_DEBUG
 			printf("expression(s) evaluated (Rerror=%d).\n",Rerror);
 			if (!Rerror) printSEXP(exp);
