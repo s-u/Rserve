@@ -320,7 +320,7 @@ static void http_set_request_fn(SEXP sFn) {
 
 /* API */
 SEXP Rserve_set_http_request_fn(SEXP sFn) {
-	http_set_request_fn(sFn);
+	http_set_request_fn((sFn == R_NilValue) ? 0 : sFn);
 	return s_http_request_fn;
 }
 
