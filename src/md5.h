@@ -9,10 +9,10 @@ struct MD5Context {
         unsigned char in[64];
 };
 
-extern void MD5Init();
-extern void MD5Update();
-extern void MD5Final();
-extern void MD5Transform();
+void MD5Init(struct MD5Context *ctx);
+void MD5Update(struct MD5Context *ctx, const unsigned char *buf, unsigned len);
+void MD5Final(unsigned char digest[16],struct MD5Context *ctx);
+void MD5Transform(uint32 buf[4], uint32 in[16]);
 
 typedef struct MD5Context MD5_CTX;
 

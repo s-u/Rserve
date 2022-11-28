@@ -48,7 +48,7 @@ static void rm_active_srv_socket(int s) {
 }
 
 /* this is typically used after fork in the child process */
-void close_all_srv_sockets() {
+void close_all_srv_sockets(void) {
 	int i = 0;
 	while (i < MAX_SRVS) {
 		if (active_srv_sockets[i]) closesocket(active_srv_sockets[i]);
@@ -202,7 +202,7 @@ struct server_stack {
 	server_t *srv[NSPS];
 };
 
-server_stack_t* create_server_stack() {
+server_stack_t* create_server_stack(void) {
 	server_stack_t *s = (server_stack_t*) malloc(sizeof(server_stack_t));
 	s->prev = s->next = 0;
 	s->ns = 0;
@@ -326,7 +326,7 @@ static void sigHandler(int i) {
 
 sig_fn_t old_HUP = sig_not_set, old_TERM = sig_not_set, old_INT = sig_not_set;
 
-static void setup_signal_handlers() {
+static void setup_signal_handlers(void) {
 #ifdef FORKED
 	if (old_HUP == sig_not_set)  old_HUP  = signal(SIGHUP,  sigHandler);
 	if (old_TERM == sig_not_set) old_TERM = signal(SIGTERM, sigHandler);
@@ -334,7 +334,7 @@ static void setup_signal_handlers() {
 #endif
 }
 
-static void restore_signal_handlers() {
+static void restore_signal_handlers(void) {
 	if (old_HUP != sig_not_set) {
 		signal(SIGHUP, old_HUP);
 		old_HUP = sig_not_set;
@@ -349,9 +349,9 @@ static void restore_signal_handlers() {
 	}
 }
 #else
-static void setup_signal_handlers() {
+static void setup_signal_handlers(void) {
 }
-static void restore_signal_handlers() {
+static void restore_signal_handlers(void) {
 }
 #endif
 
@@ -363,7 +363,7 @@ static int RS_fork(args_t *arg) {
 #endif
 }
 
-void serverLoop() {
+void serverLoop(void) {
     struct timeval timv;
     int selRet = 0;
     fd_set readfds;

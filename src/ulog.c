@@ -76,11 +76,11 @@ void ulog_set_path(const char *path) {
     ulog_path = sstrdup(path, 0);
 }
 
-int ulog_enabled() {
+int ulog_enabled(void) {
     return (ulog_path) ? 1 : 0;
 }
 
-void ulog_begin() {    
+void ulog_begin(void) {    
     if (!ulog_path) return;
 
     if (ulog_sock == -1) { /* first-time user */
@@ -152,7 +152,7 @@ void ulog_add(const char *format, ...) {
     va_end(ap);
 }
 
-void ulog_end() {
+void ulog_end(void) {
 #if defined (RSERV_DEBUG) || defined (ULOG_STDERR)
     buf[buf_pos] = 0;
     fprintf(stderr, "ULOG: %s\n", buf);
@@ -179,7 +179,7 @@ void ulog_end() {
     buf_pos = 0;
 }
 
-void ulog_reset() {
+void ulog_reset(void) {
     if (ulog_sock != -1)
 	close(ulog_sock);
     ulog_sock = -1;
@@ -208,10 +208,10 @@ void ulog(const char *format, ...) {
 
 void ulog_set_path(const char *path) { }
 void ulog_set_app_name(const char *name) { }
-void ulog_begin() {}
+void ulog_begin(void) {}
 void ulog_add(const char *format, ...) { }
-void ulog_end() {}
+void ulog_end(void) {}
 void ulog(const char *format, ...) { }
-void ulog_reset() {}
+void ulog_reset(void) {}
 
 #endif

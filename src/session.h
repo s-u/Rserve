@@ -15,7 +15,7 @@ void free_session(char key[16]);
             free_session is called between first_session and
 	    and any subsequent next_session
 */
-struct sSession *first_session();
+struct sSession *first_session(void);
 struct sSession *next_session(struct sSession* current);
 
 #endif

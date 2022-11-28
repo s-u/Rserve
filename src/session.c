@@ -65,8 +65,8 @@ void free_session(char key[16]) {
 	}
 }
 
-int total_sessions() { return sessions; }
-struct sSession *first_session() { return session; }
+int total_sessions(void) { return sessions; }
+struct sSession *first_session(void) { return session; }
 struct sSession *next_session(struct sSession* current) {
 	if (current<session || current>=session+sessions-1) return 0;
 	return current+1;

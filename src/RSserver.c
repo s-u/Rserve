@@ -46,7 +46,7 @@ static void rm_active_srv_socket(int s) {
 }
 
 /* this is typically used after fork in the child process */
-void close_all_srv_sockets() {
+void close_all_srv_sockets(void) {
 	int i = 0;
 	while (i < MAX_SRVS) {
 		if (active_srv_sockets[i]) closesocket(active_srv_sockets[i]);
@@ -168,7 +168,7 @@ struct server_stack {
 	server_t *srv[NSPS];
 };
 
-server_stack_t* create_server_stack() {
+server_stack_t* create_server_stack(void) {
 	server_stack_t *s = (server_stack_t*) malloc(sizeof(server_stack_t));
 	s->prev = s->next = 0;
 	s->ns = 0;

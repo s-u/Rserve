@@ -28,7 +28,7 @@ content_handler_t *call_content_handlers(http_request_t *req, http_result_t *res
     return h;
 }
 
-void free_content_handlers() {
+void free_content_handlers(void) {
     while (handlers) {
         content_handler_t *n = handlers->next;
         free(handlers);

@@ -378,7 +378,7 @@ static char *http_user, *https_user, *ws_user;
 
 static char **allowed_ips = 0;
 
-void stop_server_loop() {
+void stop_server_loop(void) {
 	active = 0;
 }
 
@@ -502,12 +502,12 @@ static int std_fw_fd;
 
 /* from ioc.c */
 SEXP ioc_read(int *type);
-int  ioc_setup();
+int  ioc_setup(void);
 
 /* from utils.c */
-SEXP Rserve_get_context();
+SEXP Rserve_get_context(void);
 
-static void handle_std_fw() {
+static void handle_std_fw(void) {
 	int has_ctx = oob_context_prefix ? 1 : 0;
 	SEXP q = PROTECT(allocVector(VECSXP, 2 + has_ctx)), r;
 	int type = 0;
@@ -903,7 +903,7 @@ static void printSEXP(SEXP e) /* merely for debugging purposes
 static int localonly = 1;
 
 #if defined (WIN32) && defined (RSERV_DEBUG)
-static int getpid() {
+static int getpid(void) {
 	return (int) GetCurrentProcessId();
 }
 #endif
@@ -986,7 +986,7 @@ char *pwd_cache;
 #define SU_CLIENT 2
 static int su_time = SU_NOW;
 
-static void load_pwd_cache() {
+static void load_pwd_cache(void) {
 	FILE *f = fopen(pwdfile, "r");
 	if (f) {
 		int fs = 0;
@@ -1035,7 +1035,7 @@ static int rsa_load_key(const char *buf);
 
 /* FIXME: we are not preventing collisions - we have to keep track of
    the uid assignments to children and no reuse those alive */
-static int get_random_uid() {
+static int get_random_uid(void) {
 	int uid = random_uid_low +
 		UCIX % (random_uid_high - random_uid_low + 1);
 	return uid;
@@ -1084,7 +1084,7 @@ static int performConfig(int when) {
 
 /* called once the server process is setup (e.g. after
    daemon fork for forked servers) */
-static void RSsrv_init() {
+static void RSsrv_init(void) {
 #ifdef unix
 	if (pidfile) {
 		FILE *f = fopen(pidfile, "w");
@@ -1096,7 +1096,7 @@ static void RSsrv_init() {
 #endif
 }
 
-static void RSsrv_done() {
+static void RSsrv_done(void) {
 	if (pidfile) {
 		unlink(pidfile);
 		pidfile = 0;
@@ -1891,7 +1891,7 @@ int detach_session(args_t *arg) {
 /* static char *sres_id = "RsS1                        \r\n\r\n"; */
 
 /* resume detached session. return the new socket after resume is complete, but don't send the response message */
-SOCKET resume_session() {
+SOCKET resume_session(void) {
 	SOCKET s=-1;
 	SAIN lsa;
 	socklen_t al=sizeof(lsa);
@@ -1948,7 +1948,7 @@ typedef struct pwdf {
 } pwdf_t;
 	
 	
-static pwdf_t *pwd_open() {
+static pwdf_t *pwd_open(void) {
 	pwdf_t *f = malloc(sizeof(pwdf_t));
 	if (!f) return 0;
 	if (cache_pwd && pwd_cache) {
@@ -2237,7 +2237,7 @@ int RS_fork(args_t *arg) {
 #endif
 }
 
-static void restore_signal_handlers(); /* forward decl */
+static void restore_signal_handlers(void); /* forward decl */
 
 /* return 0 if the child was prepared. Returns the result of fork() is forked and this is the parent */
 int Rserve_prepare_child(args_t *args) {
@@ -2533,6 +2533,9 @@ static int auth_user(const char *usr, const char *pwd, const char *salt) {
 }
 
 #ifdef HAVE_RSA
+#ifndef OPENSSL_SUPPRESS_DEPRECATED
+#define OPENSSL_SUPPRESS_DEPRECATED 1
+#endif
 #include <openssl/rsa.h>
 #include <openssl/rand.h>
 #include <openssl/err.h>
@@ -2692,11 +2695,11 @@ static void rm_rf(const char *what) {
 
 static char *child_workdir;
 
-char *get_workdir() {
+char *get_workdir(void) {
 	return child_workdir;
 }
 
-static void setup_workdir() {
+static void setup_workdir(void) {
 #ifdef unix
     if (workdir) {
 		if (chdir(workdir) && mkdir(workdir, wdt_mode)) {}
@@ -2715,7 +2718,7 @@ static void setup_workdir() {
 #endif
 }
 
-void Rserve_cleanup() {
+void Rserve_cleanup(void) {
 	/* run .Rserve.done() if present */
 	SEXP fun, fsym = install(".Rserve.done");
 	fun = findVarInFrame(R_GlobalEnv, fsym);
@@ -2756,7 +2759,7 @@ struct qap_runtime {
 
 static qap_runtime_t *current_runtime;
 
-qap_runtime_t *get_qap_runtime() {
+qap_runtime_t *get_qap_runtime(void) {
 	return current_runtime;
 }
 
@@ -2889,7 +2892,7 @@ static int RS_ReadConsole(const char *prompt, unsigned char *buf, int len, int h
 	return slen;
 }
 
-static void RS_ResetConsole() {
+static void RS_ResetConsole(void) {
 	SEXP s = PROTECT(allocVector(VECSXP, 2));
 	con_flush_output(&con_out);
 	con_flush_output(&con_err);
@@ -2899,12 +2902,12 @@ static void RS_ResetConsole() {
 	send_oob_sexp(OOB_SEND, s);
 }
 
-static void RS_FlushConsole() {
+static void RS_FlushConsole(void) {
 	con_flush_output(&con_out);
 	con_flush_output(&con_err);
 }
 
-static void RS_ClearerrConsole() {
+static void RS_ClearerrConsole(void) {
 	con_flush_output(&con_out);
 	con_flush_output(&con_err);
 }
@@ -2926,7 +2929,7 @@ static void RS_ShowMessage(const char *buf) {
 }
 #endif
 
-SEXP Rserve_forward_stdio() {
+SEXP Rserve_forward_stdio(void) {
 	ulog("Rserve_forward_stdio: requested");
 	if (!enable_oob)
 		Rf_error("I/O forwarding can only be used when OOB is enabled");
@@ -3170,7 +3173,7 @@ typedef struct compq {
 
 static compq_t *compute_queue;
 
-static void compute_terminated() {
+static void compute_terminated(void) {
 	SEXP q = PROTECT(allocVector(VECSXP, 1));
 	/* free the remaining queue */
 	while (compute_queue) {
@@ -4925,7 +4928,7 @@ static void sig_not_set(int x) {}
 
 sig_fn_t old_HUP = sig_not_set, old_TERM = sig_not_set, old_INT = sig_not_set;
 
-static void setup_signal_handlers() {
+static void setup_signal_handlers(void) {
 #ifdef FORKED
 	if (old_HUP == sig_not_set) old_HUP = signal(SIGHUP, sigHandler);
 	if (old_TERM == sig_not_set) old_TERM = signal(SIGTERM, sigHandler);
@@ -4933,7 +4936,7 @@ static void setup_signal_handlers() {
 #endif
 }
 
-static void restore_signal_handlers() {
+static void restore_signal_handlers(void) {
 	if (old_HUP != sig_not_set) {
 		signal(SIGHUP, old_HUP);
 		old_HUP = sig_not_set;
@@ -4948,9 +4951,9 @@ static void restore_signal_handlers() {
 	}
 }
 #else
-static void setup_signal_handlers() {
+static void setup_signal_handlers(void) {
 }
-static void restore_signal_handlers() {
+static void restore_signal_handlers(void) {
 }
 #endif
 
@@ -5006,7 +5009,7 @@ server_t *create_Rserve_QAP1(int flags) {
 	return 0;
 }
 
-void serverLoop() {
+void serverLoop(void) {
     struct timeval timv;
     int selRet = 0;
     fd_set readfds;

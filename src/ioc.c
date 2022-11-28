@@ -132,16 +132,16 @@ static void *read_thread(void *dummy) {
 static int readFD;
 
 /* on fork() remove all forwarding from the children */
-static void atfork_prepare() { }
-static void atfork_parent() { }
-static void atfork_child() {
+static void atfork_prepare(void) { }
+static void atfork_parent(void) { }
+static void atfork_child(void) {
   ioc_active = 0;
   close(stdoutFD);
   close(stderrFD);
   close(triggerFD);
 }
 
-int ioc_setup() {
+int ioc_setup(void) {
   int pfd[2];
   pthread_t thread;
   pthread_attr_t thread_attr;
@@ -211,7 +211,7 @@ SEXP ioc_read(int *type) {
 
 #include <Rinternals.h>
 
-int ioc_setup() {
+int ioc_setup(void) {
     return 0;
 }
 

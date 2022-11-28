@@ -18,4 +18,4 @@ content_handler_t *add_content_handler(content_handler_fn_t fn);
 content_handler_t *call_content_handlers(http_request_t *req, http_result_t *res, const char *path);
 
 /* release all handlers */
-void free_content_handlers();
+void free_content_handlers(void);

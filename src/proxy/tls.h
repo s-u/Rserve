@@ -13,7 +13,7 @@ typedef struct tls tls_t;
    (which can be NULL) */
 tls_t *shared_tls(tls_t *new_tls);
 
-tls_t *new_tls();
+tls_t *new_tls(void);
 int set_tls_pk(tls_t *tls, const char *fn);
 int set_tls_cert(tls_t *tls, const char *fn);
 int set_tls_ca(tls_t *tls, const char *fn_ca, const char *path_ca);

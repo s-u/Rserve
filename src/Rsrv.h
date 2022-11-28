@@ -420,13 +420,13 @@ extern void fixdcpy(void *t,void *s);
    is correct (it is not included if the package was configured with
    autoconf since then it should be fine anyway) */
 #ifdef MAIN
-int isByteSexOk() {
+int isByteSexOk(void) {
     int i;
     i=itop(0x12345678);
     return (*((char*)&i)==0x78);
 }
 #else
-extern int isByteSexOk();
+extern int isByteSexOk(void);
 #endif
 
 #else

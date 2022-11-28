@@ -47,7 +47,7 @@ int rm_server(server_t *srv);
 
 /* server stacks */
 typedef struct server_stack server_stack_t;
-server_stack_t* create_server_stack();
+server_stack_t* create_server_stack(void);
 void push_server(server_stack_t *s, server_t *srv);
 int server_stack_size(server_stack_t *s);
 void release_server_stack(server_stack_t *s);
@@ -57,8 +57,8 @@ void server_fin(void *x);
 ssize_t server_recv(args_t *arg, void *buf, size_t len);
 ssize_t server_send(args_t *arg, const void *buf, size_t len);
 
-void stop_server_loop();
-void serverLoop();
+void stop_server_loop(void);
+void serverLoop(void);
 
 /* helper function that prepares the process just like Rserve
    internal impleemntation - forking when desired, establishing
@@ -67,7 +67,7 @@ void serverLoop();
 int Rserve_prepare_child(args_t *arg);
 
 /* this one is called by the former to close all server sockets in the child */
-void close_all_srv_sockets();
+void close_all_srv_sockets(void);
 
 #endif
 

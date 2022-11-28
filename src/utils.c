@@ -109,7 +109,7 @@ static void Rserve_eval_(void *arg) {
 static SEXP RS_current_context;
 static int  RS_current_context_is_protected;
 
-SEXP Rserve_get_context() {
+SEXP Rserve_get_context(void) {
     return RS_current_context ? RS_current_context : R_NilValue;
 }
 
