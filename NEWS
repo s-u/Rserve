@@ -8,7 +8,7 @@ NOTE: Rserve 1.8 series has many new features, but it has also removed
       know what it means, just ignore this note.
 
 
-1.8-11	(under development)
+1.8-11	2022-11-28
     o	fix possible buffer overflow attacks in WebSockets code (many
 	thanks to Dane Henshall for performing a security audit!)
 
