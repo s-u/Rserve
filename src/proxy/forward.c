@@ -71,7 +71,10 @@ static void http_request(http_request_t *req, http_result_t *res) {
     int not_modified = 0, add_slash = 0;
     const char *append_headers = 0, *c_type = 0;
 
+#ifdef RSERV_DEBUG
     fprintf(stderr, "----\nINFO: request for '%s', Date: %s, headers:\n%s\n", req->url, posix2http(req->date), req->headers ? req->headers : "<NONE>");
+#endif
+
     /* leave room for ".gz\0" plus leading slash */
     if (req->url[0] != '/' && doc_root_len && doc_root[doc_root_len - 1] != '/') add_slash = 1;
     s = (char*) malloc(strlen(req->url) + doc_root_len + 8);
