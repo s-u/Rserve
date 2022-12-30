@@ -2,7 +2,7 @@
 #include "server.h"
 
 #define SOCK_ERRORS
-#define LISTENQ 16
+#define LISTENQ 32
 
 #ifndef WIN32
 #include <sys/un.h> /* needed for unix sockets */
