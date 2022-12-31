@@ -101,6 +101,7 @@ double http2posix(const char *c) {
     if (*c < '0' || *c > '9') { /* non-digit so it's either asctime() or invalid */
 	if ((mon = lookup(c, c_mon, 12)) < 0)
 	    return 0.0;
+	mon++;
 	while (*c && *c != ' ') c++;
 	while (*c == ' ') c++;
 	if (!*c)
@@ -122,6 +123,7 @@ double http2posix(const char *c) {
 	while (*c == '-' || *c ==' ') c++;
 	if ((mon = lookup(c, c_mon, 12)) < 0)
 	    return 0.0;
+	mon++;
 	while (*c && (*c < '0' || *c > '9')) c++;
 	if (!*c)
 	    return 0.0;
