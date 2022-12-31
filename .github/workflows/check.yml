@@ -11,13 +11,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ macOS-10.15, ubuntu-20.04 ]
+        os: [ macOS-10.15, ubuntu-20.04, windows-2022 ]
         r-version: [ devel ]
-        include:
-        - os: windows-2022
-          r-version: devel-ucrt
-        - os: windows-latest
-          r-version: 4.1.2
 
     steps:
       - uses: actions/checkout@v2
@@ -26,23 +21,16 @@ jobs:
         with:
           java-version: 8
 
-      # r-lib/setup-r doesn't setup UCRT properly (yet)
-      - if: ${{ matrix.r-version != 'devel-ucrt' }}
-        uses: r-lib/actions/setup-r@v1
+      - name: Install R
+        uses: s-u/R-actions/install@v1
         with:
           r-version: ${{ matrix.r-version }}
-
-      - if: ${{ runner.os == 'Windows' && matrix.r-version == 'devel-ucrt' }}
-        uses: kalibera/ucrt3/actions/r-install@main
-      - if: ${{ runner.os == 'Windows' && matrix.r-version == 'devel-ucrt' }}
-        uses: kalibera/ucrt3/actions/toolchain-install@main
-        with:
-          toolchain-type: base
+          tools: base
 
       - uses: s-u/R-actions/pkg-check@master
         with:
           debian-deps: libssl-dev
-          macos-deps: openssl-1.1.1h
+          macos-deps: openssl-1.1.1p
           windows-deps: openssl
           check-flags: --as-cran
           dep-type: source
