@@ -2,7 +2,9 @@
 #include "rserr.h"
 
 #define SOCK_ERRORS
-#define LISTENQ 16
+#ifndef LISTENQ
+#define LISTENQ 32
+#endif
 
 #include <sisocks.h>
 #ifdef unix

@@ -6,6 +6,9 @@
 #include <sisocks.h>
 #include <string.h>
 #include <stdio.h>
+#include <sys/stat.h>
+#include "bsdcmpt.h"
+#include <time.h>
 
 /* size of the line buffer for each worker (request and header only)
  * requests that have longer headers will be rejected with 413
@@ -125,6 +128,29 @@ static SEXP collect_buffers(struct buffer *buf) {
 		dst += buf->length;
 		buf = buf->next;
     }
+    return res;
+}
+
+/* convert doubly-linked buffers into one big string,
+   caller must free, may return NULL */
+static char *collect_buffers_c(struct buffer *buf) {
+    char *res, *dst;
+    int len = 0;
+    if (!buf) return 0;
+    while (buf->prev) { /* count the total length and find the root */
+		len += buf->length;
+		buf = buf->prev;
+    }
+    res = malloc(len + buf->length + 1);
+	if (!res)
+		return res;
+    dst = res;
+    while (buf) {
+		memcpy(dst, buf->data, buf->length);
+		dst += buf->length;
+		buf = buf->next;
+    }
+	*dst = 0; /* terminate */
     return res;
 }
 
@@ -324,6 +350,149 @@ SEXP Rserve_set_http_request_fn(SEXP sFn) {
 	return s_http_request_fn;
 }
 
+#define HSF_STOP          1 /* stop if prefix matches */
+#define HSF_PRECOMPRESSED 2 /* use pre-compressed .gz files */
+
+typedef struct http_static {
+	struct http_static *next;
+	char *prefix, *path, *index;
+	int prefix_len;
+	int flags;
+} http_static;
+
+static http_static *http_statics;
+
+SEXP Rserve_http_add_static(SEXP sPrefix, SEXP sPath, SEXP sIndex, SEXP sFlags) {
+	int n = 1;
+	http_static *h, *hl;
+	if (TYPEOF(sPrefix) != STRSXP || LENGTH(sPrefix) != 1)
+		Rf_error("Invalid prefix, must be a string");
+	if (TYPEOF(sPath) != STRSXP || LENGTH(sPath) != 1)
+		Rf_error("Invalid path, must be a string");
+	if (!((TYPEOF(sIndex) == STRSXP && LENGTH(sPath) == 1) || sIndex == R_NilValue))
+		Rf_error("Invalid index, must be NULL or a string");
+	h = (http_static*) malloc(sizeof(http_static));
+	if (!h)
+		Rf_error("Cannot allocate structure.");
+	h->next = 0;
+	h->prefix = strdup(CHAR(STRING_ELT(sPrefix, 0)));
+	h->path = strdup(CHAR(STRING_ELT(sPath, 0)));
+	h->index = (sIndex == R_NilValue) ? 0 : strdup(CHAR(STRING_ELT(sIndex, 0)));
+	h->prefix_len = strlen(h->prefix);
+	h->flags = Rf_asInteger(sFlags);
+	if (!http_statics) {
+		http_statics = h;
+	} else {
+		hl = http_statics;
+		n++;
+		while (hl->next) {
+			n++;
+			hl = hl->next;
+		}
+		hl->next = h;
+	}
+	return Rf_ScalarInteger(n);
+}
+
+static char http_tmp[512];
+
+/* 0 = ok, sent
+  -1 = failure during transmission, have to close
+  -2 = file cannot be read (nothing sent) */
+static int http_send_file(args_t *c, const char *fn, size_t fsz, int size_valid, const char *preamble) {
+	char *fbuf;
+	char buf[64];
+	FILE *f = fopen(fn, "rb");
+	if (!f)
+		return -2;
+	/* FIXME: on Windows this is limited to 2Gb */
+	if (!size_valid) {
+		fseek(f, 0, SEEK_END);
+		fsz = (size_t) ftell(f);
+		fseek(f, 0, SEEK_SET);
+	}
+	if (preamble)
+		send_http_response(c, preamble);
+	snprintf(buf, sizeof(buf), "\r\nContent-length: %llu\r\n\r\n", (unsigned long long) fsz);
+	send_response(c, buf, strlen(buf));
+#define HTTP_SEND_FILE_CHUNK (1024*1024)
+	if (fsz && c->method != METHOD_HEAD) {
+		fbuf = (char*) malloc(HTTP_SEND_FILE_CHUNK);
+		if (fbuf) {
+			while (fsz > 0 && !feof(f)) {
+				int rd = (fsz > HTTP_SEND_FILE_CHUNK) ? HTTP_SEND_FILE_CHUNK : fsz;
+				if (fread(fbuf, 1, rd, f) != rd) {
+					free(fbuf);
+					fclose(f);
+					return -1;
+				}
+				send_response(c, fbuf, rd);
+				fsz -= rd;
+			}
+			free(fbuf);
+		} else { /* allocation error - get out */
+			fclose(f);
+			return -1;
+		}
+	}
+	fclose(f);
+	return 0;
+}
+
+/* returns a pointer to the beginning of a value for a given header
+   field or NULL if not present. */
+static const char *get_header(const char *headers, const char *name) {
+    const char *c = headers, *e;
+    int name_len = strlen(name);
+    if (!c) return 0;
+    while (*c && (e = strchr(c, '\n'))) {
+	const char *v = strchr(c, ':');
+	if (v && (v < e) && (v - c == name_len)) {
+	    int i;
+	    for (i = 0; i < name_len; i++)
+		if ((name[i] & 0xdf) != (c[i] & 0xdf))
+		    break;
+	    if (i == name_len) {
+		v++;
+		while (*v == '\t' || *v == ' ')
+		    v++;
+		return v;
+	    }
+	}
+	while (*e == '\n' || *e == '\t') e++;
+	c = e;
+    }
+    return 0;
+}
+
+static const char *infer_content_type(const char *fn) {
+    const char *x = fn ? strrchr(fn, '.') : 0;
+	char ext[8]; /* lower-case version of the extension */
+	int i = 0;
+    if (!x) return "application/octet-stream";
+	x++;
+	while (i < 7 && *x) {
+		ext[i++] = (*x >= 'A' && *x <= 'Z') ? (*x | 0x20) : *x;
+		x++;
+	}
+	ext[i] = 0;
+
+    if (!strcmp(ext, "svg")) return "image/svg+xml";
+    if (!strcmp(ext, "js"))  return "application/javascript";
+    if (!strcmp(ext, "css")) return "text/css";
+    if (!strcmp(ext, "html")) return "text/html";
+    if (!strcmp(ext, "txt")) return "text/plain";
+    if (!strcmp(ext, "png")) return "image/png";
+    if (!strcmp(ext, "jpeg") || !strcmp(ext, "jpg")) return "image/jpeg";
+    if (!strcmp(ext, "md")) return "text/markdown";
+	if (!strcmp(ext, "json")) return "application/json";
+    return "application/octet-stream";
+}
+
+/* from date.c */
+char *posix2http(double ts); /* Note: returned buffer is static */
+double http2posix(const char *c);
+
 /* process a request by calling the httpd() function in R */
 static void process_request(args_t *c)
 {
@@ -348,6 +517,83 @@ static void process_request(args_t *c)
 	if (!s_http_request_fn)
 		s_http_request_fn = install(".http.request");
     uri_decode(c->url); /* decode the path part */
+
+	/* it would be nice if we could re-use the code from forward.c,
+	   but for now they are separate. FIXME: move the forward
+	   static handling into an http handler, make the R API call
+	   another handler and then replace the code here with the
+	   handler code from forward.c */
+	if (http_statics) {
+		http_static *hs = http_statics;
+		while (hs) {
+			//fprintf(stderr, "match '%s' and '%s'\n", c->url, hs->prefix);
+			if (!strncmp(hs->prefix, c->url, hs->prefix_len)) {
+				struct stat st;
+				const char *fn = c->url + hs->prefix_len;
+				int found = 0;
+				if (strlen(fn) + strlen(hs->path) +
+					(hs->index ? strlen(hs->index) : 0) +
+					7 > sizeof(http_tmp)) {
+					send_http_response(c, " 414 Path too long\r\nContent-type: text/plain\r\nContent-length: 14\r\n\r\nPath too long\n");
+					fin_request(c);
+					return;
+				}
+				strcpy(http_tmp, hs->path);
+				strcat(http_tmp, fn);
+				if (!stat(http_tmp, &st)) { /* path exists */
+					if (st.st_mode & S_IFDIR) { /* if it is a directory, we only accept it if index exists */
+						//fprintf(stderr, " - matched, but is directory\n");
+						if (hs->index) {
+							strcat(http_tmp, hs->index);
+							fprintf(stderr, " - try '%s'\n", http_tmp);
+							if (!stat(http_tmp, &st))
+								found = 1;
+						}
+					} else if (st.st_mode & S_IFREG) /* otherwise we only accept regular files */
+						found = 1;
+				}
+				if (!found) {
+					//fprintf(stderr, " - '%s' not found\n", http_tmp);
+					if (hs->flags & HSF_STOP) {
+						send_http_response(c, " 404 Not found\r\nContent-type: text/plain\r\nContent-length: 10\r\n\r\nNot found\n");
+						fin_request(c);
+						return;
+					}
+				} else { /* file found */
+					int not_modified = 0;
+					/* check for conditional GET */
+					if (c->headers) {
+						char *h = collect_buffers_c(c->headers);
+						const char *if_mod = get_header(h, "If-Modified-Since");
+						if (if_mod) {
+							double since = http2posix(if_mod);
+							if (since >= MTIME(st))
+								not_modified = 1;
+						}
+						free(h);
+					}
+					if (not_modified) {
+						send_http_response(c, " 304 Not modified\r\nCache-Control: no-cache\r\n\r\n");
+					} else {
+						char buf[128];
+						double ts = (double) time(0);
+						snprintf(buf, sizeof(buf), " 200 OK\r\nCache-Control: no-cache\r\nContent-type: %s\r\nLast-Modified: %s",
+								 infer_content_type(http_tmp), posix2http((MTIME(st) > ts) ? ts : MTIME(st)));
+						int res = http_send_file(c, http_tmp, (size_t) st.st_size, 1, buf);
+						if (res == -2) { /* cannot open */
+							send_http_response(c, " 403 Forbidden\r\nContent-Type: text/plain\r\nContent-length: 10\r\n\r\nForbidden\n");
+						}
+						if (res == -1) /* transfer error */
+							c->attr |= CONNECTION_CLOSE;
+					}
+					/* all paths here sent the response */
+					fin_request(c);
+					return;
+				}
+			}
+			hs = hs->next;
+		}
+	}
     {   /* construct "try(httpd(url, query, body, headers), silent=TRUE)" */
 		SEXP sTrue = PROTECT(ScalarLogical(TRUE));
 		SEXP sBody = PROTECT(parse_request_body(c));
@@ -438,46 +684,16 @@ static void process_request(args_t *c)
 					(!strcmp(CHAR(STRING_ELT(xNames, 0)), "file") || (is_tmp = !strcmp(CHAR(STRING_ELT(xNames, 0)), "tmpfile"))))
 					fn = cs;
 				if (fn) {
-					char *fbuf;
-					FILE *f = fopen(fn, "rb");
-					long fsz = 0;
-					if (!f) {
+					int res = http_send_file(c, fn, 0, 0, 0);
+					if (res == -2) { /* cannot open */
 						send_response(c, "\r\nContent-length: 0\r\n\r\n", 23);
 						UNPROTECT(7);
 						fin_request(c);
 						return;
+					} else if (res) {
+						/* force close since the transfer failed */
+						c->attr |= CONNECTION_CLOSE;
 					}
-					fseek(f, 0, SEEK_END);
-					fsz = ftell(f);
-					fseek(f, 0, SEEK_SET);
-					sprintf(buf, "\r\nContent-length: %ld\r\n\r\n", fsz);
-					send_response(c, buf, strlen(buf));
-					if (c->method != METHOD_HEAD) {
-						fbuf = (char*) malloc(32768);
-						if (fbuf) {
-							while (fsz > 0 && !feof(f)) {
-								int rd = (fsz > 32768) ? 32768 : fsz;
-								if (fread(fbuf, 1, rd, f) != rd) {
-									free(fbuf);
-									UNPROTECT(7);
-									c->attr |= CONNECTION_CLOSE;
-									fclose(f);
-									if (is_tmp) unlink(fn);
-									return;
-								}
-								send_response(c, fbuf, rd);
-								fsz -= rd;
-							}
-							free(fbuf);
-						} else { /* allocation error - get out */
-							UNPROTECT(7);
-							c->attr |= CONNECTION_CLOSE;
-							fclose(f);
-							if (is_tmp) unlink(fn);
-							return;
-						}
-					}
-					fclose(f);
 					if (is_tmp) unlink(fn);
 					UNPROTECT(7);
 					fin_request(c);

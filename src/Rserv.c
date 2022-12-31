@@ -125,7 +125,9 @@ the use of DT_LARGE/XT_LARGE.
 
 #define USE_RINTERNALS 1
 #define SOCK_ERRORS
-#define LISTENQ 16
+#ifndef LISTENQ
+#define LISTENQ 32
+#endif
 #define MAIN
 
 /* some OSes don't like too large chunks to be sent/received,
