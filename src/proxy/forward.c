@@ -63,6 +63,41 @@ static const char *infer_content_type(const char *fn) {
     return 0;
 }
 
+/* removes .. and . segments, control characters.
+   non-ASCII characters are retained */
+static void sanitize_path(char *path) {
+    char *src = path, *dst = path;
+    int pos = 0;
+    while (*src) {
+	if (!pos) {
+	    if (src[0] == '.') {
+		/* .. */
+		if (src[1] == '.' && (!src[2] || src[2] == '/')) {
+		    src += 2;
+		    continue;
+		}
+		/* . (harmless, but we still remove it) */
+		if (!src[1] || src[1] == '/') {
+		    src++;
+		    continue;
+		}
+	    }
+	}
+	if (*src == '/') {
+	    if (pos) { /* not a repeated / */
+		*(dst++) = *(src++);
+		pos = 0;
+	    } else /* repeated, just ignore */
+		src++;
+	    continue;
+	}
+	pos++;
+	if (*src >= 32)
+	    *(dst++) = *(src++);
+    }
+    *dst = 0;
+}
+
 static void http_request(http_request_t *req, http_result_t *res) {
     FILE *f;
     char *s;
@@ -91,7 +126,7 @@ static void http_request(http_request_t *req, http_result_t *res) {
 
     /* FIXME: technically, the processing of regular, static files
        should also be jsut a handler -- move the code below into one. */
-
+    sanitize_path(s);
     if (stat(s, &st) || !(f = fopen(s, "rb"))) {
         free(s);
 	res->err = strdup("Path not found");
@@ -100,7 +135,6 @@ static void http_request(http_request_t *req, http_result_t *res) {
     }
 
     c_type = infer_content_type(s);
-
     /* check for conditional GET */
     if (req->headers) {
 	const char *if_mod = get_header(req, "If-Modified-Since");

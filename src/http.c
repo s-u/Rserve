@@ -489,6 +489,43 @@ static const char *infer_content_type(const char *fn) {
     return "application/octet-stream";
 }
 
+/* removes .. and . segments, control characters.
+   non-ASCII characters are retained */
+static void sanitize_path(char *path) {
+	char *src = path, *dst = path;
+	int pos = 0;
+	DBG(fprintf(stderr, "path: '%s' sanitizing\n", path));
+	while (*src) {
+		if (!pos) {
+			if (src[0] == '.') {
+				/* .. */
+				if (src[1] == '.' && (!src[2] || src[2] == '/')) {
+					src += 2;
+					continue;
+				}
+				/* . (harmless, but we still remove it) */
+				if (!src[1] || src[1] == '/') {
+					src++;
+					continue;
+				}
+			}
+		}
+		if (*src == '/') {
+			if (pos) { /* not a repeated / */
+				*(dst++) = *(src++);
+				pos = 0;
+			} else /* repeated, just ignore */
+				src++;
+			continue;
+		}
+		pos++;
+		if (*src >= 32)
+			*(dst++) = *(src++);
+	}
+	*dst = 0;
+	DBG(fprintf(stderr, "      '%s'\n", path));
+}
+
 /* from date.c */
 char *posix2http(double ts); /* Note: returned buffer is static */
 double http2posix(const char *c);
@@ -540,6 +577,7 @@ static void process_request(args_t *c)
 				}
 				strcpy(http_tmp, hs->path);
 				strcat(http_tmp, fn);
+				sanitize_path(http_tmp);
 				if (!stat(http_tmp, &st)) { /* path exists */
 					if (st.st_mode & S_IFDIR) { /* if it is a directory, we only accept it if index exists */
 						//fprintf(stderr, " - matched, but is directory\n");
