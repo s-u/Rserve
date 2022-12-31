@@ -580,10 +580,9 @@ static void process_request(args_t *c)
 				sanitize_path(http_tmp);
 				if (!stat(http_tmp, &st)) { /* path exists */
 					if (st.st_mode & S_IFDIR) { /* if it is a directory, we only accept it if index exists */
-						//fprintf(stderr, " - matched, but is directory\n");
 						if (hs->index) {
 							strcat(http_tmp, hs->index);
-							fprintf(stderr, " - try '%s'\n", http_tmp);
+							//fprintf(stderr, " - try '%s'\n", http_tmp);
 							if (!stat(http_tmp, &st))
 								found = 1;
 						}
@@ -602,7 +601,7 @@ static void process_request(args_t *c)
 					/* check for conditional GET */
 					if (c->headers) {
 						char *h = collect_buffers_c(c->headers);
-						const char *if_mod = get_header(h, "If-Modified-Since");
+						const char *if_mod = get_header(h, "if-modified-since");
 						if (if_mod) {
 							double since = http2posix(if_mod);
 							if (since >= MTIME(st))
@@ -613,7 +612,7 @@ static void process_request(args_t *c)
 					if (not_modified) {
 						send_http_response(c, " 304 Not modified\r\nCache-Control: no-cache\r\n\r\n");
 					} else {
-						char buf[128];
+						char buf[196];
 						double ts = (double) time(0);
 						snprintf(buf, sizeof(buf), " 200 OK\r\nCache-Control: no-cache\r\nContent-type: %s\r\nLast-Modified: %s",
 								 infer_content_type(http_tmp), posix2http((MTIME(st) > ts) ? ts : MTIME(st)));
