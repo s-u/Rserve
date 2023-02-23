@@ -8,6 +8,10 @@ NOTE: Rserve 1.8 series has many new features, but it has also removed
       know what it means, just ignore this note.
 
 1.8-12
+    o	added a work-around for buggy libcrypt (first seen in Ubuntu
+	22.04) which incorrectly uses salt leading to authentication
+	error if crypt is used even with a correct password. (#192)
+
     o	parsing of dates in conditional requests could be off, leading
 	to fewer 304 Not Modified responses than expected (proxy).
 
