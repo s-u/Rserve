@@ -2496,9 +2496,13 @@ static int auth_user(const char *usr, const char *pwd, const char *salt) {
 							printf(" - %s password matches.\n", (*c1 == '$' && strlen(c1) == 33) ? "MD5" :
 								   ((*c1 == '$' && strlen(c1) == 41) ? "SHA1" : "plain"));
 #endif
-						} else {
+						} else if (salt) {
 #ifdef HAS_CRYPT
-							c2 = crypt(c1, salt);
+							/* there is a bug in the Ubuntu 22.04+ libcrypt which incorrectly
+							   uses salt beyond the two bytes so to avoid it we use a copy
+							   and add NUL */
+							char salt3[3] = { salt[0], salt[1], 0 };
+							c2 = crypt(c1, salt3);
 #ifdef RSERV_DEBUG
 							printf(" - checking crypted '%s' vs '%s'\n", c2, pwd);
 #endif
