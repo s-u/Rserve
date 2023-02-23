@@ -7,6 +7,18 @@ NOTE: Rserve 1.8 series has many new features, but it has also removed
       whether they may be resurrected for the 1.9 series. If you don't
       know what it means, just ignore this note.
 
+1.8-12
+    o	parsing of dates in conditional requests could be off, leading
+	to fewer 304 Not Modified responses than expected (proxy).
+
+    o	added experimental built-in feature in Rserve's HTTP(s) server
+	to serve static files directly (similar to the feature of the
+	forward proxy). Multiple prefixes can be registered to serve
+	static content from different paths using the
+	Rserve:::Rserve.http.add.static() function. Static handlers
+	are processed before R handers, but they can pass on requests
+	if the file is not found. Conditional requests are supported.
+
 
 1.8-11	2022-11-28
     o	fix possible buffer overflow attacks in WebSockets code (many
