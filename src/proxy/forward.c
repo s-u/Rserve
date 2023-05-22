@@ -68,6 +68,9 @@ static const char *infer_content_type(const char *fn) {
 static void sanitize_path(char *path) {
     char *src = path, *dst = path;
     int pos = 0;
+    if (*path == '/')
+	*(dst++) = *(src++);
+
     while (*src) {
 	if (!pos) {
 	    if (src[0] == '.') {
