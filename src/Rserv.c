@@ -4438,7 +4438,7 @@ void Rserve_QAP1_connected(void *thp) {
 					sendbuf = (char*)malloc(sendBufSize);
 					if (!sendbuf) {
 #ifdef RSERV_DEBUG
-						fprintf(stderr,"FATAL: out of memory while resizing send buffer to %ld,\n", sendBufSize);
+						fprintf(stderr,"FATAL: out of memory while resizing send buffer to %ld,\n", (long) sendBufSize);
 #endif
 						sendResp(a, SET_STAT(RESP_ERR, ERR_out_of_mem));
 						free(buf); free(sfbuf);
@@ -4807,7 +4807,7 @@ void Rserve_QAP1_connected(void *thp) {
 							if (rs < 0)
 								printf("ERROR: object encoding error\n");
 							else
-								printf("ERROR: object too big (sendBuf=%ld)\n", sendBufSize);
+								printf("ERROR: object too big (sendBuf=%ld)\n", (long) sendBufSize);
 #endif
 							sendRespData(a, SET_STAT(RESP_ERR, ERR_object_too_big), 4, &osz);
 						} else { /* try to allocate a large, temporary send buffer */
@@ -4827,7 +4827,7 @@ void Rserve_QAP1_connected(void *thp) {
 								sendbuf = (char*)malloc(sendBufSize);
 								if (!sendbuf) { /* we couldn't re-allocate the buffer */
 #ifdef RSERV_DEBUG
-									fprintf(stderr,"FATAL: out of memory while re-allocating send buffer to %ld (fallback#1)\n", sendBufSize);
+									fprintf(stderr,"FATAL: out of memory while re-allocating send buffer to %ld (fallback#1)\n", (long) sendBufSize);
 #endif
 									sendResp(a, SET_STAT(RESP_ERR, ERR_out_of_mem));
 									free(buf); free(sfbuf);
@@ -4839,7 +4839,7 @@ void Rserve_QAP1_connected(void *thp) {
 									unsigned int osz = (rs > 0xffffffff) ? 0xffffffff : rs;
 									osz = itop(osz);
 #ifdef RSERV_DEBUG
-									printf("ERROR: object too big (sendBuf=%ld) and couldn't allocate big enough send buffer\n", sendBufSize);
+									printf("ERROR: object too big (sendBuf=%ld) and couldn't allocate big enough send buffer\n", (long) sendBufSize);
 #endif
 									sendRespData(a, SET_STAT(RESP_ERR, ERR_object_too_big), 4, &osz);
 								}
@@ -4873,7 +4873,7 @@ void Rserve_QAP1_connected(void *thp) {
 							sendbuf = (char*)malloc(sendBufSize);
 							if (!sendbuf) { /* this should be really rare since tempSB was much larger */
 #ifdef RSERV_DEBUG
-								fprintf(stderr,"FATAL: out of memory while re-allocating send buffer to %ld (fallback#2),\n", sendBufSize);
+								fprintf(stderr,"FATAL: out of memory while re-allocating send buffer to %ld (fallback#2),\n", (long) sendBufSize);
 #endif
 								sendResp(a, SET_STAT(RESP_ERR, ERR_out_of_mem));
 										free(buf); free(sfbuf);

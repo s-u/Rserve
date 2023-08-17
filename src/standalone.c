@@ -163,8 +163,8 @@ int main(int argc, char **argv)
 					   CONFIG_FILE, workdir, port, localSocketName ? localSocketName : "[none, TCP/IP used]",
 					   authReq ? "yes" : "no", usePlain ? "allowed" : "not allowed", pwdfile ? pwdfile : "[none]",
 					   allowIO ? "yes" : "no", localonly ? "no" : "yes",
-					   "no", Rsrv_interactive ? "yes" : "no", maxInBuf / 1024L);
-				return 0;	       
+					   "no", Rsrv_interactive ? "yes" : "no", (long) (maxInBuf / 1024L));
+				return 0;
 			}
 			if (!strcmp(argv[i] + 2, "version")) {
 				printf("Rserve v%d.%d-%d (%s)\n",RSRV_VER>>16,(RSRV_VER>>8)&255,RSRV_VER&255,rserve_rev);

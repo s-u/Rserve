@@ -614,7 +614,7 @@ static ssize_t WS_recv_data(args_t *arg, void *buf, size_t read_len) {
 		/* catch control frames - those shouldn't go to the application */
 		if (GET_F_FT(arg->flags) > 7) {
 #ifdef RSERV_DEBUG
-			fprintf(stderr, "WS_recv_data: control frame 0x%02x (%d bytes), catching\n", GET_F_FT(arg->flags), n);
+			fprintf(stderr, "WS_recv_data: control frame 0x%02x (%d bytes), catching\n", GET_F_FT(arg->flags), (int) n);
 #endif
 			switch (GET_F_FT(arg->flags)) {
 			case FRT_PING:

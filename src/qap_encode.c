@@ -139,7 +139,7 @@ rlen_t getStorageSize(SEXP x) {
     if (len > 0xfffff0) /* large types must be stored in the new format */
 		len += 4L;
 #if defined RSERV_DEBUG && ! (defined DEBUG_NO_STORAGE)
-    printf("= %lu\n", len);
+    printf("= %lu\n", (unsigned long) len);
 #endif
     return len;
 }

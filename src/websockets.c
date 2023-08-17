@@ -18,7 +18,7 @@
 #ifdef WIN32
 /* FIXME: this is a terribe, terrible hack around Win32 idiocy.
    we should use stdint type or some such ... */
-static int getpid() { /* for compatibility */
+static int getpid(void) { /* for compatibility */
 	return (int) GetProcessId(GetCurrentProcess());
 }
 #endif
@@ -510,7 +510,7 @@ static int WS_send_resp(args_t *arg, int rsp, size_t len, const void *buf) {
 			n = WS_wire_send(arg, sbuf, send_here);
 #ifdef RSERV_DEBUG
 			if (pl) {
-				fprintf(stderr, "WS_send_resp: sending 4+ frame (ver %02d), n = %ld / %ld (of total %ld)\n", arg->ver, (long) n, (unsigned long)send_here, flen);
+				fprintf(stderr, "WS_send_resp: sending 4+ frame (ver %02d), n = %ld / %ld (of total %ld)\n", arg->ver, (long) n, (unsigned long)send_here, (long) flen);
 #ifdef WS_DEBUG
 				{ int i, m = send_here; if (m > 100) m = 100; for (i = 0; i < m; i++) fprintf(stderr, " %02x", (int) sbuf[i]); fprintf(stderr,"\n"); }
 #endif
