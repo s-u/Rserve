@@ -7,7 +7,12 @@ NOTE: Rserve 1.8 series has many new features, but it has also removed
       whether they may be resurrected for the 1.9 series. If you don't
       know what it means, just ignore this note.
 
-1.8-12
+1.8-13	2023-11-28
+    o	replace sprintf with snprintf even in safe cases to avoid
+	compiler warnings.
+
+
+1.8-12	2023-08-17
     o	added a work-around for buggy libcrypt (first seen in Ubuntu
 	22.04) which incorrectly uses salt leading to authentication
 	error if crypt is used even with a correct password. (#192)
