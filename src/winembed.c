@@ -125,7 +125,7 @@ int myYesNoCancel(const char *s)
     char  ss[128];
     char a[3];
 
-    sprintf(ss, "%s [y/n/c]: ", s);
+    snprintf(ss, sizeof(ss)-1, "%s [y/n/c]: ", s);
     myReadConsole(ss, a, 3, 0);
     switch (a[0]) {
     case 'y':
@@ -166,7 +166,7 @@ int Rf_initEmbeddedR(int argc, char **argv)
    const char *arch = 0;
    const char *path_suf = 0;
 
-   sprintf(Rversion, "%s.%s", R_MAJOR, R_MINOR);
+   snprintf(Rversion, sizeof(Rversion)-1, "%s.%s", R_MAJOR, R_MINOR);
    { char *c = Rversion, *d = Rversion; while (*c) { if (*c=='.') d=c; c++; }; *d=0; }
 
 
@@ -195,7 +195,7 @@ int Rf_initEmbeddedR(int argc, char **argv)
 	  return -2;
 	}
       }
-      sprintf(rhb,"R_HOME=%s",RHome);
+      snprintf(rhb, sizeof(rhb)-1, "R_HOME=%s",RHome);
       putenv(rhb);
     }
     /* on Win32 this should set R_Home (in R_SetParams) as well */
