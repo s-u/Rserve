@@ -3791,7 +3791,7 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 							unsigned int osz = (rs > 0xffffffff) ? 0xffffffff : rs;
 							osz = itop(osz);
 #ifdef RSERV_DEBUG
-							printf("ERROR: object too big (buffer=%ld)\n", rt->buf_size);
+							printf("ERROR: object too big (buffer=%ld)\n", (long int) rt->buf_size);
 #endif
 							ulog("WARNING: object too big to send");
 							sendRespData(args, SET_STAT(RESP_ERR, ERR_object_too_big), 4, &osz);
@@ -4136,7 +4136,7 @@ void Rserve_QAP1_connected(void *thp) {
 						parType ^= DT_LARGE;
 					} 
 #ifdef RSERV_DEBUG
-					printf("PAR[%d]: %08lx (PAR_LEN=%ld, PAR_TYPE=%d, large=%s, c=%p, ptr=%p)\n", pars, i,
+					printf("PAR[%d]: %08lx (PAR_LEN=%ld, PAR_TYPE=%d, large=%s, c=%p, ptr=%p)\n", pars, (long unsigned) i,
 						   (long)parLen, parType, (headSize==8)?"yes":"no", (void*) c, (void*)(c + headSize));
 #endif
 #ifdef ALIGN_DOUBLES
@@ -4867,7 +4867,7 @@ void Rserve_QAP1_connected(void *thp) {
 						sendRespData(a, RESP_OK, tail - sendhead, sendhead);
 						if (tempSB) { /* if this is just a temporary sendbuffer then shrink it back to normal */
 #ifdef RSERV_DEBUG
-							printf("Releasing temporary sendbuf and restoring old size of %ld bytes.\n", sendBufSize);
+							printf("Releasing temporary sendbuf and restoring old size of %ld bytes.\n", (long) sendBufSize);
 #endif
 							free(sendbuf);
 							sendbuf = (char*)malloc(sendBufSize);
