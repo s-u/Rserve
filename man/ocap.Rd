@@ -11,7 +11,7 @@ Rserve.context(what)
 \description{
   The following functions are only meaningful when used by code that
   is run inside Rserve in object-capability (OCAP) mode.
-  See \url{https://github.com/s-u/Rserve/wiki/OCAP-mode}{Rserve Wiki}
+  See \href{https://github.com/s-u/Rserve/wiki/OCAP-mode}{Rserve Wiki}
   for details.
 
   \code{ocap} registers a function as a capability and returns the
