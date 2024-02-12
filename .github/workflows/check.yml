@@ -11,26 +11,26 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ macOS-10.15, ubuntu-20.04, windows-2022 ]
+        os: [ macOS-13, macOS-14, ubuntu-22.04, windows-2022 ]
         r-version: [ devel ]
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
 
       - uses: actions/setup-java@v1
         with:
           java-version: 8
 
       - name: Install R
-        uses: s-u/R-actions/install@v1
+        uses: s-u/R-actions/install@v2
         with:
           r-version: ${{ matrix.r-version }}
           tools: base
 
-      - uses: s-u/R-actions/pkg-check@master
+      - uses: s-u/R-actions/pkg-check@v2
         with:
           debian-deps: libssl-dev
-          macos-deps: openssl-1.1.1p
+          macos-deps: openssl
           windows-deps: openssl
           check-flags: --as-cran
           dep-type: source
