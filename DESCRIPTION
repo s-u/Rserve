@@ -1,6 +1,6 @@
 Package: Rserve
-Version: 1.7
-Title: Binary R server
+Version: 1.8
+Title: Versatile R Server
 Author: Simon Urbanek <Simon.Urbanek@r-project.org>
 Maintainer: Simon Urbanek <Simon.Urbanek@r-project.org>
 Depends: R (>= 1.5.0)
@@ -14,7 +14,9 @@ Description: Rserve acts as a socket server (TCP/IP or local sockets)
 	     any application to use facilities of R without the need of
 	     linking to R code. Rserve supports remote connection,
 	     user authentication and file transfer. A simple R client
-	     is included in this package as well.
+	     is included in this package as well. In addition, it can
+	     also act as a secure WebSockets and HTTP/HTTPS server.
 License: GPL-2 | file LICENSE
 URL: http://www.rforge.net/Rserve/
+BugReports: https://github.com/s-u/Rserve
 Biarch: true

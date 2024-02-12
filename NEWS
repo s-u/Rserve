@@ -7,6 +7,15 @@ NOTE: Rserve 1.8 series has many new features, but it has also removed
       whether they may be resurrected for the 1.9 series. If you don't
       know what it means, just ignore this note.
 
+1.8-14
+    o	Windows: use pkg-config if available (many thanks to Tomas
+	Kalibera for the work on the toolchain!)
+
+    o	Close listening socket when re-attaching session. (#155)
+
+    o	Fixes to the sample C++ client.
+
+
 1.8-13	2023-11-28
     o	replace sprintf with snprintf even in safe cases to avoid
 	compiler warnings.
