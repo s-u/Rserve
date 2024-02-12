@@ -228,10 +228,11 @@ class Rstrings : public Rexp {
     char **cont;
     unsigned int nel;
 public:
-   Rstrings(Rmessage *msg) : Rexp(msg) { decode(); }
-   Rstrings(unsigned int *ipos, Rmessage *imsg) : Rexp(ipos, imsg) { decode(); }
+    Rstrings(Rmessage *msg) : Rexp(msg) { nel=0; decode(); }
+    Rstrings(unsigned int *ipos, Rmessage *imsg) : Rexp(ipos, imsg) { nel=0; decode(); }
     /*Rstring(const char *str) : Rexp(XT_STR, str, strlen(str)+1) {}*/
-    
+    ~Rstrings() { release(); }
+
     char **strings() { return cont; }
     char *stringAt(unsigned int i) { return (i >= nel) ? 0 : cont[i]; }
     char *string() { return stringAt(0); }
@@ -247,7 +248,7 @@ public:
     void decode() {
       char *c = (char*) data;
       unsigned int i = 0;
-      nel = 0;
+      if (nel) release();
       while (i < len) { if (!c[i]) nel++; i++; }
       if (nel) {
 	i = 0;
@@ -259,6 +260,14 @@ public:
 	}	
       } else
 	cont = 0;
+    }
+
+    void release() {
+      if (nel) {
+	while(nel)
+	  free(cont[--nel]);
+	free(cont);
+      }
     }
 };
 
