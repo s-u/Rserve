@@ -1925,6 +1925,7 @@ SOCKET resume_session(void) {
 #ifdef RSERV_DEBUG
 				printf("session: accepted\n");
 #endif
+				closesocket(session_socket);
 				return s;
 			}
 		}
