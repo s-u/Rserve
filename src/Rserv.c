@@ -338,6 +338,8 @@ static int forward_std = 0; /* flag whether to forward stdout/err as OOBs */
 static int close_all_io = 0; /* if enabled all I/O is re-directed to /dev/null
 								upon daemonization */
 
+static server_stack_t *background_servers = 0; /* used if servers are run in the background of the current session */
+
 static int oob_allowed = 0; /* this flag is set once handshake is done such that OOB messages are permitted */
 static int oob_context_prefix = 0; /* if set, context is prepended in OOB
 									  messages sent by Rserve itself */
@@ -5015,6 +5017,71 @@ server_t *create_Rserve_QAP1(int flags) {
 	return 0;
 }
 
+static void handle_server_event(void *which) {
+	server_t *srv = (server_t*) which;
+	socklen_t al;
+	struct args *sa;
+	int ss = srv->ss;
+	int succ = 0;
+	sa = (struct args*)malloc(sizeof(struct args));
+	memset(sa, 0, sizeof(struct args));
+	al = sizeof(sa->sa);
+#ifdef unix
+	if (srv->unix_socket) {
+		al = sizeof(sa->su);
+		sa->s = CF("accept", accept(ss, (SA*)&(sa->su), &al));
+	} else
+#endif
+		sa->s = CF("accept", accept(ss, (SA*)&(sa->sa), &al));
+	accepted_server(srv, sa->s);
+	sa->ucix = UCIX++;
+	sa->ss = ss;
+	sa->srv = srv;
+	srv->connected(sa);
+	{ /* if there was an actual connection, offer to run .Rserve.served */
+		SEXP fun, fsym = install(".Rserve.served");
+		int evalErr = 0;
+		fun = findVarInFrame(R_GlobalEnv, fsym);
+		if (Rf_isFunction(fun))
+			R_tryEval(lang1(fsym), R_GlobalEnv, &evalErr);
+	}
+}
+
+void backgroundServerLoop(void) {
+#ifdef unix
+	/* FIXME: ideally, we should only use the servers in the stack */
+	if (!background_servers) return;
+	int i;
+	for (i = 0; i < servers; i++)
+		if (server[i]) {
+			InputHandler *ih = addInputHandler(R_InputHandlers, server[i]->ss, &handle_server_event, 9);
+			ih->userData = server[i];
+		}
+#endif
+}
+
+void finishBackgroundServerLoop(void) {
+	int i;
+	if (!background_servers)
+		return;
+
+#ifdef unix
+	for (i = 0; i < servers; i++)
+		if (server[i] && server[i]->ss != -1) {
+			InputHandler *ih = getInputHandler(R_InputHandlers, server[i]->ss);
+			if (ih)
+				removeInputHandler(&R_InputHandlers, ih);
+		}
+#endif
+
+	restore_signal_handlers();
+
+	release_server_stack(background_servers);
+	background_servers = 0;
+
+	RSsrv_done();
+}
+
 void serverLoop(void) {
     struct timeval timv;
     int selRet = 0;
@@ -5151,9 +5218,18 @@ void serverLoop(void) {
 
 #ifndef STANDALONE_RSERVE
 
+SEXP stop_Rserve() {
+	if (background_servers)
+		finishBackgroundServerLoop();
+	return ScalarLogical(TRUE);
+}
+
 /* run Rserve inside R */
-SEXP run_Rserve(SEXP cfgFile, SEXP cfgPars) {
+SEXP run_Rserve(SEXP cfgFile, SEXP cfgPars, SEXP sBG) {
 	server_stack_t *ss;
+	int isBG = Rf_asInteger(sBG);
+	if (background_servers && !isBG)
+		Rf_error("Background servers and synchronous servers are mutually exclusive there are background servers running already.");
 	if (TYPEOF(cfgFile) == STRSXP && LENGTH(cfgFile) > 0) {
 		int i, n = LENGTH(cfgFile);
 		for (i = 0; i < n; i++)
@@ -5273,9 +5349,17 @@ SEXP run_Rserve(SEXP cfgFile, SEXP cfgPars) {
 	
 	setup_signal_handlers();
 
-	Rprintf("-- running Rserve in this R session (pid=%d), %d server(s) --\n(This session will block until Rserve is shut down)\n", getpid(), server_stack_size(ss));
+	Rprintf("-- running Rserve in this R session (pid=%d), %d server(s) --\n", getpid(), server_stack_size(ss));
 	ulog("INFO: Rserve in R session (pid=%d), %d server(s)\n", getpid(), server_stack_size(ss));
 	active = 1;
+
+	if (isBG) {
+		background_servers = ss;
+		backgroundServerLoop();
+		/* FIXME: return something more useful for control? */
+		return ScalarLogical(TRUE);
+	}
+	Rprintf("%s", "(This session will block until Rserve is shut down)\n");
 
 	serverLoop();
 	
