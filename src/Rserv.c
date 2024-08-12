@@ -2242,6 +2242,7 @@ int RS_fork(args_t *arg) {
 #endif
 }
 
+void finishBackgroundServerLoop(void);
 static void restore_signal_handlers(void); /* forward decl */
 
 /* return 0 if the child was prepared. Returns the result of fork() is forked and this is the parent */
@@ -2264,7 +2265,10 @@ int Rserve_prepare_child(args_t *args) {
     }
 
 	/* child part */
-	restore_signal_handlers(); /* the handlers handle server shutdown so not needed in the child */
+	if (background_servers) /* backgroud servers cannot be processed the child */
+		finishBackgroundServerLoop(); /* this implies restore_signal_handlers */
+	else
+		restore_signal_handlers(); /* the handlers handle server shutdown so not needed in the child */
 
 	if (main_argv && tag_argv && strlen(main_argv[0]) >= 8)
 		strcpy(main_argv[0] + strlen(main_argv[0]) - 8, "/RsrvCHx");
@@ -5038,6 +5042,8 @@ static void handle_server_event(void *which) {
 	sa->ss = ss;
 	sa->srv = srv;
 	srv->connected(sa);
+	if (is_child) /* a child may not return */
+		exit(0);
 	{ /* if there was an actual connection, offer to run .Rserve.served */
 		SEXP fun, fsym = install(".Rserve.served");
 		int evalErr = 0;
@@ -5078,8 +5084,6 @@ void finishBackgroundServerLoop(void) {
 
 	release_server_stack(background_servers);
 	background_servers = 0;
-
-	RSsrv_done();
 }
 
 void serverLoop(void) {
