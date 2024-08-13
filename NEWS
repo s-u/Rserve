@@ -7,6 +7,32 @@ NOTE: Rserve 1.8 series has many new features, but it has also removed
       whether they may be resurrected for the 1.9 series. If you don't
       know what it means, just ignore this note.
 
+1.8-15
+    o	added run.Rserve(background=TRUE) mode which meshes server
+	processing loop (i.e., the loop which accepts new connections)
+	and the R session event loop. The function returns as soon
+	as all the server ports are bound (essentailly immediately).
+	This allows the server R process to run R code in the main
+	session after the server was started and thus influence future
+	client connections. This is currently only supported on unix.
+
+	Please note that any changes to the server R session only
+	affect new connections, not existing ones.
+
+	If a function .Rserve.served is defined in the global
+	environment then it will be called after each new accepted
+	client connection in the main R session.
+
+	Function stop.Rserve() can be used to stop and remove all
+	servers started with run.Rserve(). Note that all existing
+	client connections will remain intact.
+
+	NB: This functionality is currently considered experimental
+	and the return value is undefined (currently TRUE on success,
+	but may return other information in the future to enable more
+	fine-grained control over the background servers).
+
+
 1.8-14
     o	Windows: use pkg-config if available (many thanks to Tomas
 	Kalibera for the work on the toolchain!)
