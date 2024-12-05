@@ -64,9 +64,10 @@ static const char *infer_content_type(const char *fn) {
 }
 
 /* removes .. and . segments, control characters.
-   non-ASCII characters are retained */
-static void sanitize_path(char *path) {
-    char *src = path, *dst = path;
+   non-ASCII characters are retained.
+   returns -1 on error, i.e., any control chars (< 32), otherwise 0  */
+static int sanitize_path(char *path) {
+    unsigned char *src = (unsigned char*) path, *dst = (unsigned char*) path;
     int pos = 0;
     if (*path == '/')
 	*(dst++) = *(src++);
@@ -97,8 +98,11 @@ static void sanitize_path(char *path) {
 	pos++;
 	if (*src >= 32)
 	    *(dst++) = *(src++);
+	else
+	    return -1;
     }
     *dst = 0;
+    return 0;
 }
 
 static void http_request(http_request_t *req, http_result_t *res) {
@@ -128,9 +132,8 @@ static void http_request(http_request_t *req, http_result_t *res) {
     }
 
     /* FIXME: technically, the processing of regular, static files
-       should also be jsut a handler -- move the code below into one. */
-    sanitize_path(s);
-    if (stat(s, &st) || !(f = fopen(s, "rb"))) {
+       should also be just a handler -- move the code below into one. */
+    if (sanitize_path(s) || stat(s, &st) || !(f = fopen(s, "rb"))) {
         free(s);
 	res->err = strdup("Path not found");
 	res->code = 404;
