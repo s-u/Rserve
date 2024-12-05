@@ -1,5 +1,6 @@
 \name{run.Rserve}
 \alias{run.Rserve}
+\alias{stop.Rserve}
 \title{
   Start Rserve within the current R process.
 }
@@ -11,9 +12,13 @@
   \code{run.Rserve} turns the current R session into Rserve. This is only
   possible if there are no UI elements or other parts that could
   interfere with the prepation of \code{Rserve}.
+
+  \code{stop.Rserve} stops currently running background servers.
+  This only applies to servers started using \code{background=TRUE}.
 }
 \usage{
-run.Rserve(..., config.file = "/etc/Rserve.conf")
+run.Rserve(..., config.file = "/etc/Rserve.conf", background = FALSE)
+stop.Rserve()
 }
 %- maybe also 'usage' for other objects documented here.
 \arguments{
@@ -29,6 +34,18 @@ run.Rserve(..., config.file = "/etc/Rserve.conf")
     path of the configuration file to load in the Rserve. It will be
     loaded before the above settings and is optional, i.e. if the
     file is not present or readable it will be ignored.
+  }
+  \item{background}{
+    logical, the default \code{FALSE} starts the server and does
+    not return until all servers have been shut down - typically
+    in response to an interrupt. If this argument is set to
+    \code{TRUE} then the server is started in teh background of
+    this R session and control is returned immediately (currently
+    not supported on Windows). In that case requests will be only
+    processed if no other computation is running in R, but the
+    R console can be still used to modify the session.
+    Such background servers can be stopped with the
+    \code{stop.Rserve} function.
   }
 }
 %\details{
