@@ -5222,7 +5222,7 @@ void serverLoop(void) {
 
 #ifndef STANDALONE_RSERVE
 
-SEXP stop_Rserve() {
+SEXP stop_Rserve(void) {
 	if (background_servers)
 		finishBackgroundServerLoop();
 	return ScalarLogical(TRUE);
