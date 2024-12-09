@@ -492,7 +492,7 @@ static const char *infer_content_type(const char *fn) {
 /* removes .. and . segments, control characters.
    non-ASCII characters are retained */
 static void sanitize_path(char *path) {
-	char *src = path, *dst = path;
+	unsigned char *src = (unsigned char*) path, *dst = (unsigned char*) path;
 	int pos = 0;
 	DBG(fprintf(stderr, "path: '%s' sanitizing\n", path));
 	while (*src) {
@@ -521,6 +521,8 @@ static void sanitize_path(char *path) {
 		pos++;
 		if (*src >= 32)
 			*(dst++) = *(src++);
+		else
+			src++; /* skip (we shold probably fail, though) */
 	}
 	*dst = 0;
 	DBG(fprintf(stderr, "      '%s'\n", path));
@@ -563,12 +565,14 @@ static void process_request(args_t *c)
 	if (http_statics) {
 		http_static *hs = http_statics;
 		while (hs) {
-			//fprintf(stderr, "match '%s' and '%s'\n", c->url, hs->prefix);
+			DBG(fprintf(stderr, "http_static: match '%s' and '%s'\n", c->url, hs->prefix));
 			if (!strncmp(hs->prefix, c->url, hs->prefix_len)) {
 				struct stat st;
 				const char *fn = c->url + hs->prefix_len;
+				size_t path_len = strlen(hs->path);
 				int found = 0;
-				if (strlen(fn) + strlen(hs->path) +
+				/* 7 padding is plenty - we need up to two '/' and one NUL */
+				if (strlen(fn) + path_len +
 					(hs->index ? strlen(hs->index) : 0) +
 					7 > sizeof(http_tmp)) {
 					send_http_response(c, " 414 Path too long\r\nContent-type: text/plain\r\nContent-length: 14\r\n\r\nPath too long\n");
@@ -576,13 +580,22 @@ static void process_request(args_t *c)
 					return;
 				}
 				strcpy(http_tmp, hs->path);
-				strcat(http_tmp, fn);
-				sanitize_path(http_tmp);
+				/* make sure there is always / between the path and the filename
+				   (except if path="" for backward compatibility meaning ".") */
+				if (path_len > 0 &&
+					(http_tmp[path_len - 1] != '/' || *fn != '/'))
+					http_tmp[path_len++] = '/';
+				strcpy(http_tmp + path_len, fn);
+				/* only sanitize the part coming from the request */
+				sanitize_path(http_tmp + path_len);
 				if (!stat(http_tmp, &st)) { /* path exists */
 					if (st.st_mode & S_IFDIR) { /* if it is a directory, we only accept it if index exists */
 						if (hs->index) {
-							strcat(http_tmp, hs->index);
-							//fprintf(stderr, " - try '%s'\n", http_tmp);
+							size_t http_tmp_len = strlen(http_tmp);
+							if (http_tmp_len > 0 && http_tmp[http_tmp_len - 1] != '/')
+								http_tmp[http_tmp_len++] = '/';
+							strcpy(http_tmp + http_tmp_len, hs->index);
+							DBG(fprintf(stderr, " - target is a directory, try '%s'\n", http_tmp));
 							if (!stat(http_tmp, &st))
 								found = 1;
 						}
@@ -590,7 +603,7 @@ static void process_request(args_t *c)
 						found = 1;
 				}
 				if (!found) {
-					//fprintf(stderr, " - '%s' not found\n", http_tmp);
+					DBG(fprintf(stderr, " - '%s' not found\n", http_tmp));
 					if (hs->flags & HSF_STOP) {
 						send_http_response(c, " 404 Not found\r\nContent-type: text/plain\r\nContent-length: 10\r\n\r\nNot found\n");
 						fin_request(c);
