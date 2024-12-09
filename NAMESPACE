@@ -1,5 +1,5 @@
 export(Rserve, self.ctrlEval, self.ctrlSource, self.oobSend, self.oobMessage, run.Rserve, ocap,
-       stop.Rserve, Rserve.eval, Rserve.context, resolve.ocap, ulog)
+       stop.Rserve, Rserve.eval, Rserve.context, resolve.ocap, ulog, Rserve.http.add.static)
 if (.Platform$OS.type == "windows") {
   importFrom("utils", "shortPathName")
 }
