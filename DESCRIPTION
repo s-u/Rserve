@@ -1,7 +1,9 @@
 Package: Rserve
 Version: 1.8
 Title: Versatile R Server
-Author: Simon Urbanek <Simon.Urbanek@r-project.org>
+Author: Simon Urbanek [aut, cre, cph]
+    (https://urbanek.org, <https://orcid.org/0000-0003-2297-1732>)
+Authors@R: person("Simon", "Urbanek", role=c("aut","cre","cph"), email="Simon.Urbanek@r-project.org", comment=c("https://urbanek.org", ORCID="0000-0003-2297-1732"))
 Maintainer: Simon Urbanek <Simon.Urbanek@r-project.org>
 Depends: R (>= 1.5.0)
 Suggests: RSclient
@@ -17,6 +19,6 @@ Description: Rserve acts as a socket server (TCP/IP or local sockets)
 	     is included in this package as well. In addition, it can
 	     also act as a secure WebSockets and HTTP/HTTPS server.
 License: GPL-2 | file LICENSE
-URL: http://www.rforge.net/Rserve/
+URL: https://www.rforge.net/Rserve/
 BugReports: https://github.com/s-u/Rserve
 Biarch: true
