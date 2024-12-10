@@ -6,7 +6,7 @@
 	       "Rserve_oobSend", "Rserve_oobMsg", "Rserve_ulog", "Rserve_forward_stdio", "Rserve_eval",
 	       "Rserve_oc_register", "Rserve_oc_resolve", "run_Rserve", "stop_Rserve", "Rserve_get_context",
 	       "Rserve_set_context", "Rserve_set_last_condition", "Rserve_set_http_request_fn",
-               "Rserve_http_add_static")
+               "Rserve_http_add_static", "Rserve_http_rm_all_statics")
 
 .onLoad <- function(libname, pkgname) {
     env <- environment(.onLoad)

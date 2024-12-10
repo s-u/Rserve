@@ -96,5 +96,8 @@ Rserve.set.http.request <- function(what) {
 Rserve.http.add.static <- function(prefix, path, index=NULL, last=FALSE)
     .Call(Rserve_http_add_static, prefix, path, index, isTRUE(last))
 
+Rserve.http.rm.all.statics <- function()
+    .Call(Rserve_http_rm_all_statics)
+
 resolve.ocap <- function(ocap)
   .Call(Rserve_oc_resolve, ocap)

@@ -1303,7 +1303,8 @@ static int setConfig(const char *c, const char *p) {
 	if (!strcmp(c,"http.port")) {
 		if (*p) {
 			int np = satoi(p);
-			if (np > 0) http_port = np;
+			/* we allow 0 to disable the 8080 default for simple server if someone wants just https */
+			if (np >= 0) http_port = np;
 		}
 		return 1;
 	}

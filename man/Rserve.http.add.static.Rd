@@ -1,5 +1,6 @@
 \name{Rserve.http.add.static}
 \alias{Rserve.http.add.static}
+\alias{Rserve.http.rm.all.statics}
 \title{
   Add static file handler to HTTP/HTTPS server
 }
@@ -8,19 +9,23 @@
   HTTP/HTTPS servers. It will trigger only if the path prefix matches \code{prefix}
   and will map the subsequent portion of the path in the request URL to a file
   system location specified by \code{path}. If the resulting item in the file system
-  is a directory, then \code{index} (if set) will appended to the path and served
+  is a directory, then \code{index} (if set) will be appended to the path and served
   instead (if it is a file).
+
+  \code{Rserve.http.rm.all.statics} removes all static handlers from the current
+  R session.
 }
 \usage{
 Rserve.http.add.static(prefix, path, index = NULL, last = FALSE)
+Rserve.http.rm.all.statics()
 }
 \arguments{
   \item{prefix}{string, path prefix for which this handler will be used}
-  \item{path}{string, path in the filesystem used as root to server teh content}
+  \item{path}{string, path in the filesystem used as root to serve the content}
   \item{index}{optional string, will be appended to the file system path if
   the target is a directory (typical value is \code{"index.html"}).}
-  \item{last}{logical, if \code{FALSE} then processing continutes to other handlers
-  if the target does not exist. If \code{TRUE} then all request for the prefix
+  \item{last}{logical, if \code{FALSE} then processing continues to other handlers
+  if the target does not exist. If \code{TRUE} then all requests for the prefix
   will be handled only by this handler, possible resulting in "404 not found"
   result if the reqeusted file does not exist.}
 }
@@ -35,9 +40,6 @@ Rserve.http.add.static(prefix, path, index = NULL, last = FALSE)
 
   The static handler supports conditional GETs and relies on the file system
   modification times to determine if a file has been modified.
-
-  Known issue: there is currently no way to remove handlers for the current session
-  without re-starting R.
 }
 \value{
   The return value is considered experimental and may change in the future:

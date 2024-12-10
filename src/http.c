@@ -350,9 +350,6 @@ SEXP Rserve_set_http_request_fn(SEXP sFn) {
 	return s_http_request_fn;
 }
 
-#define HSF_STOP          1 /* stop if prefix matches */
-#define HSF_PRECOMPRESSED 2 /* use pre-compressed .gz files */
-
 typedef struct http_static {
 	struct http_static *next;
 	char *prefix, *path, *index;
@@ -362,36 +359,93 @@ typedef struct http_static {
 
 static http_static *http_statics;
 
-SEXP Rserve_http_add_static(SEXP sPrefix, SEXP sPath, SEXP sIndex, SEXP sFlags) {
-	int n = 1;
+void *http_add_static_handler(const char *prefix, const char* path, const char *index, int flags) {
 	http_static *h, *hl;
+	h = (http_static*) malloc(sizeof(http_static));
+    if (!h)
+        return 0;
+    h->next = 0;
+    h->prefix = strdup(prefix ? prefix : "");
+    h->path = strdup(path ? path : "");
+    h->index = index ? strdup(index) : 0;
+    h->prefix_len = strlen(h->prefix);
+    h->flags = flags;
+    if (!http_statics) {
+        http_statics = h;
+    } else {
+        hl = http_statics;
+        while (hl->next)
+            hl = hl->next;
+        hl->next = h;
+    }
+	return (void*) h;
+}
+
+static void http_free_static_handler(void *hs) {
+	http_static *h = (http_static*) hs;
+	if (h->prefix)
+		free(h->prefix);
+	if (h->path)
+		free(h->path);
+	if (h->index)
+		free(h->index);
+	free(h);
+}
+
+void http_rm_static_handler(void *hs) {
+	http_static *h = (http_static*) hs;
+	if (!h)
+		return;
+	if (http_statics == h)
+		http_statics = h->next;
+	else {
+		http_static *h = http_statics;
+		while (h && h->next != hs)
+			h = h->next;
+		if (h)
+			h->next = h->next->next;
+		else
+			return; /* not found */
+	}
+	http_free_static_handler(hs);
+}
+
+void http_rm_all_static_handlers(void) {
+	while (http_statics) {
+		http_static *h = http_statics;
+		http_statics = h->next;
+		http_rm_static_handler(h);
+	}
+}
+
+/** R API **/
+
+SEXP Rserve_http_add_static(SEXP sPrefix, SEXP sPath, SEXP sIndex, SEXP sFlags) {
+	int n = 0;
+	http_static *h;
 	if (TYPEOF(sPrefix) != STRSXP || LENGTH(sPrefix) != 1)
 		Rf_error("Invalid prefix, must be a string");
 	if (TYPEOF(sPath) != STRSXP || LENGTH(sPath) != 1)
 		Rf_error("Invalid path, must be a string");
 	if (!((TYPEOF(sIndex) == STRSXP && LENGTH(sPath) == 1) || sIndex == R_NilValue))
 		Rf_error("Invalid index, must be NULL or a string");
-	h = (http_static*) malloc(sizeof(http_static));
-	if (!h)
-		Rf_error("Cannot allocate structure.");
-	h->next = 0;
-	h->prefix = strdup(CHAR(STRING_ELT(sPrefix, 0)));
-	h->path = strdup(CHAR(STRING_ELT(sPath, 0)));
-	h->index = (sIndex == R_NilValue) ? 0 : strdup(CHAR(STRING_ELT(sIndex, 0)));
-	h->prefix_len = strlen(h->prefix);
-	h->flags = Rf_asInteger(sFlags);
-	if (!http_statics) {
-		http_statics = h;
-	} else {
-		hl = http_statics;
+	
+	if (!http_add_static_handler(strdup(CHAR(STRING_ELT(sPrefix, 0))),
+								 strdup(CHAR(STRING_ELT(sPath, 0))),
+								 (sIndex == R_NilValue) ? 0 : strdup(CHAR(STRING_ELT(sIndex, 0))),
+								 Rf_asInteger(sFlags)))
+		Rf_error("Cannot allocate handler structure.");
+	h = http_statics;
+	while (h) {
 		n++;
-		while (hl->next) {
-			n++;
-			hl = hl->next;
-		}
-		hl->next = h;
+		h = h->next;
 	}
 	return Rf_ScalarInteger(n);
+}
+
+SEXP Rserve_http_rm_all_statics(void) {
+	http_rm_all_static_handlers();
+	return Rf_ScalarLogical(1);
 }
 
 static char http_tmp[512];
