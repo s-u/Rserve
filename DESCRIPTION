@@ -8,17 +8,22 @@ Maintainer: Simon Urbanek <Simon.Urbanek@r-project.org>
 Depends: R (>= 1.5.0)
 Suggests: RSclient
 SystemRequirements: libR, GNU make
-Description: Rserve acts as a socket server (TCP/IP or local sockets) 
+Description: Rserve is a versatile, scalable server enabling the
+	     efficient use of R from other applications through
+	     variety of protocols including QAP, WebSockets, HTTP
+	     and HTTPS. It acts as a server (TCP/IP or local sockets) 
 	     which allows binary requests to be sent to R. Every
 	     connection has a separate workspace and working
 	     directory. Client-side implementations are available
-	     for popular languages such as C/C++ and Java, allowing
-	     any application to use facilities of R without the need of
-	     linking to R code. Rserve supports remote connection,
+	     for many popular languages allowing applications
+	     to use facilities of R without the need of linking to
+	     the R binary. Rserve supports remote connections,
 	     user authentication and file transfer. A simple R client
-	     is included in this package as well. In addition, it can
-	     also act as a secure WebSockets and HTTP/HTTPS server.
+	     is included in this package as well. It also supports
+	     OCAP mode for secure remote procedure calls,
+	     including support for full event loop, asynchronous
+	     results/graphics and console I/O.
 License: GPL-2 | file LICENSE
 URL: https://www.rforge.net/Rserve/
-BugReports: https://github.com/s-u/Rserve
+BugReports: https://github.com/s-u/Rserve/issues/
 Biarch: true
