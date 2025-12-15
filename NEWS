@@ -7,6 +7,10 @@ NOTE: Rserve 1.8 series has many new features, but it has also removed
       whether they may be resurrected for the 1.9 series. If you don't
       know what it means, just ignore this note.
 
+1.8-16	2025-12-15
+    o	Adapt to API changes in R 4.6.0
+
+
 1.8-15	2024-12-10
     o	The static HTTP/HTTPS handers are now officially supported
 	so Rserve.http.add.static() is now exported and documented.
