@@ -1,4 +1,4 @@
-on: [push, pull_request]
+on: [push, pull_request, workflow_dispatch]
 
 name: check
 
@@ -11,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ macOS-13, macOS-14, ubuntu-22.04, windows-2022 ]
+        os: [ macos-14, macos-15-intel, windows-2022, ubuntu-22.04, ubuntu-24.04 ]
         r-version: [ devel ]
 
     steps:
@@ -27,7 +27,7 @@ jobs:
           r-version: ${{ matrix.r-version }}
           tools: base
 
-      - uses: s-u/R-actions/pkg-check@v2
+      - uses: s-u/R-actions/pkg-check@master
         with:
           debian-deps: libssl-dev
           macos-deps: openssl
