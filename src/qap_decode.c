@@ -290,15 +290,16 @@ SEXP decode_to_SEXP(unsigned int **buf)
     if (vatt) {
 	/* if vatt contains "class" we have to set the object bit [we could use classgets(vec,kls) instead] */
 	SEXP head = vatt;
-	int has_class = 0;
+	SEXP has_class = 0;
 	PROTECT(val);
 	SET_ATTRIB(val, vatt);
 	while (head != R_NilValue) {
 	    if (TAG(head) == R_ClassSymbol) {
-		has_class = 1; break;
+		has_class = CAR(head); break;
 	    }
 	    head = CDR(head);
 	}
+#if (R_VERSION < R_Version(4,5,0))
 	if (has_class) /* if it has a class slot, we have to set the object bit */
 	    SET_OBJECT(val, 1);
 #ifdef SET_S4_OBJECT
@@ -307,6 +308,10 @@ SEXP decode_to_SEXP(unsigned int **buf)
 	   we can only flag "pure" S4 objects */
 	if (TYPEOF(val) == S4SXP)
 	    SET_S4_OBJECT(val);
+#endif
+#else /* SET_OBJECT() is not longer in the API so we have to set the class twice */
+	if (has_class)
+	    Rf_setAttrib(val, R_ClassSymbol, has_class);
 #endif
 	UNPROTECT(2); /* vatt + val */
     }

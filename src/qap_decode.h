@@ -7,6 +7,7 @@
 #endif
 
 #include "Rsrv.h"
+#include "rcompat.h"
 
 SEXP QAP_decode(unsigned int **buf);
 

@@ -7,6 +7,7 @@
 #endif
 
 #include "Rsrv.h"
+#include "rcompat.h"
 
 rlen_t QAP_getStorageSize(SEXP x);
 unsigned int* QAP_storeSEXP(unsigned int* buf, SEXP x, rlen_t storage_size);
