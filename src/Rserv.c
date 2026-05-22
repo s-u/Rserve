@@ -4927,6 +4927,8 @@ void Rserve_QAP1_connected(void *thp) {
     printf("done.\n");
 #endif
 #ifdef FORKED
+    /* Honour workdir.clean */
+    Rserve_cleanup();
     /* we should not return to the main loop, but terminate instead */
     exit(0);
 #endif
