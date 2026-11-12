@@ -7,6 +7,63 @@ NOTE: Rserve 1.8 series has many new features, but it has also removed
       whether they may be resurrected for the 1.9 series. If you don't
       know what it means, just ignore this note.
 
+1.8-20	(under development)
+    o	The HTTP server now supports byte ranges for static content
+	(Range: and If-Range: headers, single ranges only) and
+	Expect: 100-continue. Requests for a directory without a
+	trailing slash are redirected (301) if the static handler
+	has an index file so that relative links work. Those features
+	have been back-ported from the webserver package.
+
+    o	The HTTP server now supports pipelined requests (previously
+	a pipelined request caused the connection to be closed
+	without a response).
+
+    o	The HTTP server is more strict in parsing requests (as
+	required by RFC 9112) to avoid ambiguities that could be
+	used for request smuggling: invalid or conflicting
+	Content-Length: headers, whitespace before the colon in
+	header names and multiple Host: headers are rejected with 400,
+	Transfer-Encoding: (not supported) with 501. Paths containing
+	%00 are rejected with 400.
+
+    o	Responses with the status codes 1xx, 204 and 304 from the R
+	handler no longer include a body nor Content-Length:.
+
+    o	'+' in the URL path is no longer decoded as a space (it is only
+	a space in the query part).
+
+    o	Incomplete requests and truncated bodies due to a closed
+	connection are no longer passed to the R handler.
+
+    o	Fixed several issues in the HTTP request parser: off-by-one
+	error in the detection of a full buffer and CRLF split across
+	packets.
+
+    o	On Windows, \ and : are now removed from the request path of
+	static handlers as they could be used to access files outside
+	of the document root.
+
+    o	Fixed the validation of the index argument and memory leaks
+	in Rserve.http.add.static(). Rserve.http.rm.all.statics() now
+	correctly releases all handlers.
+
+    o	WebSocket handshake fixes: requests split across packets are
+	now handled correctly, missing or overlong keys are rejected
+	with 400 (previously could crash the connection process), the
+	Upgrade: header value is case-insensitive. Fixed the decoding
+	of frames with 64-bit lengths.
+
+    o	tls.cert can now contain a certificate chain (as issued
+	e.g. by Let's Encrypt) which is sent to the client.
+
+    o	tls.client=match: now checks all occurrences of the client's
+	CN in the list. Fixed missing argument in a log message.
+
+    o	Fixed out-of-bounds access when a --RS-* command line option
+	was missing its argument.
+
+
 1.8-19	2026-03-24
     o	Fix regression in 1.8-18 which broke obtaining OCAP symbols.
 
