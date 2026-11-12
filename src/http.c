@@ -231,14 +231,15 @@ static int send_http_response(args_t *c, const char *text) {
     return send_response(c, text, strlen(text));
 }
 
-/* decode URI in place (decoding never expands) */
-static void uri_decode(char *s)
+/* decode URI in place (decoding never expands)
+   returns non-zero if the input decodes to a NUL byte (which would silently
+   truncate the path) */
+static int uri_decode(char *s)
 {
+    int bad = 0;
     char *t = s;
     while (*s) {
-		if (*s == '+') { /* + -> SPC */
-			*(t++) = ' '; s++;
-		} else if (*s == '%') {
+		if (*s == '%') { /* NOTE: '+' is literal in paths, only the query uses it for SPC */
 			unsigned char ec = 0;
 			s++;
 			if (*s >= '0' && *s <= '9') ec |= ((unsigned char)(*s - '0')) << 4;
@@ -249,10 +250,12 @@ static void uri_decode(char *s)
 			else if (*s >= 'a' && *s <= 'f') ec |= (unsigned char)(*s - 'a' + 10);
 			else if (*s >= 'A' && *s <= 'F') ec |= (unsigned char)(*s - 'A' + 10);
 			if (*s) s++;
+			if (!ec) bad = 1;
 			*(t++) = (char) ec;
 		} else *(t++) = *(s++);
     }
     *t = 0;
+    return bad;
 }
 
 /* parse a query string into a named character vector - must NOT be
@@ -551,6 +554,18 @@ static void sanitize_path(char *path) {
 	unsigned char *src = (unsigned char*) path, *dst = (unsigned char*) path;
 	int pos = 0;
 	DBG(fprintf(stderr, "path: '%s' sanitizing\n", path));
+#ifdef _WIN32
+	/* Windows accepts \ as a separator and : introduces drives and
+	   NTFS streams, so neither may reach the file system as is */
+	for (; *src; src++) {
+		if (*src == '\\')
+			*src = '/';
+		if (*src != ':')
+			*(dst++) = *src;
+	}
+	*dst = 0;
+	src = dst = (unsigned char*) path;
+#endif
 	while (*src) {
 		if (!pos) {
 			if (src[0] == '.') {
@@ -611,7 +626,11 @@ static void process_request(args_t *c)
     }
 	if (!s_http_request_fn)
 		s_http_request_fn = install(".http.request");
-    uri_decode(c->url); /* decode the path part */
+    if (uri_decode(c->url)) { /* decode the path part */
+		send_http_response(c, " 400 Bad Request (invalid path encoding)\r\nConnection: close\r\nContent-length: 0\r\n\r\n");
+		c->attr |= CONNECTION_CLOSE;
+		return;
+    }
 
 	/* it would be nice if we could re-use the code from forward.c,
 	   but for now they are separate. FIXME: move the forward
