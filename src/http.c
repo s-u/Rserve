@@ -44,6 +44,8 @@
 #define CONTENT_TYPE      0x0040 /* message has a specific content type set */
 #define CONTENT_FORM_UENC 0x0080 /* message content type is application/x-www-form-urlencoded */
 #define WS_UPGRADE        0x0100 /* upgrade to WebSockets protocol */
+#define BAD_LENGTH        0x0200 /* conflicting or malformed Content-Length: */
+#define TRANSFER_ENCODING 0x0400 /* Transfer-Encoding: was specified (unsupported) */
 
 struct buffer {
     struct buffer *next, *prev;
@@ -787,6 +789,15 @@ static void process_request(args_t *c)
 				if (TYPEOF(xNames) == STRSXP && LENGTH(xNames) > 0 &&
 					(!strcmp(CHAR(STRING_ELT(xNames, 0)), "file") || (is_tmp = !strcmp(CHAR(STRING_ELT(xNames, 0)), "tmpfile"))))
 					fn = cs;
+				/* 1xx, 204 and 304 responses can NOT have a body nor Content-Length
+				   (RFC 9110, 8.6 and RFC 9112, 6.3) - any payload is ignored */
+				if (code < 200 || code == 204 || code == 304) {
+					send_response(c, "\r\n\r\n", 4);
+					if (is_tmp) unlink(fn);
+					UNPROTECT(7);
+					fin_request(c);
+					return;
+				}
 				if (fn) {
 					int res = http_send_file(c, fn, 0, 0, 0);
 					if (res == -2) { /* cannot open */
@@ -828,6 +839,13 @@ static void process_request(args_t *c)
 						send_response(c, "\r\n", 2);
 						send_response(c, hs, strlen(hs));
 					}
+				}
+				/* no body nor Content-Length in 1xx, 204 and 304 (see above) */
+				if (code < 200 || code == 204 || code == 304) {
+					send_response(c, "\r\n\r\n", 4);
+					UNPROTECT(7);
+					fin_request(c);
+					return;
 				}
 				snprintf(buf, sizeof(buf)-1, "\r\nContent-length: %u\r\n\r\n", LENGTH(y));
 				send_response(c, buf, strlen(buf));
@@ -900,6 +918,16 @@ static void http_input_iteration(args_t *c) {
 				DBG(printf(" end of request, moving to body\n"));
 				if (!(c->attr & HTTP_1_0) && !(c->attr & HOST_HEADER)) { /* HTTP/1.1 mandates Host: header */
 					send_http_response(c, " 400 Bad Request (Host: missing)\r\nConnection: close\r\n\r\n");
+					http_close(c);
+					return;
+				}
+				if (c->attr & TRANSFER_ENCODING) { /* we cannot decode chunked bodies, so do not misread them as new requests */
+					send_http_response(c, " 501 Not Implemented (Transfer-Encoding)\r\nConnection: close\r\nContent-length: 0\r\n\r\n");
+					http_close(c);
+					return;
+				}
+				if (c->attr & BAD_LENGTH) {
+					send_http_response(c, " 400 Bad Request (invalid Content-Length)\r\nConnection: close\r\nContent-length: 0\r\n\r\n");
 					http_close(c);
 					return;
 				}
@@ -1054,10 +1082,23 @@ static void http_input_iteration(args_t *c) {
 							}
 						}
 						/* lower-case all header names */
-						while (*k && *k != ':') {
-							if (*k >= 'A' && *k <= 'Z')
-								*k |= 0x20;
-							k++;
+						{
+							int ws = 0;
+							while (*k && *k != ':') {
+								if (*k >= 'A' && *k <= 'Z')
+									*k |= 0x20;
+								else if (*k == ' ' || *k == '\t')
+									ws = 1;
+								k++;
+							}
+							/* whitespace in the field name (incl. before the colon) must be rejected
+							   (RFC 9112, 5.1), otherwise e.g. "Content-Length : n" would be ignored
+							   and the body misread as the next request (request smuggling) */
+							if (ws && *k == ':') {
+								send_http_response(c, " 400 Bad Request (invalid header)\r\nConnection: close\r\nContent-length: 0\r\n\r\n");
+								http_close(c);
+								return;
+							}
 						}
 						if (*k == ':') {
 							*(k++) = 0;
@@ -1066,9 +1107,17 @@ static void http_input_iteration(args_t *c) {
 							if (!strcmp(bol, "upgrade") && !strcmp(k, "websocket"))
 								c->attr |= WS_UPGRADE;
 							if (!strcmp(bol, "content-length")) {
+								char *ep;
+								long cl = strtol(k, &ep, 10);
+								while (*ep == ' ' || *ep == '\t') ep++;
+								/* the value must be a number and a repeated header must agree */
+								if (ep == k || *ep || ((c->attr & CONTENT_LENGTH) && cl != c->content_length))
+									c->attr |= BAD_LENGTH;
 								c->attr |= CONTENT_LENGTH;
-								c->content_length = atol(k);
+								c->content_length = cl;
 							}
+							if (!strcmp(bol, "transfer-encoding"))
+								c->attr |= TRANSFER_ENCODING;
 							if (!strcmp(bol, "content-type")) {
 								char *l = k;
 								/* change the content type to lower case,
@@ -1082,8 +1131,14 @@ static void http_input_iteration(args_t *c) {
 								if (!strncmp(k, "application/x-www-form-urlencoded", 33))
 									c->attr |= CONTENT_FORM_UENC;
 							}
-							if (!strcmp(bol, "host"))
+							if (!strcmp(bol, "host")) {
+								if (c->attr & HOST_HEADER) { /* more than one Host: is invalid (RFC 9112, 3.2) */
+									send_http_response(c, " 400 Bad Request (multiple Host:)\r\nConnection: close\r\nContent-length: 0\r\n\r\n");
+									http_close(c);
+									return;
+								}
 								c->attr |= HOST_HEADER;
+							}
 							if (!strcmp(bol, "connection")) {
 								char *l = k;
 								while (*l) { if (*l >= 'A' && *l <= 'Z') *l |= 0x20; l++; }
