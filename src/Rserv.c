@@ -2979,12 +2979,16 @@ int check_tls_client(int verify, const char *cn) {
 
 	/* valid cert, let's see if we have specific match requirements */
 	if (tls_client_match) {
-		if (cn) {
-			const char *c = strstr(tls_client_match, cn);
-			if (c && (c == tls_client_match || c[-1] == ',') &&
-				(c[cnl] == ',' || !c[cnl])) {
-				ulog("INFO: TLS client '%s' matched, allowing", cn);
-				return 0;
+		if (cn && cnl) {
+			/* the CN may also be a substring of another entry, so check all occurrences */
+			const char *c = tls_client_match;
+			while ((c = strstr(c, cn))) {
+				if ((c == tls_client_match || c[-1] == ',') &&
+					(c[cnl] == ',' || !c[cnl])) {
+					ulog("INFO: TLS client '%s' matched, allowing", cn);
+					return 0;
+				}
+				c++;
 			}
 		}
 		ulog("INFO: TLS client '%s' fails match rule", cn ? cn : "<NULL>");
@@ -3011,7 +3015,7 @@ int check_tls_client(int verify, const char *cn) {
 	}
 
 	if (!failed)
-		ulog("INFO: TLS client '%s' has valid certificate, no rules to apply, allowing");
+		ulog("INFO: TLS client '%s' has valid certificate, no rules to apply, allowing", cn ? cn : "<NULL>");
 
 	return failed ? 1 : 0;
 }

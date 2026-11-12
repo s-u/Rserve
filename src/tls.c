@@ -49,8 +49,10 @@ int set_tls_pk(tls_t *tls, const char *fn) {
     return SSL_CTX_use_PrivateKey_file(tls->ctx, fn, SSL_FILETYPE_PEM);
 }
 
+/* the file may contain the full chain (certificate first, then the
+   intermediate CAs), they are all sent to the client */
 int set_tls_cert(tls_t *tls, const char *fn) {
-    return SSL_CTX_use_certificate_file(tls->ctx, fn, SSL_FILETYPE_PEM);
+    return SSL_CTX_use_certificate_chain_file(tls->ctx, fn);
 }
 
 int set_tls_ca(tls_t *tls, const char *fn_ca, const char *path_ca) {
