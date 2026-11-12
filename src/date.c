@@ -41,7 +41,7 @@ char *posix2http(double ts) {
 static int lookup(const char *c, const char **where, int n) {
     int i;
     for (i = 0; i < n; i++)
-	if (!memcmp(c, where[i], 3)) return i;
+	if (!strncmp(c, where[i], 3)) return i; /* c may be shorter than 3 chars */
     return -1;
 }
 

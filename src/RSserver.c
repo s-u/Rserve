@@ -28,7 +28,7 @@ static int active_srv_sockets[MAX_SRVS];
 
 static void add_active_srv_socket(int s) {
 	int i = 0;
-	while (active_srv_sockets[i] && i < MAX_SRVS) {
+	while (i < MAX_SRVS && active_srv_sockets[i]) {
 		if (active_srv_sockets[i] == s) return;
 		i++;
 	}

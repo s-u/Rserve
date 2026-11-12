@@ -72,8 +72,10 @@ int main(int argc, char **argv)
 		if (argv[i] && *argv[i] == '-' && argv[i][1] == '-') {
 			if (!strcmp(argv[i] + 2, "RS-port")) {
 				isRSP = 1;
-				if (++i == argc)
+				if (++i == argc) { /* argv[argc] is NULL, so we cannot continue */
 					fprintf(stderr,"Missing port specification for --RS-port.\n");
+					break;
+				}
 				else {
 					port = satoi(argv[i]);
 					if (port < 1) {
@@ -84,8 +86,10 @@ int main(int argc, char **argv)
 			}
 			if (!strcmp(argv[i] + 2, "RS-dumplimit")) {
 				isRSP = 1;
-				if (++i == argc)
+				if (++i == argc) { /* argv[argc] is NULL, so we cannot continue */
 					fprintf(stderr,"Missing limit specification for --RS-dumplimit.\n");
+					break;
+				}
 				else {
 #ifdef RSERV_DEBUG
 					dumpLimit = satoi(argv[i]);
@@ -94,43 +98,55 @@ int main(int argc, char **argv)
 			}
 			if (!strcmp(argv[i] + 2, "RS-socket")) {
 				isRSP = 1;
-				if (++i == argc)
+				if (++i == argc) { /* argv[argc] is NULL, so we cannot continue */
 					fprintf(stderr,"Missing socket specification for --RS-socket.\n");
+					break;
+				}
 				else
 					localSocketName = argv[i];
 			}
 			if (!strcmp(argv[i] + 2, "RS-encoding")) {
 				isRSP = 1;
-				if (++i == argc)
-		    fprintf(stderr,"Missing socket specification for --RS-encoding.\n");
+				if (++i == argc) { /* argv[argc] is NULL, so we cannot continue */
+					fprintf(stderr,"Missing encoding specification for --RS-encoding.\n");
+					break;
+				}
 				else
 					set_string_encoding(argv[i], 1);
 			}
 			if (!strcmp(argv[i] + 2, "RS-workdir")) {
 				isRSP = 1;
-				if (++i == argc)
+				if (++i == argc) { /* argv[argc] is NULL, so we cannot continue */
 					fprintf(stderr,"Missing directory specification for --RS-workdir.\n");
+					break;
+				}
 				else
 					workdir=argv[i];
 			}
 			if (!strcmp(argv[i] + 2, "RS-conf")) {
 				isRSP = 1;
-				if (++i == argc)
+				if (++i == argc) { /* argv[argc] is NULL, so we cannot continue */
 					fprintf(stderr,"Missing config file specification for --RS-conf.\n");
+					break;
+				}
 				else
 					loadConfig(argv[i]);
 			}
 			if (!strcmp(argv[i] + 2, "RS-source")) {
 				isRSP = 1;
-				if (++i == argc)
+				if (++i == argc) { /* argv[argc] is NULL, so we cannot continue */
 					fprintf(stderr,"Missing R file specification for --RS-source.\n");
+					break;
+				}
 				else
 					setConfig("source", argv[i]);
 			}
 			if (!strcmp(argv[i] + 2, "RS-pidfile")) {
 				isRSP = 1;
-				if (++i == argc)
+				if (++i == argc) { /* argv[argc] is NULL, so we cannot continue */
 					fprintf(stderr,"Missing file specification for --RS-pidfile.\n");
+					break;
+				}
 				else
 					setConfig("pid.file", argv[i]);
 			}
@@ -144,8 +160,10 @@ int main(int argc, char **argv)
 			}
 			if (!strcmp(argv[i] + 2, "RS-set")) {
 				isRSP = 1;
-                if (++i == argc)
+                if (++i == argc) { /* argv[argc] is NULL, so we cannot continue */
 					fprintf(stderr,"Missing argument for --RS-set.\n");
+					break;
+				}
 				else {
 					char *c = argv[i], *c2 = strchr(c, '=');
 					if (!c2) 
@@ -160,9 +178,10 @@ int main(int argc, char **argv)
 			}
 			if (!strcmp(argv[i] + 2, "RS-simple-http") || !strcmp(argv[i] + 2, "RS-simple-http-only")) {
 				isRSP = 1;
-				if (++i == argc)
-                    fprintf(stderr,"Missing argument for --RS-simple-http[-only].\n");
-                else {
+				if (++i == argc) { /* argv[argc] is NULL, so we cannot continue */
+					fprintf(stderr,"Missing argument for --RS-simple-http[-only].\n");
+					break;
+				} else {
 					http_add_static_handler("/", argv[i], "index.html", argv[i - 1][16] ? HSF_STOP : 0);
 					enable_qap = 0; /* disable QAP */
 					if (http_port < 0) /* -1 = default */
