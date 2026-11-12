@@ -404,11 +404,11 @@ void http_rm_static_handler(void *hs) {
 	if (http_statics == h)
 		http_statics = h->next;
 	else {
-		http_static *h = http_statics;
-		while (h && h->next != hs)
-			h = h->next;
-		if (h)
-			h->next = h->next->next;
+		http_static *p = http_statics;
+		while (p && p->next != h)
+			p = p->next;
+		if (p)
+			p->next = h->next;
 		else
 			return; /* not found */
 	}
@@ -419,7 +419,7 @@ void http_rm_all_static_handlers(void) {
 	while (http_statics) {
 		http_static *h = http_statics;
 		http_statics = h->next;
-		http_rm_static_handler(h);
+		http_free_static_handler(h);
 	}
 }
 
@@ -432,12 +432,13 @@ SEXP Rserve_http_add_static(SEXP sPrefix, SEXP sPath, SEXP sIndex, SEXP sFlags) 
 		Rf_error("Invalid prefix, must be a string");
 	if (TYPEOF(sPath) != STRSXP || LENGTH(sPath) != 1)
 		Rf_error("Invalid path, must be a string");
-	if (!((TYPEOF(sIndex) == STRSXP && LENGTH(sPath) == 1) || sIndex == R_NilValue))
+	if (!((TYPEOF(sIndex) == STRSXP && LENGTH(sIndex) == 1) || sIndex == R_NilValue))
 		Rf_error("Invalid index, must be NULL or a string");
-	
-	if (!http_add_static_handler(strdup(CHAR(STRING_ELT(sPrefix, 0))),
-								 strdup(CHAR(STRING_ELT(sPath, 0))),
-								 (sIndex == R_NilValue) ? 0 : strdup(CHAR(STRING_ELT(sIndex, 0))),
+
+	/* http_add_static_handler() makes its own copies */
+	if (!http_add_static_handler(CHAR(STRING_ELT(sPrefix, 0)),
+								 CHAR(STRING_ELT(sPath, 0)),
+								 (sIndex == R_NilValue) ? 0 : CHAR(STRING_ELT(sIndex, 0)),
 								 Rf_asInteger(sFlags)))
 		Rf_error("Cannot allocate handler structure.");
 	h = http_statics;
