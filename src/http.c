@@ -872,18 +872,25 @@ static void http_input_iteration(args_t *c) {
      * into one packet. */
     if (c->part < PART_BODY) {
 		char *s = c->line_buf;
-		n = srv->recv(c, c->line_buf + c->line_pos, LINE_BUF_SIZE - c->line_pos - 1);
-		DBG(printf("[recv n=%d, line_pos=%d, part=%d]\n", n, c->line_pos, (int)c->part));
-		if (n < 0) { /* error, scrape this worker */
-			http_close(c);
-			return;
+		/* if a complete line is left over from the previous request
+		   (pipelining), process it before reading more since the
+		   client may be waiting for the response. NOTE: the parser
+		   below stops at NUL, so we must use the same view here,
+		   otherwise we would never read again */
+		c->line_buf[c->line_pos] = 0;
+		if (!c->line_pos || !strchr(c->line_buf, '\n')) {
+			n = srv->recv(c, c->line_buf + c->line_pos, LINE_BUF_SIZE - c->line_pos - 1);
+			DBG(printf("[recv n=%d, line_pos=%d, part=%d]\n", n, c->line_pos, (int)c->part));
+			if (n < 0) { /* error, scrape this worker */
+				http_close(c);
+				return;
+			}
+			if (n == 0) { /* connection closed before the request was complete - drop it */
+				http_close(c);
+				return;
+			}
+			c->line_pos += n;
 		}
-		if (n == 0) { /* connection closed -> try to process and then remove */
-			process_request(c);
-			http_close(c);
-			return;
-		}
-		c->line_pos += n;
 		c->line_buf[c->line_pos] = 0;
 		DBG(printf("in buffer: {%s}\n", c->line_buf));
 		while (*s) {
@@ -944,7 +951,10 @@ static void http_input_iteration(args_t *c) {
 				c->body_pos = (c->content_length < c->line_pos) ? c->content_length : c->line_pos;
 				if (c->body_pos) {
 					memcpy(c->body, c->line_buf, c->body_pos);
-					c->line_pos -= c->body_pos; /* NOTE: we are NOT moving the buffer since non-zero left-over causes connection close */
+					c->line_pos -= c->body_pos;
+					/* keep anything after the body (pipelined request) */
+					if (c->line_pos)
+						memmove(c->line_buf, c->line_buf + c->body_pos, c->line_pos);
 				}
 				/* POST will continue into the BODY part */
 				break;
@@ -952,9 +962,10 @@ static void http_input_iteration(args_t *c) {
 			{
 				char *bol = s;
 				while (*s && *s != '\r' && *s != '\n') s++;
-				if (!*s) { /* incomplete line */
+				/* a trailing CR may be the first half of CRLF: wait for more data */
+				if (!*s || (*s == '\r' && !s[1])) { /* incomplete line */
 					if (bol == c->line_buf) {
-						if (c->line_pos < LINE_BUF_SIZE) /* one, incomplete line, but the buffer is not full yet, just return */
+						if (c->line_pos < LINE_BUF_SIZE - 1) /* one, incomplete line, but the buffer is not full yet (one byte is reserved for the NUL), just return */
 							return;
 						/* the buffer is full yet the line is incomplete - we're in trouble */
 						send_http_response(c, " 413 Request entity too large\r\nConnection: close\r\n\r\n");
@@ -988,6 +999,11 @@ static void http_input_iteration(args_t *c) {
 							/* we generate a header with the method so it can be passed to the handler */
 							if (!c->headers)
 								c->headers = alloc_buffer(1024, NULL);
+							if (!c->headers) {
+								send_http_response(c, " 500 Out of memory\r\nConnection: close\r\nContent-length: 0\r\n\r\n");
+								http_close(c);
+								return;
+							}
 							/* make sure it fits */
 							if (c->headers->size - c->headers->length >= 18 + (mend - bol)) {
 								if (!c->method) c->method = METHOD_OTHER;
@@ -1108,8 +1124,7 @@ static void http_input_iteration(args_t *c) {
 				http_close(c);
 				return;
 			}
-			if (n == 0) { /* connection closed -> try to process and then remove */
-				process_request(c);
+			if (n == 0) { /* connection closed before the body was complete - drop it */
 				http_close(c);
 				return;
 			}
@@ -1117,7 +1132,7 @@ static void http_input_iteration(args_t *c) {
 		}
 		if (c->body_pos == c->content_length) { /* yay! we got the whole body */
 			process_request(c);
-			if (c->attr & CONNECTION_CLOSE || c->line_pos) { /* we have to close the connection if there was a double-hit */
+			if (c->attr & CONNECTION_CLOSE) {
 				http_close(c);
 				return;
 			}
@@ -1129,7 +1144,7 @@ static void http_input_iteration(args_t *c) {
 			if (c->ws_key) { free(c->ws_key); c->ws_key = NULL; }
 			if (c->ws_protocol) { free(c->ws_protocol); c->ws_protocol = NULL; }
 			if (c->ws_version) { free(c->ws_version); c->ws_version = NULL; }
-			c->line_pos = 0; c->body_pos = 0;
+			c->body_pos = 0; /* NOTE: line_pos may be non-zero if the next request was pipelined */
 			c->method = 0;
 			c->part = PART_REQUEST;
 			c->attr = 0;
@@ -1182,8 +1197,7 @@ static void http_input_iteration(args_t *c) {
 			http_close(c);
 			return;
 		}
-		if (n == 0) { /* connection closed -> try to process and then remove */
-			process_request(c);
+		if (n == 0) { /* connection closed before the request was complete - drop it */
 			http_close(c);
 			return;
 		}
