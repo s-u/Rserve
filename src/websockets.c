@@ -182,26 +182,32 @@ static void WS_connected(void *parg) {
 
 	while ((n = WS_wire_recv(arg, buf + bp, LINE_BUF_SIZE - bp - 1)) > 0) {
 		char *c = buf, *nl = c;
-#ifdef RSERV_DEBUG
+		/* terminate the data, otherwise the parser below would see stale
+		   content from previous reads */
 		buf[bp + n] = 0;
+#ifdef RSERV_DEBUG
 		printf("INFO:WS: recv(%d, %d) = %d\n%s\n---\n", bp, LINE_BUF_SIZE - bp - 1, n, buf);
 #endif
 		bp += n;
 		while (*c) {
-			char *dc = 0, *kc;
+			char *dc = 0, *kc, *e;
 			while (*c == ' ' || *c == '\t') c++;
 			kc = c;
-			while (*c && *c != '\n') {
-				if (!dc) {
-					if (*c >= 'A' && *c <= 'Z') *c |= 0x20; /* to lower */
-					if (*c == ':') {
-						*c = 0;
-						dc = c + 1;
+			/* only touch complete lines, an incomplete one is
+			   processed once the rest has arrived */
+			if (!(e = strchr(c, '\n')))
+				break;
+			if (!request_line) /* split off and lower-case the header name */
+				for (; c < e; c++)
+					if (!dc) {
+						if (*c >= 'A' && *c <= 'Z') *c |= 0x20; /* to lower */
+						if (*c == ':') {
+							*c = 0;
+							dc = c + 1;
+						}
 					}
-				}
-				c++;
-			}
-			if (*c) { /* next full line */
+			c = e;
+			{ /* next full line */
 				nl = c + 1;
 				if (c > buf && *(c - 1) == '\r') *(c - 1) = 0;
 				*c = 0;
@@ -303,7 +309,8 @@ static void WS_connected(void *parg) {
 				return;
 			}
 		}
-		if (!h.origin || !h.key1 || !h.key2 || !h.host) {
+		if (!h.origin || !h.key1 || !h.key2 || !h.host ||
+			!count_spaces(h.key1) || !count_spaces(h.key2)) { /* the number of spaces is the divisor below */
 			strcpy(buf, "HTTP/1.1 400 Bad Request (at least one key header is missing)\r\n\r\n");
 			WS_wire_send(arg, buf, strlen(buf));
 			WS_wire_close(arg);
@@ -337,6 +344,18 @@ static void WS_connected(void *parg) {
 	} else {
 		unsigned char hash[21];
 		char b64[40];
+		/* the key is 16 bytes in base64 (24 characters), anything much
+		   longer is invalid (and could overflow buf below) */
+		if (!h.key || strlen(h.key) > 128) {
+			strcpy(buf, "HTTP/1.1 400 Bad Request (invalid Sec-WebSocket-Key)\r\n\r\n");
+			WS_wire_send(arg, buf, strlen(buf));
+			WS_wire_close(arg);
+			arg->s = -1;
+			free(buf);
+			free_header(&h);
+			free(arg);
+			return;
+		}
 		strcpy(buf, h.key);
 		strcat(buf, "258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
 		sha1hash(buf, strlen(buf), hash);
@@ -382,6 +401,13 @@ void WS13_upgrade(args_t *arg, const char *key, const char *protocol, const char
 	unsigned char hash[21];
 	char b64[44];
 	server_t *srv;
+	/* the key is 16 bytes in base64 (24 characters), anything much
+	   longer is invalid (and would be truncated below) */
+	if (!key || strlen(key) > 128) {
+		strcpy(buf, "HTTP/1.1 400 Bad Request (invalid Sec-WebSocket-Key)\r\nConnection: close\r\nContent-length: 0\r\n\r\n");
+		arg->srv->send(arg, buf, strlen(buf));
+		return;
+	}
 	srv = (arg->srv->flags & WS_TLS) ? wss_upgrade_srv : ws_upgrade_srv;
 	if (!srv) {
 		srv = (server_t*) calloc(1, sizeof(server_t));
@@ -408,7 +434,7 @@ void WS13_upgrade(args_t *arg, const char *key, const char *protocol, const char
 		arg->tls_arg = tls_arg;
 	}
 
-	strncpy(buf, key, sizeof(buf) - 50);
+	strcpy(buf, key); /* fits, see the check above */
 	strcat(buf, "258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
 	sha1hash(buf, strlen(buf), hash);
 	hash[20] = 0; /* base64encode needs NUL sentinel */
@@ -637,6 +663,7 @@ static ssize_t WS_recv_data(args_t *arg, void *buf, size_t read_len) {
 			/* now we're in-frame - this is silly but makes the processing easier */
 			arg->flags |= F_INFRAME;
 			memmove(arg->buf, arg->buf + 1, arg->bp - 1);
+			arg->bp--;
 		}
 
 		/* first check if we can satify any need by using contents of the buffer */
@@ -754,7 +781,7 @@ static ssize_t WS_recv_data(args_t *arg, void *buf, size_t read_len) {
 				return -1;
 			}
 #define SH(X,Y) (((uint64_t)X) << Y)
-			uint64_t raw_len = SH(fr[4], 48) | SH(fr[5], 40) | SH(fr[5], 32) | SH(fr[6], 24) | SH(fr[7], 16) | SH(fr[8], 8) | (uint64_t)fr[9];
+			uint64_t raw_len = SH(fr[4], 40) | SH(fr[5], 32) | SH(fr[6], 24) | SH(fr[7], 16) | SH(fr[8], 8) | (uint64_t)fr[9];
 			if (raw_len > rlen_max - 64L) {
 #ifdef RSERV_DEBUG
 				fprintf(stderr, "WS_recv_data: requested frame length is larger than rlen_max for this platform\n");

@@ -699,6 +699,12 @@ static void process_request(args_t *c)
     DBG(Rprintf("process request for %p\n", (void*) c));
     if (!c || !c->url) return; /* if there is not enough to process, bail out */
 	if ((c->attr & WS_UPGRADE) && (c->srv->flags & HTTP_WS_UPGRADE)) {
+		/* the key is 16 bytes in base64 (24 characters) */
+		if (!c->ws_key || strlen(c->ws_key) > 128) {
+			send_http_response(c, " 400 Bad Request (invalid Sec-WebSocket-Key)\r\nConnection: close\r\nContent-length: 0\r\n\r\n");
+			c->attr |= CONNECTION_CLOSE;
+			return;
+		}
 		WS13_upgrade(c, c->ws_key, c->ws_protocol, c->ws_version);
 		/* the WS swtich messes up args since it replaces it with its own version so
 		   we can't go back to serving - just bail out (NOTE: only works when forked!) */
@@ -1244,8 +1250,13 @@ static void http_input_iteration(args_t *c) {
 							*(k++) = 0;
 							while (*k == ' ' || *k == '\t') k++;
 							DBG(printf("header '%s' => '%s'\n", bol, k));
-							if (!strcmp(bol, "upgrade") && !strcmp(k, "websocket"))
-								c->attr |= WS_UPGRADE;
+							if (!strcmp(bol, "upgrade")) {
+								/* the protocol name is case-insensitive */
+								char *l = k;
+								while (*l) { if (*l >= 'A' && *l <= 'Z') *l |= 0x20; l++; }
+								if (!strcmp(k, "websocket"))
+									c->attr |= WS_UPGRADE;
+							}
 							if (!strcmp(bol, "content-length")) {
 								char *ep;
 								long cl = strtol(k, &ep, 10);
