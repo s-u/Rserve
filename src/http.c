@@ -46,6 +46,7 @@
 #define WS_UPGRADE        0x0100 /* upgrade to WebSockets protocol */
 #define BAD_LENGTH        0x0200 /* conflicting or malformed Content-Length: */
 #define TRANSFER_ENCODING 0x0400 /* Transfer-Encoding: was specified (unsupported) */
+#define EXPECT_CONTINUE   0x0800 /* Expect: 100-continue was specified */
 
 struct buffer {
     struct buffer *next, *prev;
@@ -459,7 +460,9 @@ static char http_tmp[512];
 /* 0 = ok, sent
   -1 = failure during transmission, have to close
   -2 = file cannot be read (nothing sent) */
-static int http_send_file(args_t *c, const char *fn, size_t fsz, int size_valid, const char *preamble) {
+/* offset: if non-zero, start sending at that byte offset, fsz must be valid
+   and is the number of bytes to send (not the file size) */
+static int http_send_file(args_t *c, const char *fn, size_t fsz, int size_valid, const char *preamble, size_t offset) {
 	char *fbuf;
 	char buf[64];
 	FILE *f = fopen(fn, "rb");
@@ -470,6 +473,10 @@ static int http_send_file(args_t *c, const char *fn, size_t fsz, int size_valid,
 		fseek(f, 0, SEEK_END);
 		fsz = (size_t) ftell(f);
 		fseek(f, 0, SEEK_SET);
+	}
+	if (offset && fseek(f, (long) offset, SEEK_SET)) {
+		fclose(f);
+		return -2;
 	}
 	if (preamble)
 		send_http_response(c, preamble);
@@ -600,6 +607,84 @@ static void sanitize_path(char *path) {
 	DBG(fprintf(stderr, "      '%s'\n", path));
 }
 
+/* parse the value of a Range: header for a file of size fsz (> 0).
+   Only a single byte range is supported (including suffix ranges).
+   Returns 1 if valid (start and end are set, end is inclusive),
+   -1 if not satisfiable and 0 if the header should be ignored */
+static int parse_range(const char *v, size_t fsz, size_t *start, size_t *end) {
+	size_t s = 0, e = 0, lim = ((size_t) -1) / 10 - 1;
+	int has_s = 0, has_e = 0;
+	if (strncmp(v, "bytes", 5))
+		return 0;
+	v += 5;
+	while (*v == ' ' || *v == '\t') v++;
+	if (*v != '=')
+		return 0;
+	v++;
+	while (*v == ' ' || *v == '\t') v++;
+	while (*v >= '0' && *v <= '9') {
+		if (s > lim) return 0;
+		s = s * 10 + (size_t) (*(v++) - '0');
+		has_s = 1;
+	}
+	if (*v != '-')
+		return 0;
+	v++;
+	while (*v >= '0' && *v <= '9') {
+		if (e > lim) return 0;
+		e = e * 10 + (size_t) (*(v++) - '0');
+		has_e = 1;
+	}
+	while (*v == ' ' || *v == '\t') v++;
+	/* anything else (e.g., multiple ranges) means we ignore Range: */
+	if ((*v && *v != '\r' && *v != '\n') || (!has_s && !has_e))
+		return 0;
+	if (!has_s) { /* suffix range: last e bytes */
+		if (!e)
+			return -1;
+		*start = (e >= fsz) ? 0 : (fsz - e);
+		*end = fsz - 1;
+		return 1;
+	}
+	if (has_e && e < s) /* invalid, ignore */
+		return 0;
+	if (s >= fsz)
+		return -1;
+	*start = s;
+	*end = (!has_e || e >= fsz) ? (fsz - 1) : e;
+	return 1;
+}
+
+/* send 301 redirect to the request path with a trailing slash */
+static void send_slash_redirect(args_t *c) {
+	static const char *hex = "0123456789ABCDEF";
+	const unsigned char *s = (const unsigned char*) c->url;
+	char *loc = (char*) malloc(strlen(c->url) * 3 + 2), *d = loc;
+	if (!loc) {
+		send_http_response(c, " 500 Out of memory\r\nConnection: close\r\nContent-length: 0\r\n\r\n");
+		c->attr |= CONNECTION_CLOSE;
+		return;
+	}
+	/* the path has been decoded, so we have to encode it again */
+	while (*s) {
+		if ((*s >= 'a' && *s <= 'z') || (*s >= 'A' && *s <= 'Z') ||
+			(*s >= '0' && *s <= '9') || strchr("/-._~!$&'()*+,;=:@", *s))
+			*(d++) = (char) *s;
+		else {
+			*(d++) = '%';
+			*(d++) = hex[*s >> 4];
+			*(d++) = hex[*s & 15];
+		}
+		s++;
+	}
+	*(d++) = '/';
+	*d = 0;
+	send_http_response(c, " 301 Moved Permanently\r\nContent-length: 0\r\nLocation: ");
+	send_response(c, loc, strlen(loc));
+	send_response(c, "\r\n\r\n", 4);
+	free(loc);
+}
+
 /* from date.c */
 char *posix2http(double ts); /* Note: returned buffer is static */
 double http2posix(const char *c);
@@ -665,17 +750,24 @@ static void process_request(args_t *c)
 				/* only sanitize the part coming from the request */
 				sanitize_path(http_tmp + path_len);
 				if (!stat(http_tmp, &st)) { /* path exists */
-					if (st.st_mode & S_IFDIR) { /* if it is a directory, we only accept it if index exists */
+					if (S_ISDIR(st.st_mode)) { /* if it is a directory, we only accept it if index exists */
 						if (hs->index) {
-							size_t http_tmp_len = strlen(http_tmp);
+							size_t http_tmp_len = strlen(http_tmp), url_len = strlen(c->url);
 							if (http_tmp_len > 0 && http_tmp[http_tmp_len - 1] != '/')
 								http_tmp[http_tmp_len++] = '/';
 							strcpy(http_tmp + http_tmp_len, hs->index);
 							DBG(fprintf(stderr, " - target is a directory, try '%s'\n", http_tmp));
-							if (!stat(http_tmp, &st))
+							if (!stat(http_tmp, &st)) {
+								/* relative links in the index only work with a trailing slash, so redirect */
+								if (url_len && c->url[url_len - 1] != '/') {
+									send_slash_redirect(c);
+									fin_request(c);
+									return;
+								}
 								found = 1;
+							}
 						}
-					} else if (st.st_mode & S_IFREG) /* otherwise we only accept regular files */
+					} else if (S_ISREG(st.st_mode)) /* otherwise we only accept regular files */
 						found = 1;
 				}
 				if (!found) {
@@ -686,8 +778,9 @@ static void process_request(args_t *c)
 						return;
 					}
 				} else { /* file found */
-					int not_modified = 0;
-					/* check for conditional GET */
+					int not_modified = 0, range = 0;
+					size_t r_start = 0, r_end = 0;
+					/* check for conditional GET and Range: */
 					if (c->headers) {
 						char *h = collect_buffers_c(c->headers);
 						const char *if_mod = get_header(h, "if-modified-since");
@@ -696,16 +789,39 @@ static void process_request(args_t *c)
 							if (since >= MTIME(st))
 								not_modified = 1;
 						}
+						/* Range: only applies to GET */
+						if (!not_modified && c->method == METHOD_GET && st.st_size > 0) {
+							const char *rh = get_header(h, "range");
+							const char *if_range = get_header(h, "if-range");
+							/* If-Range: must match our Last-Modified: (we have no ETags),
+							   otherwise the full content is sent */
+							if (rh && (!if_range || http2posix(if_range) == MTIME(st)))
+								range = parse_range(rh, (size_t) st.st_size, &r_start, &r_end);
+						}
 						free(h);
 					}
 					if (not_modified) {
 						send_http_response(c, " 304 Not modified\r\nCache-Control: no-cache\r\n\r\n");
+					} else if (range < 0) {
+						char buf[128];
+						snprintf(buf, sizeof(buf), " 416 Range Not Satisfiable\r\nContent-Range: bytes */%llu\r\nContent-length: 0\r\n\r\n",
+								 (unsigned long long) st.st_size);
+						send_http_response(c, buf);
 					} else {
-						char buf[196];
+						char buf[384];
 						double ts = (double) time(0);
-						snprintf(buf, sizeof(buf), " 200 OK\r\nCache-Control: no-cache\r\nContent-type: %s\r\nLast-Modified: %s",
-								 infer_content_type(http_tmp), posix2http((MTIME(st) > ts) ? ts : MTIME(st)));
-						int res = http_send_file(c, http_tmp, (size_t) st.st_size, 1, buf);
+						int res;
+						if (range > 0)
+							snprintf(buf, sizeof(buf), " 206 Partial Content\r\nCache-Control: no-cache\r\nContent-type: %s\r\nLast-Modified: %s\r\nContent-Range: bytes %llu-%llu/%llu",
+									 infer_content_type(http_tmp), posix2http((MTIME(st) > ts) ? ts : MTIME(st)),
+									 (unsigned long long) r_start, (unsigned long long) r_end, (unsigned long long) st.st_size);
+						else
+							snprintf(buf, sizeof(buf), " 200 OK\r\nCache-Control: no-cache\r\nAccept-Ranges: bytes\r\nContent-type: %s\r\nLast-Modified: %s",
+									 infer_content_type(http_tmp), posix2http((MTIME(st) > ts) ? ts : MTIME(st)));
+						if (range > 0)
+							res = http_send_file(c, http_tmp, r_end - r_start + 1, 1, buf, r_start);
+						else
+							res = http_send_file(c, http_tmp, (size_t) st.st_size, 1, buf, 0);
 						if (res == -2) { /* cannot open */
 							send_http_response(c, " 403 Forbidden\r\nContent-Type: text/plain\r\nContent-length: 10\r\n\r\nForbidden\n");
 						}
@@ -819,7 +935,7 @@ static void process_request(args_t *c)
 					return;
 				}
 				if (fn) {
-					int res = http_send_file(c, fn, 0, 0, 0);
+					int res = http_send_file(c, fn, 0, 0, 0, 0);
 					if (res == -2) { /* cannot open */
 						send_response(c, "\r\nContent-length: 0\r\n\r\n", 23);
 						UNPROTECT(7);
@@ -995,6 +1111,10 @@ static void http_input_iteration(args_t *c) {
 					c->content_length = 0;
 					return;
 				}
+				/* the client waits for our go-ahead before sending the body */
+				if ((c->attr & EXPECT_CONTINUE) && IS_HTTP_1_1(c) && c->line_pos < c->content_length)
+					send_http_response(c, " 100 Continue\r\n\r\n");
+
 				/* copy body content (as far as available) */
 				c->body_pos = (c->content_length < c->line_pos) ? c->content_length : c->line_pos;
 				if (c->body_pos) {
@@ -1135,6 +1255,12 @@ static void http_input_iteration(args_t *c) {
 									c->attr |= BAD_LENGTH;
 								c->attr |= CONTENT_LENGTH;
 								c->content_length = cl;
+							}
+							if (!strcmp(bol, "expect")) {
+								char *l = k;
+								while (*l) { if (*l >= 'A' && *l <= 'Z') *l |= 0x20; l++; }
+								if (!strncmp(k, "100-continue", 12))
+									c->attr |= EXPECT_CONTINUE;
 							}
 							if (!strcmp(bol, "transfer-encoding"))
 								c->attr |= TRANSFER_ENCODING;
