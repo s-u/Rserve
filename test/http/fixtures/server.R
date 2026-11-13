@@ -60,6 +60,8 @@ txt <- function(x, code=200L, ct="text/plain", hdr=character()) list(x, ct, hdr,
         f <- tempfile(tmpdir=docroot); writeBin(charToRaw("temporary\n"), f) # no CRLF on Windows
         return(list(tmpfile=f, "text/plain", paste0("X-Tmpfile: ", f), if ("c" %in% names(query)) as.integer(query[["c"]]) else 200L))
     }
+    if (url == "/docfile") # a file from the document root, served by R
+        return(list(file=file.path(docroot, basename(query[["f"]])), "application/octet-stream"))
     if (url == "/missing-file")
         return(list(file="/nonexistent/file.txt", "text/plain"))
     if (url == "/pid") return(txt(as.character(Sys.getpid())))

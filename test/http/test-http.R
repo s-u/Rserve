@@ -40,6 +40,20 @@ test("static: missing -> 404 (last=TRUE)", expect(get("/static/nope.txt")$status
 test("static: missing falls through to R (last=FALSE)", {
     r <- get("/pub/nope.txt"); expect(r$status == 404 && has(r$text, "not found: /pub/nope.txt"), r) })
 test("static: file in a fall-through handler", { r <- get("/pub/hello.txt"); expect(st(r) == "200 hello world\n", st(r)) })
+## > 2GB needs 64-bit file offsets (long is 32-bit on Windows), the file is sparse
+test("static: file > 2GB", {
+    f <- file.path(DOCROOT, "huge.bin"); on.exit(unlink(f))
+    file.create(f)
+    if (WIN) system2("fsutil", c("sparse", "setflag", shQuote(normalizePath(f))), stdout=FALSE, stderr=FALSE)
+    con <- file(f, "r+b"); seek(con, 3e9, rw="write"); writeBin(charToRaw("0123456789"), con); close(con)
+    expect(file.size(f) == 3000000010, file.size(f))
+    r <- request("HEAD", "/static/huge.bin")
+    expect(r$status == 200 && identical(r$headers[["content-length"]], "3000000010"), r)
+    r <- get("/static/huge.bin", headers=list(Range="bytes=3000000005-"))
+    expect(r$status == 206 && identical(r$text, "56789") &&
+           identical(r$headers[["content-range"]], "bytes 3000000005-3000000009/3000000010"), r)
+    r <- request("HEAD", "/docfile?f=huge.bin") # served by R (size from ftell)
+    expect(r$status == 200 && identical(r$headers[["content-length"]], "3000000010"), r) })
 test("static: overlong path -> 414", {
     r <- get(paste0("/static/", strrep("a", 600))); expect(r$status == 414, r) })
 

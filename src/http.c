@@ -457,6 +457,22 @@ SEXP Rserve_http_rm_all_statics(void) {
 
 static char http_tmp[512];
 
+/* long (used by fseek/ftell and the stat size) is 32-bit on Windows,
+   so we have to use the 64-bit variants there to support files > 2GB */
+#ifdef _WIN32
+#define http_fseek _fseeki64
+#define http_ftell _ftelli64
+#define http_off_t __int64
+#define http_stat  _stati64
+typedef struct _stati64 http_stat_t;
+#else
+#define http_fseek fseek
+#define http_ftell ftell
+#define http_off_t long
+#define http_stat  stat
+typedef struct stat http_stat_t;
+#endif
+
 /* 0 = ok, sent
   -1 = failure during transmission, have to close
   -2 = file cannot be read (nothing sent) */
@@ -468,13 +484,12 @@ static int http_send_file(args_t *c, const char *fn, size_t fsz, int size_valid,
 	FILE *f = fopen(fn, "rb");
 	if (!f)
 		return -2;
-	/* FIXME: on Windows this is limited to 2Gb */
 	if (!size_valid) {
-		fseek(f, 0, SEEK_END);
-		fsz = (size_t) ftell(f);
-		fseek(f, 0, SEEK_SET);
+		http_fseek(f, 0, SEEK_END);
+		fsz = (size_t) http_ftell(f);
+		http_fseek(f, 0, SEEK_SET);
 	}
-	if (offset && fseek(f, (long) offset, SEEK_SET)) {
+	if (offset && http_fseek(f, (http_off_t) offset, SEEK_SET)) {
 		fclose(f);
 		return -2;
 	}
@@ -742,7 +757,7 @@ static void process_request(args_t *c)
 		while (hs) {
 			DBG(fprintf(stderr, "http_static: match '%s' and '%s'\n", c->url, hs->prefix));
 			if (!strncmp(hs->prefix, c->url, hs->prefix_len)) {
-				struct stat st;
+				http_stat_t st;
 				const char *fn = c->url + hs->prefix_len;
 				size_t path_len = strlen(hs->path);
 				int found = 0;
@@ -763,7 +778,7 @@ static void process_request(args_t *c)
 				strcpy(http_tmp + path_len, fn);
 				/* only sanitize the part coming from the request */
 				sanitize_path(http_tmp + path_len);
-				if (!stat(http_tmp, &st)) { /* path exists */
+				if (!http_stat(http_tmp, &st)) { /* path exists */
 					if (S_ISDIR(st.st_mode)) { /* if it is a directory, we only accept it if index exists */
 						if (hs->index) {
 							size_t http_tmp_len = strlen(http_tmp), url_len = strlen(c->url);
@@ -771,7 +786,7 @@ static void process_request(args_t *c)
 								http_tmp[http_tmp_len++] = '/';
 							strcpy(http_tmp + http_tmp_len, hs->index);
 							DBG(fprintf(stderr, " - target is a directory, try '%s'\n", http_tmp));
-							if (!stat(http_tmp, &st)) {
+							if (!http_stat(http_tmp, &st)) {
 								/* relative links in the index only work with a trailing slash, so redirect */
 								if (url_len && c->url[url_len - 1] != '/') {
 									send_slash_redirect(c);
