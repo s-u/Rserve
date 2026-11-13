@@ -80,6 +80,14 @@ txt <- function(x, code=200L, ct="text/plain", hdr=character()) list(x, ct, hdr,
         return(txt("héllo", ct="text/plain; charset=utf-8"))
     if (url == "/latin1")
         return(txt(iconv("héllo", "UTF-8", "latin1"), ct="text/plain; charset=utf-8"))
+    if (url == "/latin1hdr")
+        return(txt("ok", hdr=iconv("X-Name: café", "UTF-8", "latin1")))
+    if (url == "/latin1file") # file name marked as latin1, must be converted to native
+        return(list(file=iconv(file.path(docroot, "café.txt"), "UTF-8", "latin1"), "text/plain"))
+    if (url == "/bytes") { # "bytes" strings cannot be converted
+        x <- "h\xe9llo"; Encoding(x) <- "bytes"; return(txt(x)) }
+    if (url == "/byteshdr") {
+        x <- "X-Name: caf\xe9"; Encoding(x) <- "bytes"; return(txt("ok", hdr=x)) }
     if (url == "/sleep") { if ("m" %in% names(query)) file.create(file.path(docroot, basename(query[["m"]])))
         Sys.sleep(1); return(txt("slept")) }
     if (url == "/conn-close") return(txt("bye", hdr="Connection: close"))

@@ -194,8 +194,18 @@ test("rfun: empty string payload", { r <- get("/emptystr"); expect(r$status == 2
 test("rfun: 5MB response", {
     r <- get("/big"); expect(r$status == 200 && length(r$body) == 5e6 && identical(r$body[1:5], as.raw(1:5)), length(r$body)) })
 test("rfun: UTF-8", { r <- get("/utf8"); expect(identical(r$body, charToRaw("héllo")), r) })
-test("rfun: latin1 strings are sent as UTF-8", { r <- get("/latin1"); expect(identical(r$body, charToRaw("héllo")), r$body) },
-     skip="Rserve sends CHAR() as is")
+test("rfun: latin1 strings are sent as UTF-8", { r <- get("/latin1"); expect(identical(r$body, charToRaw("héllo")), r$body) })
+test("rfun: latin1 headers are sent as UTF-8", {
+    r <- get("/latin1hdr"); expect(r$status == 200, r)
+    expect(identical(charToRaw(r$headers[["x-name"]]), as.raw(c(0x63, 0x61, 0x66, 0xc3, 0xa9))), r$headers) })
+## (the server runs in the same locale as the driver)
+test("rfun: latin1 file name is converted to native", {
+    r <- get("/latin1file"); expect(r$status == 200 && identical(r$text, "utf8\n"), r) },
+    skip=if (!l10n_info()[["UTF-8"]]) "the file name cannot be represented in a non-UTF-8 locale")
+## strings marked "bytes" cannot be converted, the conversion error must not
+## escape from the C code: 500 (nothing has been sent yet), server survives
+test("rfun: bytes payload -> 500", { r <- get("/bytes"); expect(r$status == 500, r); healthy() })
+test("rfun: bytes header -> 500", { r <- get("/byteshdr"); expect(r$status == 500, r); healthy() })
 test("rfun: file payload", { r <- get("/file"); expect(r$status == 200 && identical(r$text, "hello world\n"), r) })
 test("rfun: tmpfile payload is removed", {
     r <- get("/tmpfile"); expect(r$status == 200 && identical(r$text, "temporary\n"), r)

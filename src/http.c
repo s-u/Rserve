@@ -199,10 +199,24 @@ static void free_args(args_t *c)
     }
 }
 
+/* string from R to be sent in a response: strings marked as latin1 or
+   UTF-8 are converted to UTF-8 (same as Rhttpd), but native strings are
+   sent as-is so existing handlers keep working in non-UTF-8 locales such
+   as C (where Rhttpd would escape non-ASCII bytes). "bytes" strings cannot
+   be converted, so they raise an error (see process_request()) */
+static const char *http_utf8(SEXP s) {
+	return (getCharCE(s) == CE_NATIVE) ? CHAR(s) : translateCharUTF8(s);
+}
+
+/* set once any part of a response has been sent, so process_request()
+   knows whether it can still respond with 500 if processing fails */
+static int response_started;
+
 static int send_response(args_t *c, const char *buf, unsigned int len)
 {
 	server_t *srv = c->srv;
     unsigned int i = 0;
+	response_started = 1;
     /* we have to tell R to ignore SIGPIPE otherwise it can raise an error
        and get us into deep trouble */
     while (i < len) {
@@ -221,6 +235,7 @@ static int send_http_response(args_t *c, const char *text) {
 	server_t *srv = c->srv;
     const char *s = HTTP_SIG(c);
     int l = strlen(text), res;
+	response_started = 1;
     /* reduce the number of packets by sending the payload en-block from buf */
     if (l < sizeof(buf) - 10) {
 		strcpy(buf, s);
@@ -704,13 +719,17 @@ static void send_slash_redirect(args_t *c) {
 char *posix2http(double ts); /* Note: returned buffer is static */
 double http2posix(const char *c);
 
-/* process a request by calling the httpd() function in R */
-static void process_request(args_t *c)
+/* process a request by calling the httpd() function in R
+   NOTE: must be called via process_request() since it uses R API calls
+   which can raise errors (e.g., when converting strings) */
+static void process_request_(void *arg)
 {
+	args_t *c = (args_t*) arg;
     const char *ct = "text/html";
     char *query = 0, *s;
     SEXP sHeaders = R_NilValue;
-    int code = 200;
+    const char **hdrs = 0; /* sHeaders converted to UTF-8 */
+    int code = 200, n_hdrs = 0;
     DBG(Rprintf("process request for %p\n", (void*) c));
     if (!c || !c->url) return; /* if there is not enough to process, bail out */
 	if ((c->attr & WS_UPGRADE) && (c->srv->flags & HTTP_WS_UPGRADE)) {
@@ -890,20 +909,25 @@ static void process_request(args_t *c)
 		   
 		   payload: can be a character vector of length one or a
 		   raw vector. if the character vector is named "file" then
-		   the content of a file of that name is the payload
+		   the content of a file of that name is the payload (served
+		   byte-by-byte, so the content type must specify the charset of
+		   the file). otherwise strings marked as latin1 or UTF-8 are
+		   converted to UTF-8 (native strings are sent as-is), so the
+		   content type should specify charset UTF-8
 		   
 		   content-type: must be a character vector of length one
 		   or NULL (if present, else default is "text/html")
 		   
 		   headers: must be a character vector - the elements will
 		   have CRLF appended and neither Content-type nor
-		   Content-length may be used
+		   Content-length may be used (converted as the payload,
+		   but should be ASCII as required by HTTP)
 		   
 		   status code: must be an integer if present (default is 200)
 		*/
 		
 		if (TYPEOF(x) == STRSXP && LENGTH(x) > 0) { /* string means there was an error */
-			const char *s = CHAR(STRING_ELT(x, 0));
+			const char *s = http_utf8(STRING_ELT(x, 0));
 			send_http_response(c, " 500 Evaluation error\r\nConnection: close\r\nContent-type: text/plain\r\n\r\n");
 			DBG(Rprintf("respond with 500 and content: %s\n", s));
 			if (c->method != METHOD_HEAD)
@@ -918,7 +942,7 @@ static void process_request(args_t *c)
 			if (LENGTH(x) > 1) {
 				SEXP sCT = VECTOR_ELT(x, 1); /* second element is content type if present */
 				if (TYPEOF(sCT) == STRSXP && LENGTH(sCT) > 0)
-					ct = CHAR(STRING_ELT(sCT, 0));
+					ct = http_utf8(STRING_ELT(sCT, 0));
 				if (LENGTH(x) > 2) { /* third element is headers vector */
 					sHeaders = VECTOR_ELT(x, 2);
 					if (TYPEOF(sHeaders) != STRSXP)
@@ -935,11 +959,27 @@ static void process_request(args_t *c)
 				c->attr |= CONNECTION_CLOSE; /* force close */
 				return;
 			}
+			/* convert the headers before anything is sent (conversion may fail) */
+			if (sHeaders != R_NilValue) {
+				int i;
+				n_hdrs = LENGTH(sHeaders);
+				hdrs = (const char**) R_alloc(n_hdrs ? n_hdrs : 1, sizeof(const char*));
+				for (i = 0; i < n_hdrs; i++)
+					hdrs[i] = http_utf8(STRING_ELT(sHeaders, i));
+			}
 			y = VECTOR_ELT(x, 0);
 			if (TYPEOF(y) == STRSXP && LENGTH(y) > 0) {
 				char buf[64];
 				int  is_tmp = 0;
-				const char *cs = CHAR(STRING_ELT(y, 0)), *fn = 0;
+				const char *cs = 0, *fn = 0;
+				/* special content - a file: either list(file="") or list(tmpfile="")
+				   the latter will be deleted once served. The file name is
+				   converted to the native encoding (it is a path) */
+				if (TYPEOF(xNames) == STRSXP && LENGTH(xNames) > 0 &&
+					(!strcmp(CHAR(STRING_ELT(xNames, 0)), "file") || (is_tmp = !strcmp(CHAR(STRING_ELT(xNames, 0)), "tmpfile"))))
+					fn = translateChar(STRING_ELT(y, 0));
+				else
+					cs = http_utf8(STRING_ELT(y, 0));
 				if (code == 200)
 					send_http_response(c, " 200 OK\r\nContent-type: ");
 				else {
@@ -947,21 +987,14 @@ static void process_request(args_t *c)
 					send_response(c, buf, strlen(buf));
 				}
 				send_response(c, ct, strlen(ct));
-				if (sHeaders != R_NilValue) {
-					unsigned int i = 0, n = LENGTH(sHeaders);
-					for (; i < n; i++) {
-						const char *hs = CHAR(STRING_ELT(sHeaders, i));
-						if (*hs) { /* headers must be non-empty */
+				{
+					int i;
+					for (i = 0; i < n_hdrs; i++)
+						if (*hdrs[i]) { /* headers must be non-empty */
 							send_response(c, "\r\n", 2);
-							send_response(c, hs, strlen(hs));
+							send_response(c, hdrs[i], strlen(hdrs[i]));
 						}
-					}
 				}
-				/* special content - a file: either list(file="") or list(tmpfile="")
-				   the latter will be deleted once served */
-				if (TYPEOF(xNames) == STRSXP && LENGTH(xNames) > 0 &&
-					(!strcmp(CHAR(STRING_ELT(xNames, 0)), "file") || (is_tmp = !strcmp(CHAR(STRING_ELT(xNames, 0)), "tmpfile"))))
-					fn = cs;
 				/* 1xx, 204 and 304 responses can NOT have a body nor Content-Length
 				   (RFC 9110, 8.6 and RFC 9112, 6.3) - any payload is ignored */
 				if (code < 200 || code == 204 || code == 304) {
@@ -1005,12 +1038,11 @@ static void process_request(args_t *c)
 					send_response(c, buf, strlen(buf));
 				}
 				send_response(c, ct, strlen(ct));
-				if (sHeaders != R_NilValue) {
-					unsigned int i = 0, n = LENGTH(sHeaders);
-					for (; i < n; i++) {
-						const char *hs = CHAR(STRING_ELT(sHeaders, i));
+				{
+					int i;
+					for (i = 0; i < n_hdrs; i++) {
 						send_response(c, "\r\n", 2);
-						send_response(c, hs, strlen(hs));
+						send_response(c, hdrs[i], strlen(hdrs[i]));
 					}
 				}
 				/* no body nor Content-Length in 1xx, 204 and 304 (see above) */
@@ -1033,6 +1065,22 @@ static void process_request(args_t *c)
     }
     send_http_response(c, " 500 Invalid response from R\r\nConnection: close\r\nContent-type: text/plain\r\n\r\nServer error: invalid response from R\r\n");
     c->attr |= CONNECTION_CLOSE; /* force close */
+}
+
+/* R errors must not escape from here since we are not called from R
+   (Rhttpd does the same) and R_alloc()ed memory (from translateChar*)
+   must be released after each request since a connection may serve
+   many requests */
+static void process_request(args_t *c)
+{
+	const void *vmax = vmaxget();
+	response_started = 0;
+	if (!R_ToplevelExec(process_request_, c)) {
+		if (!response_started)
+			send_http_response(c, " 500 Server error\r\nConnection: close\r\nContent-type: text/plain\r\n\r\nServer error: failed to process the response from R\r\n");
+		c->attr |= CONNECTION_CLOSE; /* force close, a partial response may have been sent */
+	}
+	vmaxset(vmax);
 }
 
 static void http_close(args_t *arg) {
