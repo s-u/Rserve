@@ -34,6 +34,17 @@ NOTE: Rserve 1.8 series has many new features, but it has also removed
 	outside of 100-599) the response is 500. Previously, the
 	status line was malformed.
 
+    o	Strings returned by the R handler of the HTTP server are now
+	converted as in R's own HTTP server (r82334, r82506): strings
+	marked as latin1 or UTF-8 in the payload, content type and
+	headers are sent as UTF-8 (so the content type should specify
+	charset UTF-8) and file names are converted to the native
+	encoding. Unlike R, native strings are sent as-is so existing
+	handlers keep working in non-UTF-8 locales (e.g. C). Strings
+	marked as "bytes" cannot be converted and result in a 500
+	response (use a raw vector instead). Errors while processing
+	the response no longer escape from the C code.
+
     o	'+' in the URL path is no longer decoded as a space (it is only
 	a space in the query part).
 
