@@ -162,6 +162,8 @@ test("rfun: custom response headers", {
     expect(identical(r$headers[["x-test"]], "1") && identical(r$headers[["x-other"]], "two"), r) })
 test("rfun: status codes", for (code in c(201, 301, 400, 401, 403, 404, 405, 418, 500, 503)) {
     r <- get(paste0("/code/", code)); expect(r$status == code && r$text == "code", list(code, r)) })
+test("rfun: invalid status code -> 500", for (code in c("NA", "99", "600", "-1")) {
+    r <- get(paste0("/rawcode?c=", code)); expect(r$status == 500, list(code, r)); healthy() })
 test("rfun: status line format", expect(grepl("^HTTP/1\\.1 418 \\S", get("/code/418")$line)))
 test("rfun: 204/304 have no body nor Content-Length", for (code in c(204, 304)) for (p in c("/code/", "/rawcode?c=")) {
     con <- conn(); send(con, sprintf("GET %s%d HTTP/1.1\r\nHost: x\r\n\r\n", p, code))

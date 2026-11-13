@@ -904,6 +904,14 @@ static void process_request(args_t *c)
 						code = asInteger(VECTOR_ELT(x, 3));
 				}
 			}
+			/* the status code must have three digits and only 1xx-5xx are
+			   defined (RFC 9110, 15), anything else (incl. NA) is an invalid response */
+			if (code < 100 || code > 599) {
+				UNPROTECT(7);
+				send_http_response(c, " 500 Invalid status code from R\r\nConnection: close\r\nContent-type: text/plain\r\n\r\nServer error: invalid status code in the response from R\r\n");
+				c->attr |= CONNECTION_CLOSE; /* force close */
+				return;
+			}
 			y = VECTOR_ELT(x, 0);
 			if (TYPEOF(y) == STRSXP && LENGTH(y) > 0) {
 				char buf[64];
