@@ -30,6 +30,10 @@ NOTE: Rserve 1.8 series has many new features, but it has also removed
     o	Responses with the status codes 1xx, 204 and 304 from the R
 	handler no longer include a body nor Content-Length:.
 
+    o	If the R handler returns an invalid HTTP status code (NA or
+	outside of 100-599) the response is 500. Previously, the
+	status line was malformed.
+
     o	'+' in the URL path is no longer decoded as a space (it is only
 	a space in the query part).
 
@@ -44,6 +48,9 @@ NOTE: Rserve 1.8 series has many new features, but it has also removed
 	static handlers as they could be used to access files outside
 	of the document root.
 
+    o	On Windows, files larger than 2GB can now be served by the
+	HTTP server (static and R handler files as well as ranges).
+
     o	Fixed the validation of the index argument and memory leaks
 	in Rserve.http.add.static(). Rserve.http.rm.all.statics() now
 	correctly releases all handlers.
@@ -53,6 +60,10 @@ NOTE: Rserve 1.8 series has many new features, but it has also removed
 	with 400 (previously could crash the connection process), the
 	Upgrade: header value is case-insensitive. Fixed the decoding
 	of frames with 64-bit lengths.
+
+    o	On Windows, a WebSocket upgrade request on the HTTP server
+	(http.upgrade.websockets) is now refused with 501 since it
+	requires fork(). Previously, it terminated the R process.
 
     o	tls.cert can now contain a certificate chain (as issued
 	e.g. by Let's Encrypt) which is sent to the client.
