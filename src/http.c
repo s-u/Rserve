@@ -705,10 +705,18 @@ static void process_request(args_t *c)
 			c->attr |= CONNECTION_CLOSE;
 			return;
 		}
+#ifndef _WIN32 /* unix always serves connections in a forked child */
 		WS13_upgrade(c, c->ws_key, c->ws_protocol, c->ws_version);
 		/* the WS swtich messes up args since it replaces it with its own version so
 		   we can't go back to serving - just bail out (NOTE: only works when forked!) */
 		exit(0);
+#else
+		/* Windows has no fork(), the connection is served by the server
+		   process itself and exit() would terminate it */
+		send_http_response(c, " 501 Not Implemented (WebSocket upgrade requires fork)\r\nConnection: close\r\nContent-length: 0\r\n\r\n");
+		c->attr |= CONNECTION_CLOSE;
+		return;
+#endif
 	}
     s = c->url;
     while (*s && *s != '?') s++; /* find the query part */

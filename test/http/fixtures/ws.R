@@ -1,5 +1,6 @@
 ## Fixture for test-ws.R: HTTP with WebSocket upgrade on port, the
-## stand-alone WebSocket server on port + 1 (both QAP and text protocols).
+## stand-alone WebSocket server on port + 1 (both QAP and text protocols,
+## not on Windows since it needs fork()).
 ## Usage: Rscript ws.R --port=<port> --docroot=<dir> [--lib=<lib>]
 args <- commandArgs(TRUE)
 arg <- function(name, default=NULL) {
@@ -13,5 +14,6 @@ port    <- as.integer(arg("port"))
 library(Rserve)
 .http.request <- function(url, query, body, headers)
     list(paste0("http:", url), "text/plain")
-run.Rserve(http.port=port, websockets.port=port + 1L, websockets="enable", http.upgrade.websockets="enable",
+ws.port <- if (.Platform$OS.type == "windows") 0L else port + 1L
+run.Rserve(http.port=port, websockets.port=ws.port, websockets="enable", http.upgrade.websockets="enable",
            qap=FALSE, config.file=tempfile())

@@ -103,8 +103,7 @@ tryCatch({
                   function() start.server("tls.R", c(paste0("--certs=", shQuote(CERTS)), "--client=match:xalice,alice,bob.example.org.x,bob.example.org")),
                   skip=no.openssl, vars=list(CLIENT=TRUE))
     if ("ws" %in% SUITES)
-        run.suite("ws", "test-ws.R", function() start.server("ws.R"),
-                  skip=if (WIN) "the WebSocket servers need fork()")
+        run.suite("ws", "test-ws.R", function() start.server("ws.R"))
     if ("simple" %in% SUITES)
         run.suite("simple", "test-simple.R", function() start.binary(c("--RS-simple-http-only", shQuote(DOCROOT))),
                   skip=if (WIN) "stand-alone Rserve is not tested on Windows" else if (!nzchar(RSERVE.BIN)) "stand-alone Rserve binary not found")
