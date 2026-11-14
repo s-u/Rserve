@@ -46,6 +46,151 @@ extern int Rsrv_interactive;
 
 __declspec(dllimport) int R_Interactive;
 
+#if R_VERSION >= R_Version(4,2,0) /* R_DefParamsEx and Rstart version 1 */
+
+/* Windows R has no ptr_R_* console hooks: the console callbacks can only be
+   set in Rstart before R starts. So instead of R.dll's Rf_initialize_R (which
+   installs stdio callbacks) we do the same set-up here with callbacks that
+   forward to Rserve's OOB console functions once Rserv.c registers them
+   (OCAP connection with console.oob enabled), and use stdio until then. This
+   follows R's src/gnuwin32/embeddedR.c. */
+
+#include <signal.h>
+#include <string.h>
+
+/* Rembedded.h declares the R.dll entry points used below (getDLLVersion,
+   getRUser, get_R_HOME, R_setStartTime, UserBreak) */
+
+static struct {
+	int  (*read)(const char *, unsigned char *, int, int);
+	void (*write)(const char *, int, int);
+	void (*message)(const char *);
+	void (*reset)(void);
+	void (*flush)(void);
+	void (*clearerr)(void);
+	void (*busy)(int);
+} oob_con;
+
+/* called by Rserv.c when an OCAP connection with console.oob starts */
+void Rserve_win_console(int (*read)(const char *, unsigned char *, int, int),
+						void (*write)(const char *, int, int),
+						void (*message)(const char *),
+						void (*reset)(void), void (*flush)(void),
+						void (*clearerr)(void), void (*busy)(int))
+{
+	oob_con.read = read;
+	oob_con.write = write;
+	oob_con.message = message;
+	oob_con.reset = reset;
+	oob_con.flush = flush;
+	oob_con.clearerr = clearerr;
+	oob_con.busy = busy;
+}
+
+static int win_ReadConsole(const char *prompt, unsigned char *buf, int len, int history)
+{
+	if (oob_con.read) {
+		return oob_con.read(prompt, buf, len, history);
+	}
+	fputs(prompt, stdout);
+	fflush(stdout);
+	return fgets((char *) buf, len, stdin) ? 1 : 0;
+}
+
+static void win_WriteConsoleEx(const char *buf, int len, int otype)
+{
+	if (oob_con.write) oob_con.write(buf, len, otype);
+	else {
+		fwrite(buf, 1, len, stdout);
+		fflush(stdout);
+	}
+}
+
+static void win_ShowMessage(const char *msg)
+{
+	if (oob_con.message) oob_con.message(msg);
+	else if (msg) printf("%s\n", msg);
+}
+
+static int win_YesNoCancel(const char *msg)
+{
+	unsigned char a[4];
+	char prompt[256];
+	snprintf(prompt, sizeof(prompt), "%s [y/n/c]: ", msg);
+	if (win_ReadConsole(prompt, a, sizeof(a), 0) <= 0) return 0;
+	return (a[0] == 'y' || a[0] == 'Y') ? 1 : (a[0] == 'n' || a[0] == 'N') ? -1 : 0;
+}
+
+static void win_ResetConsole(void)    { if (oob_con.reset) oob_con.reset(); }
+static void win_FlushConsole(void)    { if (oob_con.flush) oob_con.flush(); else fflush(stdout); }
+static void win_ClearerrConsole(void) { if (oob_con.clearerr) oob_con.clearerr(); }
+static void win_Busy(int which)       { if (oob_con.busy) oob_con.busy(which); }
+static void win_CallBack(void)        { }
+
+static void win_onintr(int sig)
+{
+	UserBreak = 1;
+}
+
+int Rf_initEmbeddedR(int argc, char **argv)
+{
+	structRstart rp;
+	Rstart Rp = &rp;
+	char Rversion[25], *RHome, *RUser;
+
+	snprintf(Rversion, sizeof(Rversion), "%s.%s", R_MAJOR, R_MINOR);
+	if (strncmp(getDLLVersion(), Rversion, sizeof(Rversion)) != 0) {
+		fprintf(stderr, "Error: R.DLL version (%s) does not match (%s)\n", getDLLVersion(), Rversion);
+		return -1;
+	}
+
+	R_setStartTime();
+	R_DefParamsEx(Rp, RSTART_VERSION);
+	if (!(RHome = get_R_HOME())) {
+		fprintf(stderr, "R_HOME must be set in the environment or Registry\n");
+		return -2;
+	}
+	Rp->rhome = RHome;
+	RUser = getRUser();
+	Rp->home = RUser;
+	Rp->CharacterMode = LinkDLL;
+	Rp->EmitEmbeddedUTF8 = FALSE;
+	Rp->ReadConsole = win_ReadConsole;
+	Rp->WriteConsole = NULL; /* so that WriteConsoleEx is used */
+	Rp->WriteConsoleEx = win_WriteConsoleEx;
+	Rp->CallBack = win_CallBack;
+	Rp->ShowMessage = win_ShowMessage;
+	Rp->YesNoCancel = win_YesNoCancel;
+	Rp->Busy = win_Busy;
+	Rp->ResetConsole = win_ResetConsole;
+	Rp->FlushConsole = win_FlushConsole;
+	Rp->ClearerrConsole = win_ClearerrConsole;
+
+	Rp->R_Quiet = TRUE;
+	Rp->R_Interactive = Rsrv_interactive;
+	Rp->RestoreAction = SA_RESTORE;
+	Rp->SaveAction = SA_NOSAVE;
+	R_SetParams(Rp);
+	freeRUser(RUser);
+	free_R_HOME(RHome);
+	R_set_command_line_arguments(argc, argv);
+
+	FlushConsoleInputBuffer(GetStdHandle(STD_INPUT_HANDLE));
+
+	signal(SIGBREAK, win_onintr);
+	{ /* GA_initapp lives in Rgraphapp.dll (loaded by R.dll), which Rserve
+		 does not link against */
+		HMODULE ga = GetModuleHandleA("Rgraphapp.dll");
+		int (*initapp)(int, char **) = ga ? (int (*)(int, char **)) GetProcAddress(ga, "GA_initapp") : 0;
+		if (initapp) initapp(0, 0);
+	}
+
+	setup_Rmainloop();
+	return 0;
+}
+
+#else /* R < 4.2.0: use R.dll's start-up (no console forwarding) */
+
 int Rf_initEmbeddedR(int argc, char **argv)
 {
 	Rf_initialize_R(argc, argv);
@@ -53,6 +198,8 @@ int Rf_initEmbeddedR(int argc, char **argv)
 	setup_Rmainloop();
 	return 0;
 }
+
+#endif
 
 #else /* otherwise we have to do all this manually ... */
 
