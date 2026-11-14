@@ -28,6 +28,13 @@ NOTE: Rserve 1.8 series has many new features, but it has also removed
 	messages and yes/no/cancel questions use the console instead
 	of dialog boxes.
 
+    o	On Windows, Rserve.exe can be interrupted without a console:
+	setting the event Local\Rserve-break-<pid> (an auto-reset event
+	created at start-up) interrupts the current evaluation as
+	Ctrl-Break does. A break that arrives while R waits for console
+	input from the client cancels that input once the reply arrives,
+	instead of interrupting the next evaluation.
+
     o	The HTTP server now supports byte ranges for static content
 	(Range: and If-Range: headers, single ranges only) and
 	Expect: 100-continue. Requests for a directory without a

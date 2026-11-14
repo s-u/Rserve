@@ -57,6 +57,7 @@ __declspec(dllimport) int R_Interactive;
 
 #include <signal.h>
 #include <string.h>
+#include <R_ext/Utils.h>
 
 /* Rembedded.h declares the R.dll entry points used below (getDLLVersion,
    getRUser, get_R_HOME, R_setStartTime, UserBreak) */
@@ -90,7 +91,11 @@ void Rserve_win_console(int (*read)(const char *, unsigned char *, int, int),
 static int win_ReadConsole(const char *prompt, unsigned char *buf, int len, int history)
 {
 	if (oob_con.read) {
-		return oob_con.read(prompt, buf, len, history);
+		int n = oob_con.read(prompt, buf, len, history);
+		/* a break requested while waiting for the client's input is acted on
+		   here, so it cancels this input rather than the next evaluation */
+		if (UserBreak) R_CheckUserInterrupt();
+		return n;
 	}
 	fputs(prompt, stdout);
 	fflush(stdout);
@@ -130,6 +135,30 @@ static void win_CallBack(void)        { }
 static void win_onintr(int sig)
 {
 	UserBreak = 1;
+}
+
+/* Interrupts without a console: setting the auto-reset event named
+   Local\Rserve-break-<pid> interrupts the current evaluation, as Ctrl-Break
+   does for a console. */
+static DWORD WINAPI break_thread(LPVOID ev)
+{
+	while (WaitForSingleObject((HANDLE) ev, INFINITE) == WAIT_OBJECT_0)
+		UserBreak = 1;
+	return 0;
+}
+
+static void start_break_thread(void)
+{
+	char name[64];
+	HANDLE ev, th;
+	snprintf(name, sizeof(name), "Local\\Rserve-break-%lu", (unsigned long) GetCurrentProcessId());
+	ev = CreateEventA(NULL, FALSE, FALSE, name);
+	if (!ev) {
+		fprintf(stderr, "WARNING: cannot create break event %s\n", name);
+		return;
+	}
+	th = CreateThread(NULL, 0, break_thread, ev, 0, NULL);
+	if (th) CloseHandle(th);
 }
 
 int Rf_initEmbeddedR(int argc, char **argv)
@@ -178,6 +207,7 @@ int Rf_initEmbeddedR(int argc, char **argv)
 	FlushConsoleInputBuffer(GetStdHandle(STD_INPUT_HANDLE));
 
 	signal(SIGBREAK, win_onintr);
+	start_break_thread();
 	{ /* GA_initapp lives in Rgraphapp.dll (loaded by R.dll), which Rserve
 		 does not link against */
 		HMODULE ga = GetModuleHandleA("Rgraphapp.dll");
