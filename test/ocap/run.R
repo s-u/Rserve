@@ -76,13 +76,17 @@ start.ocap <- function(conf=character()) {
     dir.create(dir)
     init <- file.path(dir, "init.R")
     pf <- file.path(dir, "rserve.pid")
-    ## the server writes its own pid (pid.file is not supported on Windows)
-    writeLines(c(sprintf('writeLines(as.character(Sys.getpid()), "%s")', gsub("\\\\", "/", pf)), INIT), init)
+    ## the pid of the server: Rserve daemonizes on unix, so the daemon's pid
+    ## comes from pid.file; that option is not supported on Windows, where
+    ## the server's own R code writes it
+    writeLines(c(if (WIN) sprintf('writeLines(as.character(Sys.getpid()), "%s")', gsub("\\\\", "/", pf)),
+                 INIT), init)
     log <- file.path(dir, "server.log")
     for (i in 1:20) {
         port <- sample(20000:60000, 1)
         cf <- file.path(dir, "Rserve.conf")
         writeLines(c(paste("port", port), "qap.oc enable", "oob enable",
+                     if (!WIN) paste("pid.file", pf),
                      paste("source", gsub("\\\\", "/", init)), conf), cf)
         unlink(c(pf, log))
         system2(file.path(R.home("bin"), "R"),
