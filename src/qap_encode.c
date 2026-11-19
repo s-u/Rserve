@@ -91,10 +91,8 @@ rlen_t getStorageSize(SEXP x) {
     case LGLSXP:
     case RAWSXP:
 		tl = XLENGTH(x);
-		if (tl > 1)
-			len += 4L + align(tl);
-		else
-			len += 4L;
+		/* the length, then the bytes padded to a multiple of 4 */
+		len += 4L + align(tl);
 		break;
 
     case SYMSXP:
@@ -253,6 +251,9 @@ unsigned int* storeSEXP(unsigned int* buf, SEXP x, rlen_t storage_size) {
 		attrFixup;
 		*buf = itop(ll); buf++;
 		if (ll) memcpy(buf, RAW(x), ll);
+		/* pad with zeros to a multiple of 4 (otherwise whatever was
+		   in the buffer is sent) */
+		if (ll & 3) memset(((char*) buf) + ll, 0, 4 - (ll & 3));
 		ll += 3; ll /= 4;
 		buf += ll;
 		goto didit;
