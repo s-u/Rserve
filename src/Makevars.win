@@ -11,9 +11,15 @@ all: $(SHLIB) server
 SERVER_SRC = standalone.c md5.c session.c qap_decode.c qap_encode.c sha1.c base64.c websockets.c RSserver.c tls.c http.c oc.c ulog.c ioc.c utils.c date.c
 SERVER_H = Rsrv.h qap_encode.h qap_decode.h RSserver.h http.h oc.h sha1.h md5.h ulog.h bsdcmpt.h
 
-server:	$(SERVER_SRC) $(SERVER_H)
-	$(CC) -DSTANDALONE_RSERVE -DDAEMON -I. -Iinclude $(ALL_CPPFLAGS) $(ALL_CFLAGS) $(CPPFLAGS) $(CFLAGS) $(PKG_CPPFLAGS) $(PKG_CFLAGS) -o Rserve.exe $(SERVER_SRC) $(ALL_LIBS) $(PKG_LIBS)
-	$(CC) -DSTANDALONE_RSERVE -DRSERV_DEBUG -DNODAEMON -I. -Iinclude $(ALL_CPPFLAGS) $(ALL_CFLAGS) $(PKG_CPPFLAGS) $(PKG_CFLAGS) -o Rserve_d.exe $(SERVER_SRC) $(ALL_LIBS) $(PKG_LIBS)
+# the UTF-8 code-page manifest (Rserve.exe.manifest), compiled by R's
+# implicit .rc rule with $(RESCOMP)
+SERVER_RES = Rserve-res.o
+
+$(SERVER_RES): Rserve.exe.manifest
+
+server:	$(SERVER_SRC) $(SERVER_H) $(SERVER_RES)
+	$(CC) -DSTANDALONE_RSERVE -DDAEMON -I. -Iinclude $(ALL_CPPFLAGS) $(ALL_CFLAGS) $(CPPFLAGS) $(CFLAGS) $(PKG_CPPFLAGS) $(PKG_CFLAGS) -o Rserve.exe $(SERVER_SRC) $(SERVER_RES) $(ALL_LIBS) $(PKG_LIBS)
+	$(CC) -DSTANDALONE_RSERVE -DRSERV_DEBUG -DNODAEMON -I. -Iinclude $(ALL_CPPFLAGS) $(ALL_CFLAGS) $(PKG_CPPFLAGS) $(PKG_CFLAGS) -o Rserve_d.exe $(SERVER_SRC) $(SERVER_RES) $(ALL_LIBS) $(PKG_LIBS)
 
 client: config.h
 	cp config.h client/cxx/

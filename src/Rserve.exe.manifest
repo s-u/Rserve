@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!-- Rserve.exe on Windows: run in the UTF-8 code page, as R's own
+     executables (Rterm, Rgui) do since R 4.2, so that R's native encoding
+     inside the server is UTF-8 and strings and console text keep every
+     character. Needs Windows 10 version 1903 or later; older Windows
+     ignore it and keep the system code page. -->
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+<assemblyIdentity version="1.0.0.0" processorArchitecture="amd64"
+    name="Rserve.exe" type="win32"/>
+<application>
+  <windowsSettings>
+    <activeCodePage xmlns="http://schemas.microsoft.com/SMI/2019/WindowsSettings">UTF-8</activeCodePage>
+  </windowsSettings>
+</application>
+<ms_asmv2:trustInfo xmlns:ms_asmv2="urn:schemas-microsoft-com:asm.v2">
+  <ms_asmv2:security>
+    <ms_asmv2:requestedPrivileges>
+      <ms_asmv2:requestedExecutionLevel level="asInvoker"/>
+    </ms_asmv2:requestedPrivileges>
+  </ms_asmv2:security>
+</ms_asmv2:trustInfo>
+<compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
+  <application>
+    <!-- Windows 10 and 11 -->
+    <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}"/>
+  </application>
+</compatibility>
+</assembly>
