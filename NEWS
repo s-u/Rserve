@@ -8,6 +8,12 @@ NOTE: Rserve 1.8 series has many new features, but it has also removed
       know what it means, just ignore this note.
 
 1.8-20	(under development)
+    o	qap_encode: fixed the storage size estimate of length-1 raw
+	and logical vectors in QAP encoding which was 4 bytes short.
+
+    o	The padding after the data of raw vectors in QAP encoding is
+	now zeroed.
+
     o	The HTTP server now supports byte ranges for static content
 	(Range: and If-Range: headers, single ranges only) and
 	Expect: 100-continue. Requests for a directory without a
