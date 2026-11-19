@@ -14,6 +14,27 @@ NOTE: Rserve 1.8 series has many new features, but it has also removed
     o	The padding after the data of raw vectors in QAP encoding is
 	now zeroed.
 
+    o	On Windows, Rserve.exe now forwards the R console as OOB
+	messages when console.oob is enabled (OCAP mode, R >= 4.2.0),
+	as it does on unix: console.out, console.err, console.msg and
+	console.in (so readline(), scan() and browser() can take input
+	from the client). Windows R has no ptr_R_* console hooks and
+	accepts console callbacks only at start-up, so Rserve.exe now
+	builds winembed.c and starts R itself, following R's
+	src/gnuwin32/embeddedR.c, with callbacks that forward to the
+	OOB functions once a connection enables them. Without
+	console.oob the console still goes to stdout, now flushed after
+	each write (so output is not lost if the server is killed), and
+	messages and yes/no/cancel questions use the console instead
+	of dialog boxes.
+
+    o	On Windows, Rserve.exe can be interrupted without a console:
+	setting the event Local\Rserve-break-<pid> (an auto-reset event
+	created at start-up) interrupts the current evaluation as
+	Ctrl-Break does. A break that arrives while R waits for console
+	input from the client cancels that input once the reply arrives,
+	instead of interrupting the next evaluation.
+
     o	The HTTP server now supports byte ranges for static content
 	(Range: and If-Range: headers, single ranges only) and
 	Expect: 100-continue. Requests for a directory without a
