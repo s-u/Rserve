@@ -210,12 +210,20 @@ typedef struct queue_fs {
     char data[1];
 } queue_ft;
 
+/* WebSocket sub-protocol used by clients to resume a session: the client
+   speaks first with CMD_attachSession(key) and the connection goes to the
+   Rserve resume endpoint (session.socket) instead of the QAP socket */
+#define RESUME_PROTOCOL "rserve-resume"
+
 /* default WS send timeout (seconds): a client that doesn't accept any data
    for this long is considered gone */
 #define DEFAULT_SEND_TIMEOUT 300
 
 typedef struct {
     const char *qap_socket_path;
+    const char *resume_socket_path; /* Rserve's session.socket (optional) */
+    int resuming;   /* connected to the resume endpoint */
+    int drop_first; /* drop the first message from WS (resume request without resume endpoint) */
     
     args_t *ws;  /* WebSocket args structure */
     int qap;     /* QAP socket */
@@ -303,6 +311,10 @@ static void *forward(void *ptr) {
 
 	    if (!memcmp((char*)&hdr, "RsOC", 4)) { /* RsOC = OCAP mode - strictly QAP from the start */
 		ulog("QAP->WS  INFO: *** server protocol: Rserve OCAP QAP1");
+		proxy->qap_stage = 1;
+		WS_set_binary(proxy->ws, 1); /* QAP is binary */
+	    } else if (proxy->resuming && (ptoi(hdr.cmd) & CMD_RESP)) { /* response to CMD_attachSession = session resumed */
+		ulog("QAP->WS  INFO: *** session resumed (response 0x%x)", ptoi(hdr.cmd));
 		proxy->qap_stage = 1;
 		WS_set_binary(proxy->ws, 1); /* QAP is binary */
 	    } else { /* everything else = bad packet */
@@ -480,13 +492,44 @@ static void *heartbeat(void *ptr) {
     return 0;
 }
 	    
+/* 1 if the comma-separated list of WebSocket sub-protocols contains prot */
+static int has_protocol(const char *list, const char *prot) {
+    size_t pl = strlen(prot);
+    while (list && *list) {
+	const char *e;
+	while (*list == ' ' || *list == ',')
+	    list++;
+	e = list;
+	while (*e && *e != ',' && *e != ' ')
+	    e++;
+	if (e - list == pl && !memcmp(list, prot, pl))
+	    return 1;
+	list = e;
+    }
+    return 0;
+}
+
 static void ws_connected(args_t *arg, char *protocol) {
     int s;
     struct sockaddr_un sau;
     pthread_t forward_thread, enqueue_fthread, heartbeat_thread;
     pthread_attr_t thread_attr;
+    const char *socket_path = proxy->qap_socket_path;
     
     fprintf(stderr, "INFO: web sockets connected (protocol %s)\n", protocol ? protocol : "<NULL>");
+
+    proxy->resuming = proxy->drop_first = 0;
+    if (has_protocol(protocol, RESUME_PROTOCOL)) {
+	if (proxy->resume_socket_path) {
+	    proxy->resuming = 1;
+	    socket_path = proxy->resume_socket_path;
+	    ulog("WS/QAP INFO: resume requested, using resume endpoint '%s'", socket_path);
+	} else {
+	    /* no resume endpoint: start a new session and drop the resume request */
+	    proxy->drop_first = 1;
+	    ulog("WS/QAP INFO: resume requested, but no resume endpoint is configured");
+	}
+    }
 
     proxy->ws = arg;
     {
@@ -511,13 +554,13 @@ static void ws_connected(args_t *arg, char *protocol) {
     
     memset(&sau, 0, sizeof(sau));
     sau.sun_family = AF_LOCAL;
-    if (strlen(proxy->qap_socket_path) + 1 > sizeof(sau.sun_path)) {
+    if (strlen(socket_path) + 1 > sizeof(sau.sun_path)) {
 	RSEprintf("local socket path too long\n");
 	proxy->qap = -1;
 	closesocket(s);
 	return;
     }
-    strcpy(sau.sun_path, proxy->qap_socket_path);
+    strcpy(sau.sun_path, socket_path);
     if (connect(s, (struct sockaddr*)&sau, sizeof(sau))) {
 	RSEprintf("unable to connect to local socket '%s': %s\n", sau.sun_path, strerror(errno));
 	/* FIXME: report this to the client? */
@@ -583,6 +626,12 @@ static void ws_connected(args_t *arg, char *protocol) {
 	pthread_mutex_unlock(&proxy->mux);
 
 	/* mutex unlocked, we own the message */
+	if (q && proxy->drop_first) { /* the resume request - not for a new session */
+	    proxy->drop_first = 0;
+	    ulog("Q  ->QAP INFO: dropping resume request");
+	    free(q);
+	    continue;
+	}
 	if (q) {
 	    if (!proxy->qap_alive) { /* QAP is dead */
 		qap_hdr_t hdr = { 0, 0, 0, 0 }, *src = (qap_hdr_t*) q->data;
@@ -624,9 +673,9 @@ static void ws_connected(args_t *arg, char *protocol) {
 					  it's time to leave */
 	    ulog("INFO: WS closed and queue empty, clean shutdown");
 	    proxy->active = 0;
-	} else if (!proxy->qap_alive) { /* QAP is closed (e.g., the session ended)
-					   and all messages from WS have been
-					   answered - close WS so the client knows */
+	} else if (!proxy->qap_alive) { /* QAP is closed (e.g., the session ended or
+					   was resumed elsewhere) and all messages from WS
+					   have been answered - close WS so the client knows */
 	    ulog("INFO: QAP closed and queue empty, closing WS");
 	    proxy->active = 0;
 	}
@@ -745,6 +794,7 @@ int main(int ac, char **av) {
         if (av[i][0] == '-')
             switch (av[i][1]) {
             case 's': if (++i < ac) proxy->qap_socket_path = av[i]; else return die("missing path in -s <http-socket>"); break;
+            case 'e': if (++i < ac) proxy->resume_socket_path = av[i]; else return die("missing path in -e <resume-socket>"); break;
             case 'u': if (++i < ac) ulog_path = av[i]; else return die("missing path in -u <ulog-socket>"); break;
             case 't': if (++i < ac) proxy->send_timeout = atoi(av[i]); else return die("missing seconds in -t <send-timeout>"); break;
             case 'p': if (++i < ac) http_port = atoi(av[i]); else return die("missing HTTP port in -p <port>"); break;
@@ -791,7 +841,9 @@ int main(int ac, char **av) {
             case 'h': printf("\n\
  Usage: %s [-h] [-p <http-port>] [-w <ws-port>] [-s <QAP-socket>] [-R <Rscript-socket>] [-r <doc-root>]\n\
         [-k <TLS-key-path> [-c <TLS-cert-path>] [-C <TLS-CA-path>]] [-u <ulog-socket>] [-S <host>[:<port>]]]\n\
-        [-t <send-timeout>]\n\n\
+        [-t <send-timeout>] [-e <resume-socket>]\n\n\
+ -e <resume-socket> is Rserve's session.socket, used by clients asking for the\n\
+    \"" RESUME_PROTOCOL "\" WebSocket sub-protocol to resume a session\n\
  -t <send-timeout> closes a WebSocket connection if the client accepts no data\n\
     for that many seconds (default %d, 0 = never)\n\n", av[0], DEFAULT_SEND_TIMEOUT);
                 return 0;

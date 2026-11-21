@@ -235,9 +235,8 @@ int main(int argc, char **argv)
 #ifdef SIGBUS
 	signal(SIGBUS, SIG_DFL);
 #endif
-	/* FIXME: not sure about SIGPIPE - it's ok to use R's handling when
-	   caused by R code, but it's unclear if it can be caused by
-	   Rserve's internal code which would prefer death to surrender ... */
+	/* SIGPIPE: we keep R's handling for R code, Rserve's own sockets
+	   don't raise it (see server_send() and no_sigpipe() in Rserv.c) */
 #endif
 
 	/* registration must happen *before* source/eval */
@@ -297,6 +296,11 @@ int main(int argc, char **argv)
 
  	if (tls_port > 0 && !create_Rserve_QAP1(global_srv_flags | SRV_TLS | (qap_oc ? SRV_QAP_OC : 0))) {
 		fprintf(stderr, "ERROR: unable to start Rserve TLS server\n");
+		return ex(1);
+	}
+
+	if (want_resume_endpoint() && !create_Rserve_resume(global_srv_flags | (qap_oc ? SRV_QAP_OC : 0))) {
+		fprintf(stderr, "ERROR: unable to start Rserve session resume endpoint\n");
 		return ex(1);
 	}
 

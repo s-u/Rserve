@@ -31,7 +31,10 @@ void     resume_srv_handle_fd(int fd) {}
 void     resume_srv_rm(int pid) {}
 int      resume_child_active(void) { return 0; }
 int      resume_child_fd(void) { return -1; }
+int      resume_child_has_key(void) { return 0; }
 int      resume_child_key(unsigned char *key) { return -1; }
+int      resume_child_attach(const unsigned char *key, int fd) { return -1; }
+int      resume_child_pending(void) { return 0; }
 rsmsg_t *resume_child_next_msg(int timeout_ms) { return 0; }
 void     resume_child_close(void) {}
 
@@ -47,16 +50,21 @@ void     resume_child_close(void) {}
 
 #include "ulog.h"
 
+/* max. number of forwarded connection fds the server holds per child
+   until the child confirms that it has received them (RSMSG_ADOPTED) */
+#define MAX_HELD 8
+
 /* max. payload accepted by the server from a child */
 #define PARENT_MAX_MSG 4096
-/* how long a child waits for the server to issue a key */
-#define KEY_TIMEOUT_MS 10000
+/* how long a child waits for the server to respond to a request */
+#define REQ_TIMEOUT_MS 10000
 
 typedef struct rchild {
     int pid;
     rsio_t *io;
     int has_key;
     unsigned char key[RS_KEY_LEN];
+    int held[MAX_HELD], n_held; /* fds forwarded to this child, oldest first */
     struct rchild *prev, *next;
 } rchild_t;
 
@@ -126,9 +134,24 @@ static int new_key(unsigned char *key) {
     return -1;
 }
 
+/* close the oldest fd held for the child */
+static void release_held(rchild_t *c) {
+    if (c->n_held > 0) {
+	close(c->held[0]);
+	c->n_held--;
+	memmove(c->held, c->held + 1, sizeof(int) * c->n_held);
+    }
+}
+
+static void release_all_held(rchild_t *c) {
+    while (c->n_held > 0)
+	release_held(c);
+}
+
 static void rm_child(rchild_t *c) {
     if (c->prev) c->prev->next = c->next; else rchildren = c->next;
     if (c->next) c->next->prev = c->prev;
+    release_all_held(c);
     rsio_free(c->io);
     memset(c->key, 0, RS_KEY_LEN);
     free(c);
@@ -171,6 +194,7 @@ void resume_child_postfork(rsio_t *io) {
     while (rchildren) {
 	rchild_t *c = rchildren;
 	rchildren = c->next;
+	release_all_held(c);
 	rsio_free(c->io);
 	memset(c->key, 0, RS_KEY_LEN);
 	free(c);
@@ -237,6 +261,11 @@ static void handle_msg(rchild_t *c, rsmsg_t *msg) {
 	/* forward the connection (and the remaining payload as context) to the session */
 	if (rsio_write(t->io, msg->data + RS_KEY_LEN, msg->len - RS_KEY_LEN, RSMSG_ADOPT, msg->fd) == RSIO_OK) {
 	    ulog("INFO: resume: connection from child %d handed to session %d", c->pid, t->pid);
+	    /* keep our copy until the session has it (see RSMSG_ADOPTED) */
+	    if (t->n_held == MAX_HELD)
+		release_held(t);
+	    t->held[t->n_held++] = msg->fd;
+	    msg->fd = -1;
 	    reply(c, RSMSG_ATTACH | RSMSG_RESP, 0, 0);
 	} else {
 	    ulog("WARNING: resume: cannot hand connection to session %d", t->pid);
@@ -244,6 +273,10 @@ static void handle_msg(rchild_t *c, rsmsg_t *msg) {
 	}
 	break;
     }
+
+    case RSMSG_ADOPTED: /* notification, no response */
+	release_held(c);
+	break;
 
     default:
 	ulog("WARNING: resume: unknown request 0x%x from child %d", msg->cmd, c->pid);
@@ -296,6 +329,19 @@ static void enqueue(rsmsg_t *msg) {
     pending_tail = q;
 }
 
+/* read a message from the server; if it carries an fd, confirm that it was
+   received so the server can close its copy */
+static rsmsg_t *read_msg(int timeout_ms) {
+    rsmsg_t *msg = rsio_read_msg(parent_io, timeout_ms);
+    if (msg && msg->fd != -1 && parent_io)
+	rsio_write(parent_io, 0, 0, RSMSG_ADOPTED, -1);
+    return msg;
+}
+
+int resume_child_pending(void) {
+    return pending_head ? 1 : 0;
+}
+
 rsmsg_t *resume_child_next_msg(int timeout_ms) {
     if (pending_head) {
 	msgq_t *q = pending_head;
@@ -306,7 +352,7 @@ rsmsg_t *resume_child_next_msg(int timeout_ms) {
 	return msg;
     }
     if (!parent_io) return 0;
-    return rsio_read_msg(parent_io, timeout_ms);
+    return read_msg(timeout_ms);
 }
 
 static long elapsed_ms(const struct timeval *start) {
@@ -315,37 +361,59 @@ static long elapsed_ms(const struct timeval *start) {
     return (long) (now.tv_sec - start->tv_sec) * 1000L + (long) (now.tv_usec - start->tv_usec) / 1000L;
 }
 
-int resume_child_key(unsigned char *key) {
+/* send a request to the server and wait for its response, other messages
+   are queued for resume_child_next_msg(). Returns the response or NULL on
+   failure (incl. timeout) */
+static rsmsg_t *request(unsigned int cmd, const void *buf, rsmsglen_t len, int fd) {
     struct timeval start;
-    if (have_own_key) {
-	memcpy(key, own_key, RS_KEY_LEN);
+    if (!resume_child_active()) return 0;
+    rsio_set_write_timeout(parent_io, REQ_TIMEOUT_MS);
+    if (rsio_write(parent_io, buf, len, cmd, fd) != RSIO_OK)
 	return 0;
-    }
-    if (!resume_child_active()) return -1;
-    rsio_set_write_timeout(parent_io, KEY_TIMEOUT_MS);
-    if (rsio_write(parent_io, 0, 0, RSMSG_KEY, -1) != RSIO_OK)
-	return -1;
     gettimeofday(&start, 0);
     while (1) {
 	rsmsg_t *msg;
 	long elapsed = elapsed_ms(&start);
-	if (elapsed >= KEY_TIMEOUT_MS) return -1;
-	msg = rsio_read_msg(parent_io, (int) (KEY_TIMEOUT_MS - elapsed));
-	if (!msg) return -1;
-	if (msg->cmd == (RSMSG_KEY | RSMSG_RESP) && msg->len == RS_KEY_LEN) {
-	    memcpy(own_key, msg->data, RS_KEY_LEN);
-	    memcpy(key, own_key, RS_KEY_LEN);
-	    have_own_key = 1;
-	    rsmsg_free(msg);
-	    return 0;
-	}
-	if ((msg->cmd & (RSMSG_CMD_MASK | RSMSG_RESP)) == (RSMSG_KEY | RSMSG_RESP)) {
-	    /* error (or malformed key) */
-	    rsmsg_free(msg);
-	    return -1;
-	}
+	if (elapsed >= REQ_TIMEOUT_MS) return 0;
+	msg = read_msg((int) (REQ_TIMEOUT_MS - elapsed));
+	if (!msg) return 0;
+	if ((msg->cmd & (RSMSG_CMD_MASK | RSMSG_RESP)) == (cmd | RSMSG_RESP))
+	    return msg;
 	enqueue(msg); /* e.g. RSMSG_ADOPT - keep for the main loop */
     }
+}
+
+int resume_child_has_key(void) {
+    return have_own_key;
+}
+
+int resume_child_key(unsigned char *key) {
+    rsmsg_t *msg;
+    int res = -1;
+    if (!have_own_key) {
+	msg = request(RSMSG_KEY, 0, 0, -1);
+	if (!msg) return -1;
+	if (!(msg->cmd & RSMSG_ERR) && msg->len == RS_KEY_LEN) {
+	    memcpy(own_key, msg->data, RS_KEY_LEN);
+	    have_own_key = 1;
+	}
+	rsmsg_free(msg);
+    }
+    if (have_own_key) {
+	memcpy(key, own_key, RS_KEY_LEN);
+	res = 0;
+    }
+    return res;
+}
+
+int resume_child_attach(const unsigned char *key, int fd) {
+    rsmsg_t *msg = request(RSMSG_ATTACH, key, RS_KEY_LEN, fd);
+    int res = -1;
+    if (msg) {
+	if (!(msg->cmd & RSMSG_ERR)) res = 0;
+	rsmsg_free(msg);
+    }
+    return res;
 }
 
 void resume_child_close(void) {

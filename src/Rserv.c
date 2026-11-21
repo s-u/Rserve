@@ -305,6 +305,12 @@ static int UCIX   = 1; /* unique connection index */
 static char *localSocketName = 0; /* if set listen on this local (unix) socket instead of TCP/IP */
 static int localSocketMode = 0;   /* if set, chmod is used on the socket when created */
 
+/* session resume (see resume.h, resume_enabled is session.resume) */
+static char *session_socket_name = 0; /* resume endpoint: local (unix) socket */
+static int session_port = 0;          /* resume endpoint: TCP port (if no socket) */
+static int session_timeout = 300;     /* how long a session with a key waits to be resumed [s] */
+static int session_takeover = 1;      /* resume also takes over a live connection */
+
 static int allowIO = 1;  /* 1=allow I/O commands, 0=don't */
 
 static char *workdir = "/tmp/Rserv";
@@ -1247,6 +1253,24 @@ static int setConfig(const char *c, const char *p) {
 #endif
 		return 1;
 	}
+	if (!strcmp(c, "session.socket")) {
+		if (session_socket_name) free(session_socket_name);
+		session_socket_name = (*p) ? strdup(p) : 0;
+		return 1;
+	}
+	if (!strcmp(c, "session.port")) {
+		session_port = satoi(p);
+		return 1;
+	}
+	if (!strcmp(c, "session.timeout")) {
+		session_timeout = satoi(p);
+		if (session_timeout < 0) session_timeout = 0;
+		return 1;
+	}
+	if (!strcmp(c, "session.takeover")) {
+		session_takeover = conf_is_true(p);
+		return 1;
+	}
 	if (!strcmp(c, "http.upgrade.websockets")) {
 		ws_upgrade = conf_is_true(p);
 		return 1;
@@ -1960,6 +1984,11 @@ static void pwd_close(pwdf_t *f) {
 typedef struct qap_runtime qap_runtime_t;
 
 int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr);
+static int resume_wait(args_t *a);
+#ifdef unix
+static void no_sigpipe(SOCKET s);
+static void takeover_set(SOCKET s);
+#endif
 
 static int new_msg_id(args_t *args) {
 	return use_msg_id ? (int) random() : 0;
@@ -2059,6 +2088,12 @@ static SEXP Rserve_oobMsg_(SEXP exp, SEXP code, int throw_error) {
 	
 	if (a->srv->flags & SRV_QAP_OC) { /* OCAP -- allow nested iteration */
 		while ((n = OCAP_iteration(0, &ph)) == 1) {} /* run OCAP until we get our response or an error */
+		if (n == 3) { /* the session was resumed on a new connection, the response won't come */
+			ulog("INFO: resume: connection replaced while waiting for OOB response");
+			if (!throw_error)
+				return 0;
+			Rf_error("connection was replaced while waiting for OOB response");
+		}
 		n = (n == 2) ? sizeof(ph) : -1;
 	} else
 		n = srv->recv(a, (char*)&ph, sizeof(ph));
@@ -2283,6 +2318,7 @@ int Rserve_prepare_child(args_t *args) {
 
 	performConfig(SU_CLIENT);
 
+	no_sigpipe(args->s);
 #endif
 
 	authkey_req = 0; /* reset auth count for non-forked servers */
@@ -3050,6 +3086,10 @@ void Rserve_OCAP_connected(void *thp) {
 		}
 		uses_tls = 1;
 	}
+#ifdef unix
+	if (!uses_tls && resume_child_active())
+		takeover_set(args->s);
+#endif
 
 	{ /* OCinit */
 		SOCKET s = args->s;
@@ -3161,7 +3201,10 @@ void Rserve_OCAP_connected(void *thp) {
 	/* everything is binary from now on */
 	args->flags |= F_OUT_BIN;
 
-	while (OCAP_iteration(rt, 0)) {}
+	/* when the connection closes, the session may wait to be resumed */
+	do {
+		while (OCAP_iteration(rt, 0)) {}
+	} while (resume_wait(args));
 
 	/* FIXME: for compute_fd should we defer the cleanup to the compute process? */
 	Rserve_cleanup();
@@ -3226,8 +3269,98 @@ ssize_t server_recv(args_t *arg, void *buf, size_t len) {
 	return recv(arg->s, buf, len, 0);
 }
 
+/* writes to a closed connection must not raise SIGPIPE: R's handler would
+   raise an R error outside of any R context which kills the session without
+   cleanup (and it couldn't wait to be resumed). Instead, the send fails and
+   the closed connection is detected by the next read. */
+#ifdef MSG_NOSIGNAL
+#define SEND_FLAGS MSG_NOSIGNAL
+#else
+#define SEND_FLAGS 0
+#endif
+
+#ifdef unix
+/* for systems without MSG_NOSIGNAL (macOS) - also covers TLS */
+static void no_sigpipe(SOCKET s) {
+#ifdef SO_NOSIGPIPE
+	int one = 1;
+	if (s != -1)
+		setsockopt(s, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof(one));
+#endif
+}
+#endif
+
+#ifdef unix
+/* connection of an OCAP session that can be taken over (session.resume) and
+   whether it was given up (its output is discarded until it is replaced) */
+static SOCKET takeover_fd = -1;
+static int takeover_gone;
+
+static void takeover_set(SOCKET s) {
+	takeover_fd = s;
+	takeover_gone = 0;
+}
+
+static void takeover_give_up(SOCKET s, const char *why) {
+	ulog("INFO: resume: %s, giving up the current connection", why);
+	takeover_gone = 1;
+	shutdown(s, SHUT_RDWR); /* the next read sees EOF */
+}
+
+/* send on a connection that can be taken over: a client that doesn't read
+   (e.g., a stalled proxy) would block a plain send() forever and the session
+   would never see the new connection, so while waiting for the client we
+   also wait for a takeover. Once the connection is given up (takeover or
+   send error) its output is discarded and the next read detects it.
+   The socket is non-blocking only during the send (reads are blocking);
+   MSG_DONTWAIT is not enough: macOS blocks on unix sockets if the data
+   doesn't fit into the socket buffer. */
+static ssize_t takeover_send(SOCKET s, const char *buf, size_t len) {
+	size_t i = 0;
+	int use_rfd = session_takeover, fl = fcntl(s, F_GETFL);
+	if (fl != -1 && !(fl & O_NONBLOCK))
+		fcntl(s, F_SETFL, fl | O_NONBLOCK);
+	while (i < len && !takeover_gone) {
+		ssize_t n = send(s, buf + i, len - i, SEND_FLAGS);
+		if (n > 0)
+			i += n;
+		else if (n == -1 && errno == EINTR) {
+			/* retry */
+		} else if (n == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+			struct pollfd pfd[2];
+			int np = 1, rfd = resume_child_fd();
+			pfd[0].fd = s;
+			pfd[0].events = POLLOUT;
+			pfd[0].revents = 0;
+			if (use_rfd && rfd != -1) {
+				pfd[1].fd = rfd;
+				pfd[1].events = POLLIN;
+				pfd[1].revents = 0;
+				np = 2;
+			}
+			if (use_rfd && resume_child_pending())
+				takeover_give_up(s, "client is not reading and the session is being taken over");
+			else if (poll(pfd, np, -1) > 0 && np > 1 && pfd[1].revents) {
+				if (pfd[1].revents & POLLIN)
+					takeover_give_up(s, "client is not reading and the session is being taken over");
+				else /* the server process is gone, no takeover possible */
+					use_rfd = 0;
+			}
+		} else
+			takeover_give_up(s, "send failed");
+	}
+	if (fl != -1 && !(fl & O_NONBLOCK))
+		fcntl(s, F_SETFL, fl);
+	return (ssize_t) len;
+}
+#endif
+
 ssize_t server_send(args_t *arg, const void *buf, size_t len) {
-	return send(arg->s, buf, len, 0);
+#ifdef unix
+	if (takeover_fd != -1 && arg->s == takeover_fd)
+		return takeover_send(arg->s, (const char*) buf, len);
+#endif
+	return send(arg->s, buf, len, SEND_FLAGS);
 }
 
 SEXP Rserve_kill_compute(SEXP sSig) {
@@ -3259,6 +3392,7 @@ SEXP Rserve_fork_compute(SEXP sExp) {
 	if (fpid == 0) { /* child = compute process */
 		closesocket(self_args->s);
 		resume_child_close(); /* the channel to the server belongs to the control process */
+		takeover_set(-1);
 		struct args *args = self_args = (struct args *) calloc(1, sizeof(struct args));
 		/* create a "fake" server entry for a virtual server that doesn't exist */
 		server_t *srv =  (server_t*) calloc(1, sizeof(server_t));
@@ -3375,6 +3509,164 @@ SEXP Rserve_fork_compute(SEXP sExp) {
 /* 1 = iteration successful - OCAP called
    2 = iteration successful - OOB pending (only signalled if oob_hdr is non-null)
    0 = iteration failed - assume conenction has been closed */
+/* depth of OCAP calls being evaluated and the depth at which the connection
+   was replaced by a resumed one - responses to calls from the previous
+   connection are dropped */
+static int oc_call_depth, oc_stale_depth;
+
+#ifdef unix
+/* plain QAP server for connections adopted from the resume endpoint */
+static server_t adopt_srv;
+
+/* process one message from the server process (if any). Returns 1 if the
+   connection of this session was replaced by a resumed one */
+static int resume_process_msg(args_t *a) {
+	rsmsg_t *msg = resume_child_next_msg(0);
+	int res = 0;
+	if (!msg)
+		return 0;
+	if (msg->cmd == RSMSG_ADOPT && msg->fd != -1) {
+		if (a->s != -1 && !session_takeover)
+			ulog("INFO: resume: session is connected and session.takeover is disabled, refusing connection");
+		else {
+			server_t *srv;
+			if (a->s != -1) {
+				ulog("INFO: resume: taking over from the current connection (fd %d -> %d)", (int) a->s, msg->fd);
+				closesocket(a->s);
+			} else
+				ulog("INFO: resume: session resumed");
+			adopt_srv.ss        = -1;
+			adopt_srv.flags     = a->srv->flags & SRV_QAP_FLAGS;
+			adopt_srv.send_resp = Rserve_QAP1_send_resp;
+			adopt_srv.fin       = server_fin;
+			adopt_srv.recv      = server_recv;
+			adopt_srv.send      = server_send;
+			a->srv = srv = &adopt_srv;
+			a->s = msg->fd;
+			msg->fd = -1; /* it's ours now */
+			no_sigpipe(a->s);
+			takeover_set(a->s);
+			a->msg_id = 0;
+			oc_stale_depth = oc_call_depth;
+			sendResp(a, RESP_OK);
+			res = 1;
+		}
+	} else
+		ulog("WARNING: resume: unexpected message 0x%x from the server process, ignored", msg->cmd);
+	rsmsg_free(msg);
+	return res;
+}
+
+/* the connection of this session was closed: if the session can be resumed
+   (it has a key) wait up to session.timeout for a new connection. Returns 1
+   if the session was resumed (a->s is the new connection), 0 otherwise */
+static int resume_wait(args_t *a) {
+	struct timeval start, now;
+	if (!resume_child_active() || !resume_child_has_key() || session_timeout < 1)
+		return 0;
+	if (a->s != -1) {
+		closesocket(a->s);
+		a->s = -1;
+	}
+	takeover_set(-1);
+	ulog("INFO: resume: connection closed, waiting up to %d s for the session to be resumed", session_timeout);
+	gettimeofday(&start, 0);
+	while (1) {
+		long left;
+		int rfd = resume_child_fd();
+		gettimeofday(&now, 0);
+		left = (long) session_timeout * 1000L -
+			((long) (now.tv_sec - start.tv_sec) * 1000L + (long) (now.tv_usec - start.tv_usec) / 1000L);
+		if (left <= 0)
+			break;
+		if (resume_child_pending()) {
+			if (resume_process_msg(a))
+				return 1;
+		} else {
+			struct pollfd pfd;
+			if (rfd == -1) /* the server process is gone, nobody can resume us */
+				break;
+			pfd.fd = rfd;
+			pfd.events = POLLIN;
+			pfd.revents = 0;
+			if (poll(&pfd, 1, (left > 60000) ? 60000 : (int) left) < 0) {
+				if (errno != EINTR)
+					break;
+			} else if (pfd.revents && resume_process_msg(a))
+				return 1;
+		}
+	}
+	ulog("INFO: resume: session was not resumed, closing it");
+	return 0;
+}
+
+/* QAP1: the client connection was closed (rn is the result of the header
+   recv). Returns 1 if the session was resumed on a new connection */
+static int QAP1_resume_after_close(args_t *a, int rn, int uses_tls) {
+	server_t *srv = a->srv;
+	if (!resume_child_active() || !resume_child_has_key() || session_timeout < 1)
+		return 0;
+	if (rn > 0) /* incomplete header */
+		sendResp(a, SET_STAT(RESP_ERR, ERR_conn_broken));
+	if (uses_tls)
+		close_tls(a);
+	return resume_wait(a);
+}
+
+/* QAP1: wait until the client sends something while processing messages
+   from the server process. Returns 1 if the connection was replaced by a
+   resumed one */
+static int QAP1_wait_resume(args_t *a) {
+	int res = 0;
+	while (a->s != -1) {
+		struct pollfd pfd[2];
+		int rfd = resume_child_fd();
+		if (resume_child_pending()) {
+			if (resume_process_msg(a))
+				res = 1;
+		} else {
+			if (rfd == -1)
+				break;
+			pfd[0].fd = a->s;
+			pfd[0].events = POLLIN;
+			pfd[0].revents = 0;
+			pfd[1].fd = rfd;
+			pfd[1].events = POLLIN;
+			pfd[1].revents = 0;
+			if (poll(pfd, 2, -1) < 0) {
+				if (errno != EINTR)
+					break;
+			} else if (pfd[1].revents) {
+				if (resume_process_msg(a))
+					res = 1;
+			} else if (pfd[0].revents)
+				break;
+		}
+	}
+	return res;
+}
+#else
+static int resume_process_msg(args_t *a) {
+	return 0;
+}
+
+static int resume_wait(args_t *a) {
+	return 0;
+}
+
+static int QAP1_resume_after_close(args_t *a, int rn, int uses_tls) {
+	return 0;
+}
+
+static int QAP1_wait_resume(args_t *a) {
+	return 0;
+}
+#endif
+
+/* one iteration of the OCAP loop. If oob_hdr is set, we are nested in a call
+   waiting for an OOB response. Returns 0 = connection closed, 1 = continue,
+   2 = OOB response header was stored in oob_hdr, 3 = the connection was
+   replaced by a resumed one (only if nested) */
 int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 	struct args *args;
     struct phdr ph;
@@ -3396,9 +3688,10 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 	while ((s = args->s) != -1) {
 		/* we are now always using select() just to make sure we don't get stuck
 		   and can check things like the status of the processes we care about */
+		srv = args->srv; /* may have changed if the session was resumed */
 		int which = 0;
 		struct timeval timv;
-		int max_fs = s;
+		int max_fs = s, rfd = resume_child_fd();
 		fd_set readfds;
 
 #ifdef FORKED
@@ -3425,9 +3718,13 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 #endif
 
 		timv.tv_sec = 0;
-		timv.tv_usec = 200000;
+		timv.tv_usec = resume_child_pending() ? 0 : 200000;
 		FD_ZERO(&readfds);
 		FD_SET(s, &readfds);
+		if (rfd != -1) {
+			FD_SET(rfd, &readfds);
+			if (rfd > max_fs) max_fs = rfd;
+		}
 		if (compute_fd != -1) {
 			FD_SET(compute_fd, &readfds);
 			if (compute_fd > max_fs) max_fs = compute_fd;
@@ -3442,7 +3739,12 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 			ulog("NOTE: OCAP iteration, select error %d, aborting", (int) errno);
 			break; /* others are bad, get out */
 		}
-		if (FD_ISSET(s, &readfds)) which = 1;
+		if ((rn > 0 && rfd != -1 && FD_ISSET(rfd, &readfds)) || resume_child_pending()) {
+			if (resume_process_msg(args) && oob_hdr)
+				return 3; /* nested in a call waiting for an OOB response which won't come */
+			continue; /* serve the (possibly new) connection */
+		}
+		if (rn > 0 && FD_ISSET(s, &readfds)) which = 1;
 		else if (compute_fd != -1 && FD_ISSET(compute_fd, &readfds)) which = 2;
 		else if (std_fw_fd > 0 && FD_ISSET(std_fw_fd, &readfds)) which = 3;
 		
@@ -3760,10 +4062,17 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 				printf("  running eval on SEXP (after OC replacement): ");
 				printSEXP(val);
 #endif
+				oc_call_depth++;
 				eval_result = R_tryEval(val, R_GlobalEnv, &Rerror);
+				oc_call_depth--;
 				args->msg_id = msg_id; /* restore msg_id - oob in eval would clober it */
 				UNPROTECT(1);
 				ulog("OCresult '%s'", c_ocname ? c_ocname : "<null>");
+				if (oc_stale_depth > oc_call_depth) { /* the call came from the previous connection */
+					oc_stale_depth = oc_call_depth;
+					ulog("INFO: resume: dropping the result of a call from the previous connection");
+					return 1;
+				}
 				
 				if (eval_result) exp = PROTECT(eval_result);
 #ifdef RSERV_DEBUG
@@ -4008,11 +4317,31 @@ void Rserve_QAP1_connected(void *thp) {
 	/* everything is binary from now on */
 	a->flags |= F_OUT_BIN;
 	
-    while((rn = srv->recv(a, (char*)&ph, sizeof(ph))) == sizeof(ph)) {
+    while (1) {
 		SEXP eval_result = 0;
 		size_t plen = 0;
 		SEXP pp = R_NilValue; /* packet payload (as a raw vector) for special commands */
 		int msg_id;
+
+		/* with TLS the socket may not signal data that is already buffered */
+		if (!uses_tls && resume_child_active() && QAP1_wait_resume(a)) {
+			s = csock = a->s;
+			srv = a->srv;
+		}
+		if ((rn = srv->recv(a, (char*)&ph, sizeof(ph))) != sizeof(ph)) {
+			if (QAP1_resume_after_close(a, rn, uses_tls)) {
+				s = csock = a->s;
+				srv = a->srv;
+				uses_tls = 0;
+				continue;
+			}
+			if (a->s == -1) { /* closed while waiting to be resumed */
+				s = -1;
+				rn = 0;
+			}
+			break;
+		}
+
 		Rerror = 0;
 #ifdef RSERV_DEBUG
 		printf("\nheader read result: %d\n", rn);
@@ -5019,6 +5348,181 @@ server_t *create_Rserve_QAP1(int flags) {
 	return 0;
 }
 
+#ifdef unix
+/* receive exactly n bytes, waiting at most timeout_ms in total.
+   Returns 0 on success, -1 on error, EOF or timeout */
+static int recv_n(SOCKET s, void *buf, size_t n, int timeout_ms) {
+	char *c = (char*) buf;
+	struct timeval start, now;
+	gettimeofday(&start, 0);
+	while (n > 0) {
+		struct pollfd pfd;
+		ssize_t rn;
+		long left;
+		gettimeofday(&now, 0);
+		left = timeout_ms - ((long) (now.tv_sec - start.tv_sec) * 1000L + (long) (now.tv_usec - start.tv_usec) / 1000L);
+		if (left <= 0)
+			return -1;
+		pfd.fd = s;
+		pfd.events = POLLIN;
+		pfd.revents = 0;
+		if (poll(&pfd, 1, (int) left) < 0) {
+			if (errno == EINTR)
+				continue;
+			return -1;
+		}
+		if (pfd.revents) {
+			rn = recv(s, c, n, 0);
+			if (rn < 0 && errno != EINTR)
+				return -1;
+			if (rn == 0)
+				return -1;
+			if (rn > 0) {
+				c += rn;
+				n -= (size_t) rn;
+			}
+		}
+	}
+	return 0;
+}
+
+static int hex_val(char c) {
+	if (c >= '0' && c <= '9') return c - '0';
+	if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+	if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+	return -1;
+}
+
+/* how long the resume endpoint waits for the client to send the key */
+#define RESUME_RECV_TIMEOUT_MS 10000
+/* max. payload of CMD_attachSession accepted by the resume endpoint */
+#define RESUME_MAX_PAYLOAD 256
+
+/* read the key from a new connection on the resume endpoint. The client
+   speaks first, either
+     - QAP: CMD_attachSession with the key as DT_STRING (64 hex digits)
+       or DT_BYTESTREAM (32 bytes), or
+     - legacy: just the raw 32-byte key.
+   Returns 1 = QAP key, 2 = legacy key, 0 = QAP but invalid/no key,
+   -1 = error (connection unusable) */
+static int read_resume_key(SOCKET s, unsigned char *key) {
+	unsigned char hdr[16], par[RESUME_MAX_PAYLOAD];
+	unsigned int v, cmd, len, len_hi, pt, plen;
+	int i;
+
+	if (recv_n(s, hdr, 4, RESUME_RECV_TIMEOUT_MS))
+		return -1;
+	memcpy(&v, hdr, 4);
+	cmd = ptoi(v);
+	if (cmd != CMD_attachSession) { /* legacy raw key (keys never start like a CMD_attachSession header) */
+		memcpy(key, hdr, 4);
+		if (recv_n(s, key + 4, RS_KEY_LEN - 4, RESUME_RECV_TIMEOUT_MS))
+			return -1;
+		return 2;
+	}
+	if (recv_n(s, hdr + 4, 12, RESUME_RECV_TIMEOUT_MS))
+		return -1;
+	memcpy(&v, hdr + 4, 4);
+	len = ptoi(v);
+	memcpy(&v, hdr + 12, 4);
+	len_hi = ptoi(v);
+	if (len_hi || len > RESUME_MAX_PAYLOAD) /* we can't skip it, so the stream is unusable */
+		return -1;
+	if (len && recv_n(s, par, len, RESUME_RECV_TIMEOUT_MS))
+		return -1;
+	if (len < 4)
+		return 0;
+	memcpy(&v, par, 4);
+	v = ptoi(v);
+	pt = v & 0xff;
+	plen = v >> 8;
+	if (plen > len - 4)
+		return 0;
+	if (pt == DT_BYTESTREAM && plen >= RS_KEY_LEN) {
+		memcpy(key, par + 4, RS_KEY_LEN);
+		return 1;
+	}
+	if (pt == DT_STRING && plen >= RS_KEY_LEN * 2) {
+		const char *c = (const char*) par + 4;
+		if (plen > RS_KEY_LEN * 2 && c[RS_KEY_LEN * 2])
+			return 0; /* longer than a key */
+		for (i = 0; i < RS_KEY_LEN; i++) {
+			int hi = hex_val(c[i * 2]), lo = hex_val(c[i * 2 + 1]);
+			if (hi < 0 || lo < 0)
+				return 0;
+			key[i] = (unsigned char) ((hi << 4) | lo);
+		}
+		return 1;
+	}
+	return 0;
+}
+
+/* new connection on the resume endpoint */
+static void Rserve_resume_connected(void *thp) {
+	args_t *a = (args_t*) thp;
+	unsigned char key[RS_KEY_LEN];
+	int kt;
+
+	if (Rserve_prepare_child(a) != 0) { /* parent or error */
+		free(a);
+		return;
+	}
+
+	kt = read_resume_key(a->s, key);
+	if (kt > 0) {
+		int res = resume_child_attach(key, a->s);
+		memset(key, 0, sizeof(key));
+		if (!res) { /* the session has the connection now */
+			ulog("INFO: resume: connection handed to its session");
+			closesocket(a->s);
+			free(a);
+			return;
+		}
+	}
+	if (kt == 2 || kt < 0) { /* legacy clients (and broken streams) can't fall back */
+		ulog("INFO: resume: %s, closing connection", (kt < 0) ? "no valid request" : "unknown session");
+		closesocket(a->s);
+		free(a);
+		return;
+	}
+	/* no such session: serve as a new one (OCinit in OCAP mode, ID string otherwise),
+	   this is a child already so Rserve_prepare_child() is a no-op */
+	ulog("INFO: resume: no such session, starting a new one");
+	Rserve_QAP1_connected(a);
+}
+
+/* 1 if the configuration asks for a resume endpoint */
+static int want_resume_endpoint(void) {
+	return (resume_enabled && (session_socket_name || session_port > 0)) ? 1 : 0;
+}
+
+/* the resume endpoint (see want_resume_endpoint()), returns NULL on failure */
+server_t *create_Rserve_resume(int flags) {
+	server_t *srv;
+	if (use_ipv6) flags |= SRV_IPV6;
+	if (localonly) flags |= SRV_LOCAL;
+	srv = create_server(session_socket_name ? 0 : session_port, session_socket_name, localSocketMode, flags);
+	if (srv) {
+		srv->connected = Rserve_resume_connected;
+		srv->send_resp = Rserve_QAP1_send_resp;
+		srv->fin       = server_fin;
+		srv->recv      = server_recv;
+		srv->send      = server_send;
+		add_server(srv);
+		ulog("INFO: started session resume endpoint (%s)", session_socket_name ? session_socket_name : "TCP");
+	}
+	return srv;
+}
+#else
+static int want_resume_endpoint(void) {
+	return 0;
+}
+
+server_t *create_Rserve_resume(int flags) {
+	return 0;
+}
+#endif
+
 static void handle_server_event(void *which) {
 	server_t *srv = (server_t*) which;
 	socklen_t al;
@@ -5323,6 +5827,20 @@ SEXP run_Rserve(SEXP cfgFile, SEXP cfgPars, SEXP sBG) {
 		}
 		ulog("INFO: started TLS server (%s)", qap_oc ? "OCAP" : "eval");
 		push_server(ss, srv);
+	}
+
+	if (want_resume_endpoint()) {
+		if (isBG)
+			Rf_warning("session resume is not supported with background servers, resume endpoint not started");
+		else {
+			server_t *srv = create_Rserve_resume((qap_oc ? SRV_QAP_OC : 0) | global_srv_flags);
+			if (!srv) {
+				release_server_stack(ss);
+				RSsrv_done();
+				Rf_error("Unable to start session resume endpoint");
+			}
+			push_server(ss, srv);
+		}
 	}
 
 	if (http_port > 0) {
