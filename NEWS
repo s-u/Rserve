@@ -92,6 +92,11 @@ NOTE: Rserve 1.8 series has many new features, but it has also removed
 	was missing its argument.
 
 
+1.8-19.1	2026-08-29 (CRAN NMU)
+    o	Add const qualifiers to avoid warnings about discarding
+	const in strchr()/memchr() results.
+
+
 1.8-19	2026-03-24
     o	Fix regression in 1.8-18 which broke obtaining OCAP symbols.
 
