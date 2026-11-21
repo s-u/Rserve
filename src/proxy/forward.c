@@ -210,6 +210,10 @@ typedef struct queue_fs {
     char data[1];
 } queue_ft;
 
+/* default WS send timeout (seconds): a client that doesn't accept any data
+   for this long is considered gone */
+#define DEFAULT_SEND_TIMEOUT 300
+
 typedef struct {
     const char *qap_socket_path;
     
@@ -220,6 +224,8 @@ typedef struct {
     int queue_sleeping; /* if set the queue consumer is sleeping and wants to be signalled */
     unsigned long queue_seq;
     int qap_stage, active, qap_alive, ws_alive;
+    int ws_broken;    /* a send to WS failed (don't try to send any more) */
+    int send_timeout; /* WS send timeout in seconds (0 = none) */
     queue_ft *ws_to_qap;
 } proxy_t;
 
@@ -267,7 +273,7 @@ static void *forward(void *ptr) {
 		}
 		n = read(s, idstr + sizeof(hdr), 32 - sizeof(hdr));
 		ulog("QAP->WS  INFO: read[IDstring] n = %d", n);
-		if (n < 32 - sizeof(hdr)) {
+		if (n < (ssize_t) (32 - sizeof(hdr))) {
 		    ulog("QAP->WS  ERROR: read QAP1 ID string: %d read, %d expected", n, 32 - sizeof(hdr));
 		    break;
 		}
@@ -346,8 +352,9 @@ static void *forward(void *ptr) {
 	    n = (proxy->ws_alive) ? proxy->ws->srv->send(proxy->ws, qe->data, qe->len) : -2;
 	    ulog("QAP->WS  INFO: send returned %d", n);
 	    pthread_mutex_unlock(&proxy->mux);
-	    if (n < qe->len) {
+	    if (n < 0 || (unsigned long) n < qe->len) { /* careful: n is signed */
 	        ulog("QAP->WS  ERROR: was able to send only %ld bytes of %lu bytes message [%s]", (long) n, tl, strerror(errno));
+		proxy->ws_broken = 1;
 		free(qe);
 		break;
 	    }
@@ -355,9 +362,12 @@ static void *forward(void *ptr) {
 	}
     }
     closesocket(s);
+    /* QAP socket is dead - wake up the main thread so it can shut down */
+    pthread_mutex_lock(&proxy->mux);
     proxy->qap_alive = 0;
     proxy->qap = -1;
-    /* QAP socket is dead */
+    pthread_cond_signal(&proxy->queue_available);
+    pthread_mutex_unlock(&proxy->mux);
     ulog("QAP->WS  INFO: finished forwarding thread, QAP closed");
     return 0;
 }
@@ -479,6 +489,21 @@ static void ws_connected(args_t *arg, char *protocol) {
     fprintf(stderr, "INFO: web sockets connected (protocol %s)\n", protocol ? protocol : "<NULL>");
 
     proxy->ws = arg;
+    {
+	SOCKET ws = WS_socket(arg);
+	int one = 1;
+	/* detect browsers that went away without closing the connection
+	   (OS defaults, so only long outages drop the connection) */
+	setsockopt(ws, SOL_SOCKET, SO_KEEPALIVE, &one, sizeof(one));
+	/* a client that doesn't read (stalled browser) fails sends after the
+	   timeout instead of blocking us (and Rserve behind us) forever */
+	if (proxy->send_timeout > 0) {
+	    struct timeval tv;
+	    tv.tv_sec = proxy->send_timeout;
+	    tv.tv_usec = 0;
+	    setsockopt(ws, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+	}
+    }
     if ((s = proxy->qap = socket(AF_LOCAL, SOCK_STREAM, 0)) == -1) {
 	RSEprintf("unable to get local socket: %s\n", strerror(errno));
 	return;
@@ -508,6 +533,7 @@ static void ws_connected(args_t *arg, char *protocol) {
     proxy->ws_to_qap = 0;
     proxy->active = 1;
     proxy->ws_alive = 1;
+    proxy->ws_broken = 0;
     proxy->qap_alive = 1;
 
     /* create QAP -> WS forwarding thread */
@@ -541,7 +567,8 @@ static void ws_connected(args_t *arg, char *protocol) {
 	queue_ft *q;
 	pthread_mutex_lock(&proxy->mux);
 	ulog("Q  ->QAP INFO: waiting for message in the queue");
-	if (!proxy->ws_to_qap && proxy->qap_alive) { /* if there is nothing to process, wait until enqueue posts something */
+	if (!proxy->ws_to_qap && proxy->qap_alive && proxy->ws_alive) { /* if there is nothing to process, wait until enqueue posts something
+									    (or one of the sides closes) */
 	    proxy->queue_sleeping = 1;
 	    pthread_cond_wait(&proxy->queue_available, &proxy->mux);
 	    proxy->queue_sleeping = 0;
@@ -597,6 +624,11 @@ static void ws_connected(args_t *arg, char *protocol) {
 					  it's time to leave */
 	    ulog("INFO: WS closed and queue empty, clean shutdown");
 	    proxy->active = 0;
+	} else if (!proxy->qap_alive) { /* QAP is closed (e.g., the session ended)
+					   and all messages from WS have been
+					   answered - close WS so the client knows */
+	    ulog("INFO: QAP closed and queue empty, closing WS");
+	    proxy->active = 0;
 	}
     }
 
@@ -613,7 +645,8 @@ static void ws_connected(args_t *arg, char *protocol) {
 	qap_hdr_t hdr = { 0, 0, 0, 0 };
 	hdr.cmd = itop(OOB_SEND);
 	proxy->ws_alive = 0;
-	proxy->ws->srv->send(proxy->ws, &hdr, sizeof(hdr));
+	if (!proxy->ws_broken)
+	    proxy->ws->srv->send(proxy->ws, &hdr, sizeof(hdr));
     }
     pthread_mutex_unlock(&proxy->mux);
     ulog("INFO: WebSockets forwarding process done.");
@@ -706,12 +739,14 @@ int main(int ac, char **av) {
     proxy = (proxy_t*) malloc(sizeof(proxy_t));
     memset(proxy, 0, sizeof(proxy_t));
     proxy->qap_socket_path = "Rserve_socket";
+    proxy->send_timeout = DEFAULT_SEND_TIMEOUT;
 
     while (++i < ac)
         if (av[i][0] == '-')
             switch (av[i][1]) {
             case 's': if (++i < ac) proxy->qap_socket_path = av[i]; else return die("missing path in -s <http-socket>"); break;
             case 'u': if (++i < ac) ulog_path = av[i]; else return die("missing path in -u <ulog-socket>"); break;
+            case 't': if (++i < ac) proxy->send_timeout = atoi(av[i]); else return die("missing seconds in -t <send-timeout>"); break;
             case 'p': if (++i < ac) http_port = atoi(av[i]); else return die("missing HTTP port in -p <port>"); break;
             case 'w': if (++i < ac) ws_port = atoi(av[i]); else return die("missing WebSockets port in -w <port>"); break;
             case 'r': if (++i < ac) doc_root = av[i]; else return die("missing path in -r <doc-root>"); break;
@@ -755,7 +790,10 @@ int main(int ac, char **av) {
 		break;
             case 'h': printf("\n\
  Usage: %s [-h] [-p <http-port>] [-w <ws-port>] [-s <QAP-socket>] [-R <Rscript-socket>] [-r <doc-root>]\n\
-        [-k <TLS-key-path> [-c <TLS-cert-path>] [-C <TLS-CA-path>]] [-u <ulog-socket>] [-S <host>[:<port>]]]\n\n", av[0]);
+        [-k <TLS-key-path> [-c <TLS-cert-path>] [-C <TLS-CA-path>]] [-u <ulog-socket>] [-S <host>[:<port>]]]\n\
+        [-t <send-timeout>]\n\n\
+ -t <send-timeout> closes a WebSocket connection if the client accepts no data\n\
+    for that many seconds (default %d, 0 = never)\n\n", av[0], DEFAULT_SEND_TIMEOUT);
                 return 0;
             default:
                 fprintf(stderr, "\nUnrecognized flag -%c\n", av[i][1]);

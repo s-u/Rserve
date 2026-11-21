@@ -45,6 +45,19 @@ static ssize_t WS_wire_send(args_t *arg, const void *buf, size_t len) {
 	return (arg->tls_arg) ? arg->tls_arg->srv->send(arg->tls_arg, buf, len) : send(arg->s, buf, len, 0);
 }
 
+/* send all of buf, continuing after partial sends: a partial send is not an
+   error (e.g., with a send timeout only a send without progress fails) */
+static ssize_t WS_wire_send_all(args_t *arg, const void *buf, size_t len) {
+	size_t i = 0;
+	while (i < len) {
+		ssize_t n = WS_wire_send(arg, (const char*) buf + i, len - i);
+		if (n < 1)
+			return (i > 0) ? (ssize_t) i : n;
+		i += n;
+	}
+	return (ssize_t) len;
+}
+
 static ssize_t WS_wire_recv(args_t *arg, void *buf, size_t len) {
 	return (arg->tls_arg) ? arg->tls_arg->srv->recv(arg->tls_arg, buf, len) : recv(arg->s, buf, len, 0);
 }
@@ -507,6 +520,10 @@ static int WS_send_resp(args_t *arg, int rsp, size_t len, const void *buf) {
 	return 0;
 }
 
+SOCKET WS_socket(args_t *arg) {
+	return (arg->tls_arg) ? arg->tls_arg->s : arg->s;
+}
+
 void WS_set_binary(args_t *arg, int flag) {
 	if (flag)
 		arg->flags |= F_OUT_BIN;
@@ -530,7 +547,7 @@ static ssize_t WS_send_data_(args_t *arg, const void *buf, size_t len, int opcod
 			sbuf[0] = 0;
 			memcpy(sbuf + 1, buf, len);
 			sbuf[len + 1] = 0xff;
-			n = WS_wire_send(arg, sbuf, len + 2);
+			n = WS_wire_send_all(arg, sbuf, len + 2);
 #ifdef RSERV_DEBUG
 			fprintf(stderr, "WS_send_data: sending 00 frame, n = %ld / %lu\n",
 					(long) n, (unsigned long) len + 2);
@@ -571,7 +588,7 @@ static ssize_t WS_send_data_(args_t *arg, const void *buf, size_t len, int opcod
 			size_t send_here = (len + pl > arg->sl) ? arg->sl : (len + pl);
             if (send_here > pl)
                 memcpy(sbuf + pl, buf, send_here - pl);
-            n = WS_wire_send(arg, sbuf, send_here);
+            n = WS_wire_send_all(arg, sbuf, send_here);
 #ifdef RSERV_DEBUG
             if (pl) {
                 fprintf(stderr, "WS_send_data: sending 4+ frame (ver %02d), n = %ld / %lu (of total %ld)\n", arg->ver, (long) n, (unsigned long) send_here, (long) len);
