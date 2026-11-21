@@ -261,21 +261,6 @@ void sha1hash(const char *buf, int len, unsigned char hash[20]);
 #define RS_ParseVector(A,B,C) R_ParseVector(A,B,C,R_NilValue)
 #endif
 
-/* general RSMSG error commands */
-#define RSMSG_ERR             0x800  /* is RSMSG error */
-
-#define RSMSG_ERR_NOT_FOUND   (RSMSG_ERR | 1)   /* address not found */
-#define RSMSG_ERR_NO_IO       (RSMSG_ERR | 2)   /* address exists but has no communication channel */
-#define RSMSG_ERR_IO_FAILED   (RSMSG_ERR | 3)   /* error during an attempt to relay the message */
-
-/* bits that govern presence of leading payload in RSMSG messages */
-#define RSMSG_HAS_SRC 0x1000  /* has source address (mandatory if a reply is expected) */
-#define RSMSG_HAS_DST 0x2000  /* has destination address (if not present, server is implied) */
-
-typedef union { char c[16]; int i[4]; } rsmsg_addr_t;
-
-#define RSMSG_ADDR_LEN (sizeof(rsmsg_addr_t))
-
 #define MAX_CTRL_DATA (1024*1024) /* max. length of data for control commands - larger data will be ignored */
 
 #ifdef WIN32
@@ -287,6 +272,11 @@ typedef union { char c[16]; int i[4]; } rsmsg_addr_t;
 #include "http.h"
 #include "tls.h"
 #include "oc.h"
+#include "resume.h"
+
+#ifdef unix
+#include <poll.h>
+#endif
 
 struct args {
 	server_t *srv; /* server that instantiated this connection */
@@ -661,40 +651,6 @@ static const char *rserve_ver_id = "$Id$";
 static char rserve_rev[16]; /* this is generated from rserve_ver_id by main */
 #endif
 
-#if 0 /* FIXME: not used yet, implements generate_addr() for random MSG IDs */
-#ifdef HAVE_RSA
-#include <openssl/rand.h>
-
-static void generate_random_bytes(void *buf, int len) {
-#ifdef RAND_FALLBACK
-	if (RAND_bytes(buf, len) != 1 &&
-		RAND_pseudo_bytes(buf, len) == -1) {
-		int i;
-		for (i = 0; i < len; i++)
-			((char*)buf)[i] = (char) random();
-	}
-#else
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-    if (RAND_bytes(buf, len) != 1 && RAND_pseudo_bytes(buf, len) < 0)
-#else /* OpenSSL 1.1+ doesn't support pseudo random, so fail hard */
-    if (RAND_bytes(buf, len) != 1)
-#endif
-		Rf_error("Cannot generate random bytes");
-#endif
-}
-
-#else
-static void generate_random_bytes(void *buf, int len) {
-	int i;
-	for (i = 0; i < len; i++)
-		((char*)buf)[i] = (char) random();
-}
-#endif
-
-static void generate_addr(rsmsg_addr_t *addr) {
-	generate_random_bytes(addr, sizeof(*addr));
-}
-#endif
  
 #define localUCIX UCIX
 
@@ -1283,6 +1239,12 @@ static int setConfig(const char *c, const char *p) {
 	}
 	if (!strcmp(c, "use.idle.callback")) {
 		use_idle_callback = conf_is_true(p);
+		return 1;
+	}
+	if (!strcmp(c, "session.resume")) {
+#ifdef unix
+		resume_enabled = conf_is_true(p);
+#endif
 		return 1;
 	}
 	if (!strcmp(c, "http.upgrade.websockets")) {
@@ -2230,6 +2192,29 @@ static SEXP Rserve_oobMsg_(SEXP exp, SEXP code, int throw_error) {
 /* visible API version */
 SEXP Rserve_oobMsg(SEXP exp, SEXP code) { return Rserve_oobMsg_(exp, code, 1); }
 
+static const char *hexc = "0123456789abcdef";
+
+/* returns the key that can be used to resume this session (as a hex string)
+   - the key is issued by the server process and is the same for the life of the session */
+SEXP Rserve_session_key(void) {
+	unsigned char key[RS_KEY_LEN];
+	char hex_buf[RS_KEY_LEN * 2 + 1], *hex = hex_buf;
+	int i;
+	if (!resume_enabled)
+		Rf_error("session resume is not enabled in the server configuration (session.resume)");
+	if (!is_child || !resume_child_active())
+		Rf_error("session resume is only available in a connection-serving process of a forked Rserve server");
+	if (resume_child_key(key))
+		Rf_error("unable to obtain session key from the server process");
+	for (i = 0; i < RS_KEY_LEN; i++) {
+		*(hex++) = hexc[key[i] >> 4];
+		*(hex++) = hexc[key[i] & 15];
+	}
+	*hex = 0;
+	memset(key, 0, sizeof(key));
+	return mkString(hex_buf);
+}
+
 
 /* server forking
    For a regular forked server this is simply fork(), but for pre-forked servers
@@ -2250,20 +2235,28 @@ static void restore_signal_handlers(void); /* forward decl */
 int Rserve_prepare_child(args_t *args) {
 #ifdef FORKED  
 	long rseed = random();
+	rsio_t *rsio;
 
     rseed ^= time(0);
 
 	if (is_child) return 0; /* this is a no-op if we are already a child
 							   FIXME: thould this be an error ? */
 
+	/* channel to the server process for session resume (NULL if disabled).
+	   Background servers are not supported since they don't use serverLoop() */
+	rsio = background_servers ? 0 : resume_srv_prefork();
+
     if ((lastChild = RS_fork(args)) != 0) { /* parent/master part */
 		int forkErrno = errno; //grab errno close to source before it can be changed by other failures
 		/* close the connection socket - the child has it already */
 		closesocket(args->s);
+		resume_srv_postfork(rsio, lastChild);
 		if (lastChild == -1)
 			RSEprintf("WARNING: fork() failed in Rserve_prepare_child(): %s\n",strerror(forkErrno));
 		return lastChild;
     }
+
+	resume_child_postfork(rsio);
 
 	/* child part */
 	if (background_servers) /* backgroud servers cannot be processed the child */
@@ -2403,7 +2396,6 @@ void Rserve_text_connected(void *thp) {
 
 static char auth_buf[4096];
 
-static const char *hexc = "0123456789abcdef";
 static const char *sec_salt = "##secure"; /* special object to denote secure login */
 
 static int auth_user(const char *usr, const char *pwd, const char *salt) {
@@ -3266,6 +3258,7 @@ SEXP Rserve_fork_compute(SEXP sExp) {
 	compute_pid = fpid;
 	if (fpid == 0) { /* child = compute process */
 		closesocket(self_args->s);
+		resume_child_close(); /* the channel to the server belongs to the control process */
 		struct args *args = self_args = (struct args *) calloc(1, sizeof(struct args));
 		/* create a "fake" server entry for a virtual server that doesn't exist */
 		server_t *srv =  (server_t*) calloc(1, sizeof(server_t));
@@ -5090,10 +5083,86 @@ void finishBackgroundServerLoop(void) {
 	background_servers = 0;
 }
 
+/* accept a connection on the given server and dispatch it.
+   Returns 1 if the connection was passed to the server's connected() callback */
+static int accept_connection(server_t *srv) {
+	socklen_t al;
+	struct args *sa;
+	int ss = srv->ss;
+
+	/* sa is allocated here, and must be freed before the
+	   end of the iteration. The connected(sa) API function
+	   assumes ownership of sa so it MUST free the pointer
+	   even on error. Conversely, sa may NOT be used
+	   here once connected() was called.
+	   FIXME: we could change the semantics to not transfer
+	   ownership to avoid leaks in server implementations,
+	   but 1) it would require all implementations to change
+	   and 2) they may add nested structures to the payload
+	   which they control so those may still leak if we are
+	   responsible */
+	sa = (struct args*)malloc(sizeof(struct args));
+	memset(sa, 0, sizeof(struct args));
+	al = sizeof(sa->sa);
+#ifdef unix
+	if (srv->unix_socket) {
+		al = sizeof(sa->su);
+		sa->s = CF("accept", accept(ss, (SA*)&(sa->su), &al));
+	} else
+#endif
+		sa->s = CF("accept", accept(ss, (SA*)&(sa->sa), &al));
+	accepted_server(srv, sa->s);
+	sa->ucix = UCIX++;
+	sa->ss = ss;
+	sa->srv = srv;
+	if (allowed_ips && !srv->unix_socket && !use_ipv6) {
+		/* FIXME: IPv6 unsafe - filtering won't work on IPv6 addresses */
+		char **laddr = allowed_ips;
+		int allowed = 0;
+		while (*laddr)
+			if (sa->sa.sin_addr.s_addr == inet_addr(*(laddr++)))
+				{ allowed=1; break; }
+		if (!allowed) {
+#ifdef RSERV_DEBUG
+			printf("INFO: peer is not on allowed IP list, closing connection\n");
+#endif
+			closesocket(sa->s);
+			free(sa);
+			return 0;
+		}
+	}
+#ifdef RSERV_DEBUG
+	printf("INFO: accepted connection for server %p, calling connected\n", (void*) srv);
+#endif
+	srv->connected(sa);
+#ifdef FORKED
+	/* when the child returns it means it's done (likely an error)
+	   but it is forked, so the only right thing to do is to exit */
+	if (is_child)
+		exit(2);
+#endif
+	return 1;
+}
+
+#ifndef Win32
+/* offer to run .Rserve.served after a connection was served */
+static void run_served_hook(void) {
+	SEXP fun, fsym = install(".Rserve.served");
+	int evalErr = 0;
+	fun = findVarInFrame(R_GlobalEnv, fsym);
+	if (Rf_isFunction(fun))
+		R_tryEval(lang1(fsym), R_GlobalEnv, &evalErr);
+}
+#endif
+
 void serverLoop(void) {
+#ifdef unix
+	struct pollfd *pfd = 0;
+	int *srv_idx = 0, pfd_alloc = 0;
+#else
     struct timeval timv;
-    int selRet = 0;
     fd_set readfds;
+#endif
 
 	if (main_argv && tag_argv == 1 && strlen(main_argv[0]) >= 8) {
 		strcpy(main_argv[0] + strlen(main_argv[0]) - 8, "/RsrvSRV");
@@ -5103,124 +5172,92 @@ void serverLoop(void) {
 
     while(active && (servers || children)) { /* main serving loop */
 		int i;
-		int maxfd = 0;
 #ifdef FORKED
-		while (waitpid(-1, 0, WNOHANG) > 0);
+		{
+			pid_t pid;
+			while ((pid = waitpid(-1, 0, WNOHANG)) > 0)
+				resume_srv_rm((int) pid);
+		}
 #endif
-		/* 500ms (used to be 10ms) - it shouldn't really matter since
-		   it's ok for us to sleep -- the timeout will only influence
-		   how often we collect terminated children and (maybe) how
-		   quickly we react to shutdown */
-		timv.tv_sec = 0; timv.tv_usec = 500000;
-		FD_ZERO(&readfds);
-		for (i = 0; i < servers; i++)
-			if (server[i])
-				{
+#ifdef unix
+		/* we use poll() since the server may have many children with
+		   resume channels and select() can't handle fds >= FD_SETSIZE */
+		{
+			int n = 0, nsrv, nch = resume_srv_count(), need = servers + nch, k;
+			if (need > pfd_alloc) {
+				struct pollfd *np = (struct pollfd*) realloc(pfd, sizeof(struct pollfd) * (need + 16));
+				int *ni;
+				if (!np) {
+					ulog("ERROR: out of memory in server loop");
+					break;
+				}
+				pfd = np;
+				ni = (int*) realloc(srv_idx, sizeof(int) * (need + 16));
+				if (!ni) {
+					ulog("ERROR: out of memory in server loop");
+					break;
+				}
+				srv_idx = ni;
+				pfd_alloc = need + 16;
+			}
+			for (i = 0; i < servers; i++)
+				if (server[i]) {
+					pfd[n].fd = server[i]->ss;
+					pfd[n].events = POLLIN;
+					pfd[n].revents = 0;
+					srv_idx[n++] = i;
+				}
+			nsrv = n;
+			if (nch > 0) { /* channels to children for session resume */
+				int *cfd = srv_idx + nsrv; /* re-use the index array as scratch space */
+				int nc = resume_srv_fds(cfd, nch);
+				for (k = 0; k < nc; k++) {
+					pfd[n].fd = cfd[k];
+					pfd[n].events = POLLIN;
+					pfd[n].revents = 0;
+					n++;
+				}
+			}
+			/* 500ms (used to be 10ms) - it shouldn't really matter since
+			   it's ok for us to sleep -- the timeout will only influence
+			   how often we collect terminated children and (maybe) how
+			   quickly we react to shutdown */
+			if (poll(pfd, n, 500) > 0) {
+				/* messages from children first (they never block), then new connections */
+				for (k = nsrv; k < n; k++)
+					if (pfd[k].revents)
+						resume_srv_handle_fd(pfd[k].fd);
+				for (k = 0; k < nsrv; k++)
+					if ((pfd[k].revents & POLLIN) && server[srv_idx[k]] &&
+						server[srv_idx[k]]->ss == pfd[k].fd &&
+						accept_connection(server[srv_idx[k]]))
+						run_served_hook();
+			}
+		}
+#else
+		{
+			int maxfd = 0;
+			timv.tv_sec = 0; timv.tv_usec = 500000;
+			FD_ZERO(&readfds);
+			for (i = 0; i < servers; i++)
+				if (server[i]) {
 					int ss = server[i]->ss;
 					if (ss > maxfd)
 						maxfd = ss;
 					FD_SET(ss, &readfds);
 				}
-		
-		selRet = select(maxfd + 1, &readfds, 0, 0, &timv);
 
-		if (selRet > 0) {
-			for (i = 0; i < servers; i++) {
-				socklen_t al;
-				struct args *sa;
-				server_t *srv = server[i];
-				int ss = srv->ss;
-				int succ = 0;
-				if (server[i] && FD_ISSET(ss, &readfds)) {
-					/* sa is allocated here, and must be freed before the
-					   end of the iteration. The connected(sa) API function
-					   assumes ownership of sa so it MUST free the pointer
-					   even on error. Conversely, sa may NOT be used
-					   here once connected() was called.
-					   FIXME: we could change the semantics to not transfer
-					   ownership to avoid leaks in server implementations,
-					   but 1) it would require all implementations to change
-					   and 2) they may add nested structures to the payload
-					   which they control so those may still leak if we are
-					   responsible */
-					sa = (struct args*)malloc(sizeof(struct args));
-					memset(sa, 0, sizeof(struct args));
-					al = sizeof(sa->sa);
-#ifdef unix
-					if (server[i]->unix_socket) {
-						al = sizeof(sa->su);
-						sa->s = CF("accept", accept(ss, (SA*)&(sa->su), &al));
-					} else
-#endif
-						sa->s = CF("accept", accept(ss, (SA*)&(sa->sa), &al));
-					accepted_server(srv, sa->s);
-					sa->ucix = UCIX++;
-					sa->ss = ss;
-					sa->srv = srv;
-					/*
-					  memset(sa->sk,0,16);
-					  sa->sfd=-1;
-					  #if defined SESSIONS && defined FORKED
-					  {
-					  int pd[2];
-					  if (!pipe(&pd)) {
-					  
-					  }
-					  }
-					  #endif
-					*/
-					if (allowed_ips && !srv->unix_socket && !use_ipv6) {
-						/* FIXME: IPv6 unsafe - filtering won't work on IPv6 addresses */
-						char **laddr = allowed_ips;
-						int allowed = 0;
-						while (*laddr)
-							if (sa->sa.sin_addr.s_addr == inet_addr(*(laddr++)))
-								{ allowed=1; break; }
-						if (allowed) {
-#ifdef RSERV_DEBUG
-							printf("INFO: accepted connection for server %p, calling connected\n", (void*) srv);
-#endif
-							srv->connected(sa);
-							succ = 1;
-#ifdef FORKED
-							/* when the child returns it means it's done (likely an error)
-							   but it is forked, so the only right thing to do is to exit */
-							if (is_child)
-								exit(2);
-#endif
-						} else {
-#ifdef RSERV_DEBUG
-							printf("INFO: peer is not on allowed IP list, closing connection\n");
-#endif
-							closesocket(sa->s);
-							free(sa);
-						}
-					} else { /* ---> remote enabled */
-#ifdef RSERV_DEBUG
-						printf("INFO: accepted connection for server %p, calling connected\n", (void*) srv);
-#endif
-						srv->connected(sa);
-						succ = 1;
-						if (is_child) /* same as above */
-							exit(2);
-					}
-#ifdef Win32
-				}
-			}
+			if (select(maxfd + 1, &readfds, 0, 0, &timv) > 0)
+				for (i = 0; i < servers; i++)
+					if (server[i] && FD_ISSET(server[i]->ss, &readfds))
+						accept_connection(server[i]);
 		}
-#else
-				}
-				if (succ) { /* if there was an actual connection, offer to run .Rserve.served */
-					SEXP fun, fsym = install(".Rserve.served");
-					int evalErr = 0;
-					fun = findVarInFrame(R_GlobalEnv, fsym);
-					if (Rf_isFunction(fun))
-                        R_tryEval(lang1(fsym), R_GlobalEnv, &evalErr);
-				}
-			} /* end loop over servers */
-		} /* end if (selRet > 0) */
 #endif
     } /* end while(active) */
+#ifdef unix
+	free(pfd);
+	free(srv_idx);
+#endif
     ulog("INFO: Rserve server loop end");
 }
 

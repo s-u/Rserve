@@ -18,6 +18,7 @@ SEXP Rserve_eval(SEXP what, SEXP rho, SEXP retLast, SEXP retExp,
 				 SEXP ctxObj, SEXP sHandler);
 SEXP Rserve_set_context(SEXP what);
 SEXP Rserve_set_last_condition(SEXP sCond);
+SEXP Rserve_session_key(void);
 
 /* from http.c */
 SEXP Rserve_set_http_request_fn(SEXP sFn);
@@ -260,6 +261,7 @@ int main(int argc, char **argv)
 			{"Rserve_http_add_static", (DL_FUNC) &Rserve_http_add_static, 4},
 			{"Rserve_http_rm_all_statics", (DL_FUNC) &Rserve_http_rm_all_statics, 0},
 			{"Rserve_set_last_condition", (DL_FUNC) &Rserve_set_last_condition, 1},
+			{"Rserve_session_key", (DL_FUNC) &Rserve_session_key, 0},
 			{NULL, NULL, 0}
 		};
 		R_registerRoutines(R_getEmbeddingDllInfo(), 0, mainCallMethods, 0, 0);

@@ -72,6 +72,11 @@ self.oobMessage <- function(what, code = 0L) {
 
 ulog <- function(...) invisible(.Call(Rserve_ulog, paste(..., collapse="\n", sep="")))
 
+Rserve.session.key <- function() {
+  if (is.null(Rserve_session_key)) stop("This command can only be run inside Rserve")
+  .Call(Rserve_session_key)
+}
+
 ocap <- function(fun, name=deparse(substitute(fun)))
   .Call(Rserve_oc_register, fun, name)
 
