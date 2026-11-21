@@ -1115,7 +1115,7 @@ static const char *expand_conf_string(const char *str) {
 	const char *c = str, *x = str;
 	if (!str || !*str) return "";
 	while ((x = strstr(c, "${"))) {
-		char *tr = strchr(x + 2, '}');
+		const char *tr = strchr(x + 2, '}');
 		if (tr && tr - x < 64) {
 			char *repl;
 			int rlen;

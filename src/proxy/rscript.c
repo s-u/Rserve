@@ -102,7 +102,7 @@ static int parse_par(par_info_t *pi, const char *buf, const char *eob) {
 
 /* >= 0 (string length) if the parameter has string, -1 otherwise */
 static long string_par_len(par_info_t *pi) {
-    char *c;
+    const char *c;
     if (pi->type != XT_ARRAY_STR && pi->len < 1)
         return -1;
     c = memchr(pi->payload, 0, pi->len);
