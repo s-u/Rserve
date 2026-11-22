@@ -2808,7 +2808,18 @@ static void free_qap_runtime(qap_runtime_t *rt) {
 	}
 }
 
-#ifdef R_INTERFACE_PTRS
+/* Windows has no ptr_R_* hooks; winembed.c installs callbacks at start-up
+   that forward to these functions once they are registered (R >= 4.2.0) */
+#if defined WIN32 && (R_VERSION >= R_Version(4,2,0))
+#define RS_WIN_CONSOLE
+void Rserve_win_console(int (*read)(const char *, unsigned char *, int, int),
+						void (*write)(const char *, int, int),
+						void (*message)(const char *),
+						void (*reset)(void), void (*flush)(void),
+						void (*clearerr)(void), void (*busy)(int));
+#endif
+
+#if defined R_INTERFACE_PTRS || defined RS_WIN_CONSOLE
 
 /* -- console buffering -- */
 
@@ -3083,6 +3094,10 @@ void Rserve_OCAP_connected(void *thp) {
 			R_Outputfile = NULL;
 			R_Consolefile = NULL;
 		}
+#elif defined RS_WIN_CONSOLE
+		if (oob_console)
+			Rserve_win_console(RS_ReadConsole, RS_WriteConsoleEx, RS_ShowMessage,
+							   RS_ResetConsole, RS_FlushConsole, RS_ClearerrConsole, RS_Busy);
 #endif
 		
 		oob_allowed = 1;
