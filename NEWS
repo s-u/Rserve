@@ -91,6 +91,27 @@ NOTE: Rserve 1.8 series has many new features, but it has also removed
     o	Fixed out-of-bounds access when a --RS-* command line option
 	was missing its argument.
 
+    o	add configuration option "ocap.idle.events" (default off).
+	If enabled, R's pending events are processed whenever the
+	OCAP loop is idle (no input from any side for the idle
+	interval), as R's own console does while it waits for input:
+	R_ProcessEvents() on Windows (window messages, Tcl/Tk) and the
+	input handlers and polled events on unix. This keeps Tcl/Tk
+	windows responsive and lets event-loop based packages such as
+	later (and thus httpuv and Shiny) run their callbacks while
+	the server waits for the client. Events are also processed
+	while waiting for the client's response to an OOB message
+	(e.g., console input). Events are processed in a separate
+	top-level context, so errors in handlers do not affect the
+	server. On Windows a pending user break is left for the code
+	that is running so it is not lost.
+
+    o	add configuration option "ocap.idle.interval" which sets
+	the idle interval of the OCAP loop in milliseconds (default
+	200, previously fixed). It determines how often events are
+	processed with "ocap.idle.events" and how often
+	.ocap.idle() is called with "use.idle.callback".
+
 
 1.8-19.1	2026-08-29 (CRAN NMU)
     o	Add const qualifiers to avoid warnings about discarding

@@ -1033,6 +1033,12 @@ static int random_uid_low = 32768, random_uid_high = 65530;
 
 static int use_idle_callback = 0;
 
+/* R events while idle in the OCAP loop: see ocap.idle.events */
+static int ocap_idle_events = 0;
+/* select() timeout in the OCAP loop in milliseconds, i.e., the granularity
+   of idle processing (ocap.idle.events and use.idle.callback) */
+static int ocap_idle_interval = 200;
+
 #ifdef HAVE_RSA
 static int rsa_load_key(const char *buf);
 #endif
@@ -1283,6 +1289,17 @@ static int setConfig(const char *c, const char *p) {
 	}
 	if (!strcmp(c, "use.idle.callback")) {
 		use_idle_callback = conf_is_true(p);
+		return 1;
+	}
+	if (!strcmp(c, "ocap.idle.events")) {
+		ocap_idle_events = conf_is_true(p);
+		return 1;
+	}
+	if (!strcmp(c, "ocap.idle.interval")) {
+		int ms = (*p) ? atoi(p) : 200;
+		if (ms < 1) ms = 1;
+		if (ms > 10000) ms = 10000;
+		ocap_idle_interval = ms;
 		return 1;
 	}
 	if (!strcmp(c, "http.upgrade.websockets")) {
@@ -3379,6 +3396,37 @@ SEXP Rserve_fork_compute(SEXP sExp) {
 #endif
 
 
+#ifdef WIN32
+extern __declspec(dllimport) int UserBreak;
+#else
+#include <R_ext/eventloop.h> /* R_checkActivity, R_runHandlers */
+#endif
+
+/* process R's pending events as R's own console does while it waits
+   for input: window messages and Tcl/Tk on Windows (R_ProcessEvents),
+   input handlers and polled events on unix */
+static void process_R_events(void *dummy) {
+#ifdef WIN32
+	R_ProcessEvents();
+#else
+	fd_set *what = R_checkActivity(0, 1);
+	R_runHandlers(R_InputHandlers, what);
+#endif
+}
+
+/* called in OCAP_iteration when nothing arrived within the idle interval
+   (ocap.idle.events). It runs in its own top-level context, so an error or
+   interrupt in an event handler cannot unwind the OCAP loop. On Windows a
+   pending break (UserBreak) is left alone: R_ProcessEvents would turn it
+   into an interrupt here, where it would be lost, instead of in the
+   evaluation that is waiting for it (e.g., for an OOB reply). */
+static void service_R_events(void) {
+#ifdef WIN32
+	if (UserBreak) return;
+#endif
+	R_ToplevelExec(process_R_events, NULL);
+}
+
 /* 1 = iteration successful - OCAP called
    2 = iteration successful - OOB pending (only signalled if oob_hdr is non-null)
    0 = iteration failed - assume conenction has been closed */
@@ -3431,8 +3479,8 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 		}
 #endif
 
-		timv.tv_sec = 0;
-		timv.tv_usec = 200000;
+		timv.tv_sec = ocap_idle_interval / 1000;
+		timv.tv_usec = (ocap_idle_interval % 1000) * 1000;
 		FD_ZERO(&readfds);
 		FD_SET(s, &readfds);
 		if (compute_fd != -1) {
@@ -3453,6 +3501,11 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 		else if (compute_fd != -1 && FD_ISSET(compute_fd, &readfds)) which = 2;
 		else if (std_fw_fd > 0 && FD_ISSET(std_fw_fd, &readfds)) which = 3;
 		
+		/* R's events: also while waiting for an OOB reply (oob_hdr), as R's
+		   console processes events while it waits for input */
+		if (ocap_idle_events && which == 0)
+			service_R_events();
+
 		if (use_idle_callback && which == 0) {
 			SEXP var = findVarInFrame(R_GlobalEnv, install(".ocap.idle"));
 			if (Rf_isFunction(var)) { /* idle callback */
