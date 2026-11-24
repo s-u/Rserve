@@ -3226,6 +3226,48 @@ typedef struct compq {
 
 static compq_t *compute_queue;
 
+/* resume: calls passed to the compute process that haven't returned yet,
+   how many of those belong to a replaced connection (their output is
+   dropped) and the OOB message from compute waiting for an answer */
+static int compute_calls, compute_stale, compute_oob_pending;
+static struct phdr compute_oob_hdr;
+
+static int compute_send(void *p0, int p0_len, void *p1, int p1_len);
+
+/* answer the pending OOB message from compute with an error (the client
+   that should have answered it is gone) so compute can continue */
+static void compute_cancel_oob(void) {
+	static const char msg[] = "OOB message cancelled: connection was replaced";
+	unsigned int pl[1 + (sizeof(msg) + 3) / 4];
+	struct phdr h;
+	size_t sl = (sizeof(msg) + 3) & ~((size_t) 3);
+	if (!compute_oob_pending)
+		return;
+	compute_oob_pending = 0;
+	memset(pl, 0, sizeof(pl));
+	memcpy(pl + 1, msg, sizeof(msg));
+	pl[0] = itop(SET_PAR(DT_STRING, sl));
+	memset(&h, 0, sizeof(h));
+	h.cmd = itop(ptoi(compute_oob_hdr.cmd) | RESP_ERR);
+	h.len = itop((int) (sl + 4));
+	h.msg_id = compute_oob_hdr.msg_id;
+	ulog("INFO: resume: cancelling OOB message from compute (0x%x)", ptoi(compute_oob_hdr.cmd));
+	compute_send(&h, sizeof(h), pl, (int) (sl + 4));
+}
+
+#ifdef unix
+/* the connection was replaced: output of the calls in flight in compute
+   is for the old connection */
+static void compute_connection_replaced(void) {
+	if (compute_fd == -1)
+		return;
+	compute_stale = compute_calls;
+	if (compute_stale)
+		ulog("INFO: resume: dropping the output of %d call(s) in flight in compute", compute_stale);
+	compute_cancel_oob();
+}
+#endif
+
 static void compute_terminated(void) {
 	SEXP q = PROTECT(allocVector(VECSXP, 1));
 	/* free the remaining queue */
@@ -3237,6 +3279,7 @@ static void compute_terminated(void) {
 	SET_VECTOR_ELT(q, 0, mkString("compute_terminated"));
 	closesocket(compute_fd);
 	compute_fd = -1;
+	compute_calls = compute_stale = compute_oob_pending = 0;
 	if (oob_allowed) /* this should be really always true */
 		send_oob_sexp(OOB_SEND, q);
 	ulog("compute process connection lost");
@@ -3548,6 +3591,7 @@ static int resume_process_msg(args_t *a) {
 			takeover_set(a->s);
 			a->msg_id = 0;
 			oc_stale_depth = oc_call_depth;
+			compute_connection_replaced();
 			sendResp(a, RESP_OK);
 			res = 1;
 		}
@@ -3764,7 +3808,7 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 		if (which == 2) { /* proxy pass-through */
 			size_t plen = 0, iob_pos;
 			unsigned int len32, hi32;
-			int cmd;
+			int cmd, drop = 0;
 
 			rn = recv(compute_fd, (char*)&ph, sizeof(ph), 0);
 			if (rn != sizeof(ph)) {
@@ -3785,6 +3829,22 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 			hi32 = (unsigned int) ptoi(ph.res);
 			plen |= (((size_t) hi32) << 32);
 #endif
+			if (compute_stale > 0) { /* output of a call from a replaced connection */
+				drop = 1;
+				if (IS_OOB_MSG(cmd)) { /* nobody will answer it */
+					compute_oob_hdr = ph;
+					compute_oob_pending = 1;
+					compute_cancel_oob();
+				}
+			} else if (IS_OOB_MSG(cmd)) {
+				compute_oob_hdr = ph;
+				compute_oob_pending = 1;
+			}
+			if (!(cmd & CMD_OOB) && compute_calls > 0) { /* result of a call */
+				compute_calls--;
+				if (compute_stale > 0)
+					compute_stale--;
+			}
 
 			if (!compute_iobuf) {
 				if (!compute_iobuf_len)
@@ -3825,7 +3885,7 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 							rn += iob_pos;
 					}
 				} else rn = iob_pos;
-				if (rn > 0 && srv->send(args, compute_iobuf, rn) != rn) {
+				if (rn > 0 && !drop && srv->send(args, compute_iobuf, rn) != rn) {
 #ifdef RSERV_DEBUG
 					fprintf(stderr,"ERROR: cannot send pass-thru OOB (payload send failed)\n");
 #endif
@@ -3987,7 +4047,12 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 				}
 			}
 
+			if (compute_pass_thru && !compute_oob_pending) { /* e.g., answer to a cancelled OOB message */
+				ulog("INFO: dropping OOB answer for compute, no OOB message is pending");
+				continue;
+			}
 			if (compute_pass_thru) { /* pass-thru, normally only responses to OOB_MSG */
+				compute_oob_pending = 0;
 				if (compute_send(&ph, sizeof(ph), rt->buf, plen) < 0) {
 					ulog("ERROR: OOB msg pass-through to compute failed (errno=%d)", errno);
 					sendResp(args, SET_STAT(RESP_ERR, ERR_ctrl_closed));
@@ -4043,6 +4108,7 @@ int OCAP_iteration(qap_runtime_t *rt, struct phdr *oob_hdr) {
 									sendResp(args, SET_STAT(RESP_ERR, ERR_ctrl_closed));
 									return 1;
 								}
+								compute_calls++;
 								/* we don't respond since subprocess is expected to */
 								/* FIXME: should we respond to acknowledge enqueuing? */
 								continue;
